@@ -1,0 +1,85 @@
+<?php
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_role('admin');
+
+$page_title = 'Admin Dashboard';
+
+$total_faculty = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND is_active=1")->fetchColumn();
+$full_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='full_time' AND is_active=1")->fetchColumn();
+$part_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='part_time' AND is_active=1")->fetchColumn();
+$pending_count = $pdo->query("SELECT COUNT(*) FROM submission_requests WHERE status NOT IN ('uploaded','rejected')")->fetchColumn();
+$filed_count   = $pdo->query("SELECT COUNT(*) FROM documents")->fetchColumn();
+$alert_count   = unresolved_security_alert_count($pdo);
+
+$recent = $pdo->query(
+    "SELECT sr.request_id, sr.document_type_hint, sr.status, sr.submitted_at, u.full_name
+     FROM submission_requests sr
+     JOIN users u ON u.user_id = sr.faculty_id
+     ORDER BY sr.submitted_at DESC LIMIT 8"
+)->fetchAll();
+
+include __DIR__ . '/../includes/header.php';
+?>
+
+<h3 class="fw-bold mb-4">Welcome, <?= h(current_user()['full_name']) ?></h3>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3 col-6">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Total Faculty</div>
+      <div class="stat-number text-brand"><?= (int)$total_faculty ?></div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Full-Time / Part-Time</div>
+      <div class="stat-number" style="font-size:1.4rem;"><?= (int)$full_time ?> / <?= (int)$part_time ?></div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Pending Requests</div>
+      <div class="stat-number text-accent-gold"><?= (int)$pending_count ?></div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card stat-card p-3">
+      <div class="text-muted small">Documents Filed</div>
+      <div class="stat-number text-accent-teal"><?= (int)$filed_count ?></div>
+    </div>
+  </div>
+</div>
+
+<?php if ($alert_count > 0): ?>
+<a href="<?= BASE_URL ?>/admin/security_alerts.php" class="alert alert-danger d-flex align-items-center gap-2 mb-4 text-decoration-none">
+  <i class="fa-solid fa-shield-halved fa-lg"></i>
+  <div><strong><?= (int)$alert_count ?></strong> security alert<?= $alert_count === 1 ? '' : 's' ?> need<?= $alert_count === 1 ? 's' : '' ?> your review.</div>
+</a>
+<?php endif; ?>
+
+<div class="card stat-card">
+  <div class="card-header bg-white fw-semibold">Recent Submission Requests</div>
+  <div class="card-body p-0">
+    <table class="table mb-0 align-middle">
+      <thead class="table-light">
+        <tr><th>Faculty</th><th>Document Type</th><th>Status</th><th>Submitted</th></tr>
+      </thead>
+      <tbody>
+        <?php if (!$recent): ?>
+          <tr><td colspan="4" class="text-center text-muted py-4">No submissions yet.</td></tr>
+        <?php endif; ?>
+        <?php foreach ($recent as $r): [$label, $badge] = status_badge($r['status']); ?>
+        <tr>
+          <td><?= h($r['full_name']) ?></td>
+          <td><?= h($r['document_type_hint']) ?></td>
+          <td><span class="badge <?= $badge ?>"><?= h($label) ?></span></td>
+          <td><?= date('M j, Y g:ia', strtotime($r['submitted_at'])) ?></td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<?php include __DIR__ . '/../includes/footer.php'; ?>

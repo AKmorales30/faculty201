@@ -1,0 +1,6 @@
+.git
+.gitignore
+uploads/*
+!uploads/.gitkeep
+temp_scans/*
+!temp_scans/.gitkeep

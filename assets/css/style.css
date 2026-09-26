@@ -1,0 +1,208 @@
+:root {
+  --c-white:   #ffffff;
+  --c-teal:    #157975;
+  --c-blue:    #0f89b8;
+  --c-gold:    #e0aa28;
+  --c-charcoal:#38383c;
+  --c-navy:    #1b4b93;
+}
+
+body { background-color: #f4f6f9; color: var(--c-charcoal); }
+.app-navbar { background-color: var(--c-navy); }
+.sidebar {
+  background-color: #ffffff;
+  min-height: calc(100vh - 56px);
+  border-right: 1px solid #e2e2e2;
+}
+.sidebar .nav-link { color: var(--c-charcoal); padding: .6rem 1rem; border-radius: 6px; margin: 2px 8px; }
+.sidebar .nav-link:hover { background-color: #f1f1f1; }
+.sidebar .nav-link.active { background-color: var(--c-navy); color: #fff; }
+
+.stat-card { border: none; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+.stat-card .stat-number { font-size: 2rem; font-weight: 700; color: var(--c-navy); }
+
+.login-wrapper {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--c-navy) 0%, var(--c-teal) 100%);
+}
+.login-card { border: none; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.25); max-width: 420px; width: 100%; }
+
+/* Buttons + accents using the palette */
+.btn-brand { background-color: var(--c-navy); border-color: var(--c-navy); color: #fff; }
+.btn-brand:hover { background-color: #163d78; border-color: #163d78; color: #fff; }
+.btn-outline-brand { border-color: var(--c-navy); color: var(--c-navy); }
+.btn-outline-brand:hover { background-color: var(--c-navy); color: #fff; }
+.text-brand { color: var(--c-navy) !important; }
+.text-accent-teal { color: var(--c-teal) !important; }
+.text-accent-gold { color: var(--c-gold) !important; }
+
+/* Status badges recolored to palette (overrides default Bootstrap bg-*) */
+.badge.bg-primary  { background-color: var(--c-navy) !important; }
+.badge.bg-info      { background-color: var(--c-blue) !important; color: #fff !important; }
+.badge.bg-success   { background-color: var(--c-teal) !important; }
+.badge.bg-warning   { background-color: var(--c-gold) !important; color: var(--c-charcoal) !important; }
+.badge.bg-secondary { background-color: var(--c-charcoal) !important; }
+
+/* =====================================================================
+   LANDING PAGE (public entry point, styled after udmwebsite.udm.edu.ph)
+   ===================================================================== */
+.landing-body { background-color: #f4f6f9; }
+
+.landing-navbar {
+  background-color: var(--c-navy);
+}
+
+.landing-hero {
+  background: linear-gradient(135deg, var(--c-navy) 0%, var(--c-teal) 65%, var(--c-blue) 100%);
+  color: #fff;
+  position: relative;
+}
+.landing-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 80% 20%, rgba(224,170,40,.18), transparent 55%);
+  pointer-events: none;
+}
+
+.landing-seal {
+  width: 84px; height: 84px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  border: 2px solid var(--c-gold);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2rem;
+  color: var(--c-gold);
+}
+
+.landing-eyebrow { color: var(--c-gold); letter-spacing: .12em; }
+.landing-title { font-size: clamp(1.6rem, 3vw, 2.4rem); }
+.landing-subtitle { color: #eaf3ff; font-size: clamp(1.1rem, 2vw, 1.5rem); }
+.landing-tagline { color: rgba(255,255,255,.85); max-width: 640px; }
+
+.landing-portals { max-width: 1140px; }
+
+.portal-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  border: 1px solid #e6e9ef;
+  box-shadow: 0 2px 10px rgba(0,0,0,.05);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  color: var(--c-charcoal);
+}
+.portal-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(27,75,147,.15);
+  border-color: var(--c-navy);
+}
+
+.portal-icon {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.6rem;
+  margin: 0 auto 1rem;
+  color: #fff;
+}
+.portal-icon-navy { background-color: var(--c-navy); }
+.portal-icon-teal { background-color: var(--c-teal); }
+.portal-icon-blue { background-color: var(--c-blue); }
+.portal-icon-gold { background-color: var(--c-gold); color: var(--c-charcoal); }
+
+.portal-cta {
+  color: var(--c-navy);
+  font-weight: 600;
+  font-size: .9rem;
+}
+
+.landing-footer {
+  background-color: var(--c-navy);
+}
+/* =====================================================================
+   ADD THIS TO THE BOTTOM OF assets/css/style.css
+   Styles for the new multi-portal landing page (index.php)
+   ===================================================================== */
+
+.hero-banner {
+  background: linear-gradient(135deg, var(--c-navy) 0%, var(--c-teal) 100%);
+}
+.hero-lead {
+  max-width: 700px;
+  opacity: .9;
+}
+
+.portal-card {
+  border: none;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+  display: flex;
+  flex-direction: column;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.portal-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+}
+
+.portal-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.5rem;
+}
+.portal-icon-teal { background-color: var(--c-teal); }
+.portal-icon-blue { background-color: var(--c-blue); }
+.portal-icon-gold { background-color: var(--c-gold); color: var(--c-charcoal); }
+.portal-icon-navy { background-color: var(--c-navy); }
+
+.app-footer {
+  background-color: var(--c-navy);
+}
+/* =====================================================================
+   POST-LOGIN SYSTEM: 201-file folder cards, notifications, alerts
+   ===================================================================== */
+
+/* Faculty 201-file category folder tiles (Faculty "My 201 File",
+   Admin "Faculty Records" drill-down) */
+.folder-card {
+  border: 1px solid #e6e9ef;
+  border-radius: 14px;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  cursor: pointer;
+}
+.folder-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0,0,0,.08);
+  border-color: var(--c-navy);
+}
+.folder-card-active {
+  border-color: var(--c-navy);
+  box-shadow: 0 0 0 2px rgba(27,75,147,.15);
+}
+.folder-icon {
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  color: #fff;
+}
+.folder-icon-teal { background-color: var(--c-teal); }
+.folder-icon-navy { background-color: var(--c-navy); }
+.folder-icon-blue { background-color: var(--c-blue); }
+.folder-icon-gold { background-color: var(--c-gold); color: var(--c-charcoal); }
+
+/* Notifications list (Admin / Faculty / Program Chair-Dean) */
+.notif-item { border-left: 3px solid transparent; }
+.notif-unread { border-left-color: var(--c-gold); background-color: #fffaf0; }
