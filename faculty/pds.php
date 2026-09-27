@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/pds.php';
-require_role('faculty');
+require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
 
 $page_title = 'My Personal Data Sheet';
 $me = current_user();
@@ -111,7 +111,7 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="ld[<?= $i ?>][ld_id]" value="<?= (int)$row['ld_id'] ?>">
                     <input type="hidden" name="ld[<?= $i ?>][_delete]" value="" class="ld-delete">
                     <?php if ($row['source_document_id'] && isset($doc_paths[$row['source_document_id']])): ?>
-                      <a href="<?= BASE_URL . '/' . h($doc_paths[$row['source_document_id']]) ?>" target="_blank" class="badge bg-info text-decoration-none" title="Added automatically from an uploaded certificate"><i class="fa-solid fa-certificate"></i></a>
+                      <a href="<?= h(document_url((int)$row['source_document_id'])) ?>" target="_blank" class="badge bg-info text-decoration-none" title="Added automatically from an uploaded certificate"><i class="fa-solid fa-certificate"></i></a>
                     <?php endif; ?>
                     <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-1 remove-ld" title="Remove"><i class="fa-solid fa-trash"></i></button>
                   </td>
@@ -213,7 +213,7 @@ include __DIR__ . '/../includes/header.php';
       <div class="list-group list-group-flush">
         <?php if (!$pds_files): ?><div class="list-group-item small text-muted">No PDS file uploaded yet.</div><?php endif; ?>
         <?php foreach ($pds_files as $i => $f): ?>
-          <a href="<?= BASE_URL . '/' . h($f['file_path']) ?>" target="_blank" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center small">
+          <a href="<?= h(document_url((int)$f['document_id'])) ?>" target="_blank" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center small">
             <span><i class="fa-solid fa-file text-brand"></i> PDS <?= h((string)($f['period_year'] ?: date('Y', strtotime($f['filed_at'])))) ?>
               <?= $i === 0 ? '<span class="badge bg-success ms-1">Latest</span>' : '' ?></span>
             <span class="text-muted">uploaded <?= date('M j, Y', strtotime($f['filed_at'])) ?></span>

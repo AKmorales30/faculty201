@@ -140,7 +140,7 @@ foreach ($all_docs as $d) {
             <?php endif; ?>
           </td>
           <td class="text-nowrap"><?= date('M j, Y', strtotime($d['filed_at'])) ?></td>
-          <td><a href="<?= BASE_URL . '/' . h($d['file_path']) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"><i class="fa-solid fa-eye"></i> View</a></td>
+          <td><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"><i class="fa-solid fa-eye"></i> View</a></td>
         </tr>
         <?php endforeach; ?>
       </tbody>

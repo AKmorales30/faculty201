@@ -5,3 +5,5 @@ uploads/*
 temp_scans/*
 !temp_scans/.gitkeep
 tools/
+!uploads/.htaccess
+!temp_scans/.htaccess

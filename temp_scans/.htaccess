@@ -1,0 +1,2 @@
+# Files here are served only through document.php (access-checked), never directly.
+Require all denied

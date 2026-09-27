@@ -6,8 +6,16 @@ require_role(['program_chair', 'dean']);
 $page_title = 'Notifications';
 $me = current_user();
 
-if (($_POST['action'] ?? '') === 'mark_all_read') {
+$action = $_POST['action'] ?? '';
+if ($action === 'mark_all_read') {
     mark_all_notifications_read($pdo, $me['user_id']);
+    header('Location: ' . BASE_URL . '/approval/notifications.php');
+    exit;
+}
+// Clicking a notification only marks it as read -- upload notifications
+// never link to a faculty member's files.
+if ($action === 'mark_read') {
+    mark_notification_read($pdo, $me['user_id'], (int)($_POST['id'] ?? 0));
     header('Location: ' . BASE_URL . '/approval/notifications.php');
     exit;
 }
@@ -32,15 +40,17 @@ include __DIR__ . '/../includes/header.php';
       <div class="text-center text-muted py-5">No notifications yet.</div>
     <?php endif; ?>
     <?php foreach ($notifications as $n): ?>
-      <div class="list-group-item notif-item <?= $n['is_read'] ? '' : 'notif-unread' ?>">
-        <div class="d-flex justify-content-between">
-          <div class="notif-message"><?= h($n['message']) ?></div>
-          <div class="text-muted small text-nowrap ms-3"><?= time_ago($n['created_at']) ?></div>
-        </div>
-        <?php if ($n['request_id']): ?>
-          <a href="<?= BASE_URL ?>/approval/request_detail.php?id=<?= (int)$n['request_id'] ?>" class="small">View document <i class="fa-solid fa-arrow-right"></i></a>
-        <?php endif; ?>
-      </div>
+      <form method="POST" class="m-0">
+        <input type="hidden" name="action" value="mark_read">
+        <input type="hidden" name="id" value="<?= (int)$n['notification_id'] ?>">
+        <button type="submit" class="list-group-item list-group-item-action notif-item text-start w-100 <?= $n['is_read'] ? '' : 'notif-unread' ?>"
+                <?= $n['is_read'] ? 'disabled' : 'title="Mark as read"' ?>>
+          <div class="d-flex justify-content-between">
+            <div class="notif-message"><?= h($n['message']) ?></div>
+            <div class="text-muted small text-nowrap ms-3"><?= time_ago($n['created_at']) ?></div>
+          </div>
+        </button>
+      </form>
     <?php endforeach; ?>
   </div>
 </div>

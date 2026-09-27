@@ -10,7 +10,7 @@ require_once __DIR__ . '/../config/db.php';
  * -- the older migrations were already run manually.
  */
 function run_pending_migrations(PDO $pdo): void {
-    $migrations = ['migration_201_contents_pds.sql'];
+    $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
@@ -125,21 +125,75 @@ function move_to_repository(int $faculty_id, string $document_type, string $sour
  * faculty member uploaded a document to their 201 file. $extra_lines
  * are appended (e.g. that the upload also updated their PDS).
  */
-function notify_new_upload(PDO $pdo, string $faculty_name, string $document_type, ?string $subtype, int $request_id, array $extra_lines = []): void {
+function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false): void {
     $when = new DateTime('now', new DateTimeZone('Asia/Manila'));
 
+    // Admin: full details, as before
     $msg = "New Document Uploaded\n"
-         . "Faculty: {$faculty_name}\n"
+         . "Faculty: {$uploader['full_name']}\n"
          . "Document Type: " . document_type_label($document_type, $subtype) . "\n"
          . "Date Uploaded: " . $when->format('F j, Y, g:i A') . "\n"
          . "The document has been added to the faculty member's 201 Repository.";
     foreach ($extra_lines as $line) {
         $msg .= "\n" . $line;
     }
-
-    notify_role($pdo, 'program_chair', $msg, $request_id);
-    notify_role($pdo, 'dean', $msg, $request_id);
     notify_role($pdo, 'admin', $msg, $request_id);
+
+    // Program Chair / Dean: only who uploaded and when -- no document details
+    // and no link (request_id NULL): they don't have access to faculty files.
+    if (($uploader['role'] ?? '') === 'faculty') {
+        $type = employment_type_label($uploader['employment_type'] ?? null);
+        $short = $uploader['full_name'] . ($type ? " ({$type})" : '')
+               . ($reupload ? ' re-uploaded a file to their 201 file.' : ' uploaded a file to their 201 file.')
+               . ' – ' . str_replace('Sep ', 'Sept ', $when->format('M j, Y, g:i A'));
+        foreach (upload_notification_recipients($pdo, $uploader) as $uid) {
+            notify($pdo, $uid, $short, null);
+        }
+    }
+}
+
+/**
+ * Who hears about a faculty upload: the active Program Chair(s) of the
+ * faculty member's program and the active Dean(s) of their college.
+ * A faculty member with no program / college set notifies nobody at that level.
+ * @return int[] user ids
+ */
+function upload_notification_recipients(PDO $pdo, array $faculty): array {
+    $ids = [];
+    if (!empty($faculty['program']) && !empty($faculty['college'])) {
+        $stmt = $pdo->prepare("SELECT user_id FROM users WHERE role = 'program_chair' AND is_active = 1 AND program = ? AND college = ?");
+        $stmt->execute([$faculty['program'], $faculty['college']]);
+        $ids = array_merge($ids, $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+    if (!empty($faculty['college'])) {
+        $stmt = $pdo->prepare("SELECT user_id FROM users WHERE role = 'dean' AND is_active = 1 AND college = ?");
+        $stmt->execute([$faculty['college']]);
+        $ids = array_merge($ids, $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+    return array_values(array_unique(array_map('intval', $ids)));
+}
+
+function employment_type_label(?string $type): string {
+    return ['full_time' => 'Full-time', 'part_time' => 'Part-time'][$type] ?? '';
+}
+
+/** Mark one of the user's own notifications as read. */
+function mark_notification_read(PDO $pdo, int $user_id, int $notification_id): void {
+    $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE notification_id = ? AND user_id = ?")->execute([$notification_id, $user_id]);
+}
+
+/**
+ * Who may open a 201-file document: its owner, or the Admin. Program
+ * Chairs and Deans only receive upload notifications -- they can't view,
+ * download or change anyone else's files.
+ */
+function can_access_document(array $user, array $document): bool {
+    return (int)$document['faculty_id'] === (int)$user['user_id'] || $user['role'] === 'admin';
+}
+
+/** URL that serves a 201-file document through the access check (document.php). */
+function document_url(int $document_id): string {
+    return BASE_URL . '/document.php?id=' . $document_id;
 }
 
 /**

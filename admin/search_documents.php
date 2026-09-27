@@ -94,7 +94,7 @@ include __DIR__ . '/../includes/header.php';
             <?php else: ?><span class="text-muted">—</span><?php endif; ?>
           </td>
           <td><?= date('M j, Y', strtotime($d['filed_at'])) ?></td>
-          <td><a href="<?= BASE_URL . '/' . h($d['file_path']) ?>" target="_blank" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i></a></td>
+          <td><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i></a></td>
         </tr>
         <?php endforeach; ?>
       </tbody>

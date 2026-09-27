@@ -69,6 +69,18 @@ define('DOCUMENT_SUBTYPE_KEYWORDS', [
 define('PDS_LD_ROWS_PAGE3', 17);
 define('PDS_LD_ROWS_CONTINUATION', 44);
 
+// Colleges and their programs. A faculty member / Program Chair belongs to
+// one program; a Dean to one college. Upload notifications go only to the
+// Program Chair of the uploader's program and the Dean of their college.
+// Keys are stored in users.college / users.program -- add programs here.
+define('COLLEGES', [
+    'CCS' => 'College of Computing Studies',
+]);
+define('PROGRAMS', [
+    'BSCS' => ['label' => 'BS Computer Science', 'college' => 'CCS'],
+    'BSIT' => ['label' => 'BS Information Technology', 'college' => 'CCS'],
+]);
+
 // Path to the tesseract binary. On XAMPP/Windows this is usually the full
 // path to tesseract.exe; on macOS/Linux with Tesseract installed via
 // brew/apt it is typically just "tesseract" (must be on PATH).

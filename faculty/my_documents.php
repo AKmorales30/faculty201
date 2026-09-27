@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
-require_role('faculty');
+require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
 
 $page_title = 'My 201 File';
 $me = current_user();

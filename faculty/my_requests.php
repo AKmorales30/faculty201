@@ -1,14 +1,14 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
-require_role('faculty');
+require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
 
 $page_title = 'Upload History';
 $me = current_user();
 $categories = document_categories();
 
 $stmt = $pdo->prepare(
-    "SELECT sr.*, d.file_path, d.document_subtype FROM submission_requests sr
+    "SELECT sr.*, d.document_id, d.file_path, d.document_subtype FROM submission_requests sr
      LEFT JOIN documents d ON d.request_id = sr.request_id
      WHERE sr.faculty_id=? ORDER BY sr.submitted_at DESC"
 );
@@ -47,7 +47,7 @@ include __DIR__ . '/../includes/header.php';
           <td><?= date('M j, Y g:ia', strtotime($r['submitted_at'])) ?></td>
           <td class="text-nowrap">
             <?php if ($r['file_path']): ?>
-              <a href="<?= BASE_URL . '/' . h($r['file_path']) ?>" target="_blank" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i> View</a>
+              <a href="<?= h(document_url((int)$r['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i> View</a>
             <?php endif; ?>
           </td>
         </tr>

@@ -9,7 +9,8 @@
  * per page. Use the browser's Print -> "Save as PDF" to generate the file.
  *
  * Faculty: their own PDS (?snapshot=ID for an earlier version).
- * Admin / Program Chair / Dean: any faculty member's (?faculty_id=ID).
+ * Admin: any faculty member's (?faculty_id=ID). Program Chairs and Deans
+ * can open only their own PDS, like faculty.
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -18,9 +19,10 @@ require_once __DIR__ . '/../includes/pds_form_fill.php';
 require_role(['faculty', 'admin', 'program_chair', 'dean']);
 
 $me = current_user();
-$faculty_id = $me['role'] === 'faculty' ? (int)$me['user_id'] : (int)($_GET['faculty_id'] ?? 0);
+// Only the Admin may open someone else's PDS; everyone else sees only their own.
+$faculty_id = $me['role'] === 'admin' ? (int)($_GET['faculty_id'] ?? 0) : (int)$me['user_id'];
 
-$stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ? AND role = 'faculty'");
+$stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ? AND role IN ('faculty', 'program_chair', 'dean')");
 $stmt->execute([$faculty_id]);
 $faculty = $stmt->fetch();
 if (!$faculty) {

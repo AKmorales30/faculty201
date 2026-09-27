@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/pds.php';
 require_once __DIR__ . '/../ocr/OcrProcessor.php';
-require_role('faculty');
+require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Deans keep their own 201 file too
 
 $page_title = 'Upload Document';
 $me = current_user();
@@ -45,6 +45,11 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         $meta['period_year'] = ($year >= 1990 && $year <= (int)date('Y') + 1) ? $year : (int)date('Y');
     }
 
+    // A re-upload is a new version of a document type the uploader already has
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND document_subtype <=> ?");
+    $stmt->execute([$me['user_id'], $type, $subtype]);
+    $reupload = (int)$stmt->fetchColumn() > 0;
+
     $stored = store_faculty_upload($pdo, $me, $type, $meta, $scan['relative_path'], $scan['result']);
     if ($stored === null) {
         unset($_SESSION['pending_scan']);
@@ -71,11 +76,13 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
             : ' Please review your digital PDS and update it if anything changed.';
     }
 
-    notify_new_upload($pdo, $me['full_name'], $type, $subtype, $request_id, $extra_lines);
+    $stmt = $pdo->prepare("SELECT user_id, role, full_name, employment_type, program, college FROM users WHERE user_id = ?");
+    $stmt->execute([$me['user_id']]);
+    notify_new_upload($pdo, $stmt->fetch(), $type, $subtype, $request_id, $extra_lines, $reupload);
 
     unset($_SESSION['pending_scan']);
     $_SESSION['flash_success'] = 'Your ' . document_type_label($type, $subtype) . ' has been uploaded to your 201 file.'
-        . $pds_note . ' The Program Chair and Dean have been notified.';
+        . $pds_note . ($me['role'] === 'faculty' ? ' Your Program Chair and Dean have been notified.' : '');
     header('Location: ' . BASE_URL . ($type === 'PDS' ? '/faculty/pds.php' : '/faculty/my_documents.php?type=' . urlencode($type)));
     exit;
 }
