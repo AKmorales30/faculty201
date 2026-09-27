@@ -19,7 +19,7 @@ $notifications = $stmt->fetchAll();
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <h3 class="fw-bold mb-0">Notifications</h3>
   <form method="POST"><input type="hidden" name="action" value="mark_all_read">
     <button class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-check-double"></i> Mark all as read</button>

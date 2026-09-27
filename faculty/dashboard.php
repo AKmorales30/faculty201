@@ -25,20 +25,20 @@ include __DIR__ . '/../includes/header.php';
 <h3 class="fw-bold mb-4">Welcome, <?= h($me['full_name']) ?></h3>
 
 <div class="row g-3 mb-4">
-  <div class="col-md-4">
-    <div class="card stat-card p-3">
+  <div class="col-6 col-md-4">
+    <div class="card stat-card p-3 h-100">
       <div class="text-muted small">Pending Requests</div>
       <div class="stat-number text-accent-gold"><?= (int)$pending ?></div>
     </div>
   </div>
-  <div class="col-md-4">
-    <div class="card stat-card p-3">
+  <div class="col-6 col-md-4">
+    <div class="card stat-card p-3 h-100">
       <div class="text-muted small">Documents in My 201 File</div>
       <div class="stat-number text-accent-teal"><?= (int)$filed ?></div>
     </div>
   </div>
-  <div class="col-md-4">
-    <div class="card stat-card p-3 d-flex justify-content-center">
+  <div class="col-12 col-md-4">
+    <div class="card stat-card p-3 h-100 d-flex justify-content-center">
       <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand">
         <i class="fa-solid fa-file-arrow-up"></i> Submit a New Document
       </a>
@@ -48,7 +48,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="card stat-card">
   <div class="card-header bg-white fw-semibold">My Recent Requests</div>
-  <div class="card-body p-0">
+  <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light"><tr><th>Document Type</th><th>Status</th><th>Submitted</th></tr></thead>
       <tbody>

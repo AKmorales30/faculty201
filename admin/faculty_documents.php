@@ -67,7 +67,7 @@ include __DIR__ . '/../includes/header.php';
     <?= $active_type ? h($categories[$active_type]['label']) : 'All Documents' ?>
     <?php if ($active_type): ?><a href="?id=<?= $faculty_id ?>" class="small ms-2 fw-normal">(clear filter)</a><?php endif; ?>
   </div>
-  <div class="card-body p-0">
+  <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light"><tr><th>Type</th><th>File</th><th>OCR Matched Name</th><th>Expiration</th><th>Filed</th><th></th></tr></thead>
       <tbody>

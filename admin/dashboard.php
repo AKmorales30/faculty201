@@ -60,7 +60,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="card stat-card">
   <div class="card-header bg-white fw-semibold">Recent Submission Requests</div>
-  <div class="card-body p-0">
+  <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light">
         <tr><th>Faculty</th><th>Document Type</th><th>Status</th><th>Submitted</th></tr>

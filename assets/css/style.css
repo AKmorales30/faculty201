@@ -206,3 +206,61 @@ body { background-color: #f4f6f9; color: var(--c-charcoal); }
 /* Notifications list (Admin / Faculty / Program Chair-Dean) */
 .notif-item { border-left: 3px solid transparent; }
 .notif-unread { border-left-color: var(--c-gold); background-color: #fffaf0; }
+
+/* =====================================================================
+   RESPONSIVE / MOBILE LAYOUT
+   Sidebar is static on md+ and becomes a slide-in (offcanvas-md) menu
+   below 768px, opened by the hamburger button in the navbar.
+   ===================================================================== */
+html, body { overflow-x: hidden; }
+.app-main { min-width: 0; }
+.navbar-username { max-width: 220px; }
+.sidebar-toggle { line-height: 1; }
+.sidebar-toggle:focus-visible { outline: 2px solid #fff; }
+
+/* offcanvas-md forces a transparent background on md+; keep the white sidebar */
+@media (min-width: 768px) {
+  .sidebar.offcanvas-md { background-color: #ffffff !important; }
+}
+
+@media (max-width: 767.98px) {
+  /* Slide-in menu */
+  .sidebar.offcanvas-md {
+    --bs-offcanvas-width: min(82vw, 300px);
+    min-height: 0;
+    padding: 0;
+    border-right: none;
+  }
+  .sidebar .sidebar-mobile-header { background-color: var(--c-navy); color: #fff; }
+  .sidebar .sidebar-body { overflow-y: auto; flex-grow: 1; padding-bottom: 1rem; }
+  .sidebar .nav-link { padding: .75rem 1rem; font-size: 1rem; }
+  .sidebar .nav-link i { width: 1.4rem; text-align: center; }
+
+  /* Navbar */
+  .app-navbar .navbar-brand { font-size: 1.05rem; min-width: 0; }
+
+  /* Page headings + cards */
+  .app-main h3 { font-size: 1.35rem; }
+  .app-main .mb-4 { margin-bottom: 1rem !important; }
+  .stat-card .stat-number { font-size: 1.6rem; }
+  .stat-card.p-3 { padding: .85rem !important; }
+  .card-header { padding: .6rem .85rem; }
+
+  /* Tables: tighter cells; wide tables scroll inside their card, not the page */
+  .table { font-size: .875rem; }
+  .table > :not(caption) > * > * { padding: .5rem .6rem; }
+  .table-responsive { -webkit-overflow-scrolling: touch; }
+
+  /* Header rows (title + action button) wrap instead of overflowing */
+  .card-header.d-flex { flex-wrap: wrap; gap: .5rem; }
+  .btn-group { flex-wrap: wrap; }
+
+  /* Notification timestamps sit below the message on narrow screens */
+  .notif-item > .d-flex { flex-direction: column; }
+  .notif-item > .d-flex > .ms-3 { margin-left: 0 !important; margin-top: .25rem; }
+}
+
+@media (max-width: 575.98px) {
+  .app-main .btn:not(.btn-sm):not(.btn-close) { padding: .55rem .9rem; }
+  .login-card { margin: 0 12px; }
+}

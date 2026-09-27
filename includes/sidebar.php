@@ -3,8 +3,17 @@ $role = current_user()['role'];
 $here = basename($_SERVER['PHP_SELF']);
 function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
 ?>
-<nav class="col-md-2 d-md-block sidebar collapse d-md-flex flex-column">
-  <div class="pt-3">
+<?php $sb_user = current_user(); ?>
+<!-- Static sidebar on md+; slide-in (offcanvas) menu below md, opened by the navbar hamburger -->
+<nav class="col-md-3 col-lg-2 sidebar offcanvas-md offcanvas-start" id="appSidebar" tabindex="-1" aria-labelledby="appSidebarLabel">
+  <div class="offcanvas-header sidebar-mobile-header d-md-none">
+    <div class="text-truncate">
+      <div class="fw-semibold text-truncate" id="appSidebarLabel"><?= h($sb_user['full_name']) ?></div>
+      <div class="small text-white-50 text-capitalize"><?= h(str_replace('_',' ',$role)) ?></div>
+    </div>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar" aria-label="Close menu"></button>
+  </div>
+  <div class="sidebar-body pt-3">
     <ul class="nav flex-column">
 
       <?php if ($role === 'admin'): ?>
@@ -33,6 +42,8 @@ function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
         <li class="nav-item"><a class="nav-link <?= nav_active('history.php',$here) ?>" href="<?= BASE_URL ?>/approval/history.php"><i class="fa-solid fa-clock-rotate-left"></i> Confirmation History</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('notifications.php',$here) ?>" href="<?= BASE_URL ?>/approval/notifications.php"><i class="fa-solid fa-bell"></i> Notifications</a></li>
       <?php endif; ?>
+
+      <li class="nav-item d-md-none border-top mt-2 pt-2"><a class="nav-link text-danger" href="<?= BASE_URL ?>/logout.php"><i class="fa-solid fa-right-from-bracket"></i> Logout</a></li>
 
     </ul>
   </div>

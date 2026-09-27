@@ -26,7 +26,7 @@ include __DIR__ . '/../includes/header.php';
 <p class="text-muted mb-4">Logins flagged as unusual — a new IP address for the account, or several failed attempts right before a successful one.</p>
 
 <div class="card stat-card">
-  <div class="card-body p-0">
+  <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light">
         <tr><th>Account</th><th>Reason</th><th>IP Address</th><th>Flagged</th><th>Status</th><th></th></tr>

@@ -57,7 +57,7 @@ include __DIR__ . '/../includes/header.php';
       <button class="btn btn-sm btn-outline-brand ms-2"><i class="fa-solid fa-magnifying-glass"></i></button>
     </form>
   </div>
-  <div class="card-body p-0">
+  <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light">
         <tr><th>Type</th><th>File</th><th>Matched Name</th><th>Expiration</th><th>Filed</th><th></th></tr>

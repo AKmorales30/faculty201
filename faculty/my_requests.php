@@ -13,7 +13,7 @@ $requests = $stmt->fetchAll();
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <h3 class="fw-bold mb-0">My Requests</h3>
   <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand btn-sm">
     <i class="fa-solid fa-file-arrow-up"></i> Submit a New Document
@@ -21,7 +21,7 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <div class="card stat-card">
-  <div class="card-body p-0">
+  <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light">
         <tr><th>Document Type</th><th>Status</th><th>Program Chair</th><th>Dean</th><th>Submitted</th></tr>

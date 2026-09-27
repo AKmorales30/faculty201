@@ -63,7 +63,7 @@ include __DIR__ . '/../includes/header.php';
   <div class="col-lg-5">
     <div class="card stat-card">
       <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-triangle-exclamation text-accent-gold"></i> Documents Expiring Within 60 Days</div>
-      <div class="card-body p-0" style="max-height:300px; overflow-y:auto;">
+      <div class="card-body p-0 table-responsive" style="max-height:300px; overflow-y:auto;">
         <table class="table mb-0 small align-middle">
           <tbody>
             <?php if (!$expiring): ?>

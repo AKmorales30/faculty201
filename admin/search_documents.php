@@ -57,7 +57,7 @@ include __DIR__ . '/../includes/header.php';
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-md-3 form-check ms-2">
+      <div class="col-md-3 form-check ms-md-2">
         <input type="checkbox" name="expiring_only" id="expiringOnly" class="form-check-input" value="1" <?= $expiring_only ? 'checked' : '' ?>>
         <label for="expiringOnly" class="form-check-label small">Expiring within 60 days</label>
       </div>
@@ -70,7 +70,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="card stat-card">
   <div class="card-header bg-white fw-semibold"><?= count($documents) ?> result<?= count($documents) === 1 ? '' : 's' ?></div>
-  <div class="card-body p-0">
+  <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light"><tr><th>Faculty</th><th>Type</th><th>File</th><th>Matched Name</th><th>Expiration</th><th>Filed</th><th></th></tr></thead>
       <tbody>

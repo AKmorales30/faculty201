@@ -24,7 +24,7 @@ include __DIR__ . '/../includes/header.php';
 <p class="text-muted">Requests you've already confirmed or rejected.</p>
 
 <div class="card stat-card">
-  <div class="card-body p-0">
+  <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light">
         <tr><th>Faculty</th><th>Type</th><th>Outcome</th><th>Resolved</th><th></th></tr>
