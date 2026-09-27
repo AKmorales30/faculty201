@@ -2,6 +2,47 @@
 require_once __DIR__ . '/../config/db.php';
 
 /**
+ * Apply any database migration in database/ that hasn't run yet, so a
+ * deploy doesn't depend on someone running SQL by hand. Applied files
+ * are recorded in schema_migrations. "Already exists" errors (duplicate
+ * column / index / table) are skipped, so a half-finished run is simply
+ * retried on the next request. Only files listed here are auto-applied
+ * -- the older migrations were already run manually.
+ */
+function run_pending_migrations(PDO $pdo): void {
+    $migrations = ['migration_201_contents_pds.sql'];
+    try {
+        try {
+            $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
+        } catch (PDOException $e) {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
+                            name VARCHAR(190) PRIMARY KEY,
+                            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB");
+            $applied = [];
+        }
+        foreach ($migrations as $file) {
+            if (in_array($file, $applied, true)) { continue; }
+            $sql = file_get_contents(__DIR__ . '/../database/' . $file);
+            $sql = preg_replace('/^\s*--.*$/m', '', $sql);
+            foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
+                if (preg_match('/^USE\s/i', $statement)) { continue; }
+                try {
+                    $pdo->exec($statement);
+                } catch (PDOException $e) {
+                    // 1050 table exists, 1060 duplicate column, 1061 duplicate key name
+                    if (!in_array((int)($e->errorInfo[1] ?? 0), [1050, 1060, 1061], true)) { throw $e; }
+                }
+            }
+            $pdo->prepare("INSERT IGNORE INTO schema_migrations (name) VALUES (?)")->execute([$file]);
+        }
+    } catch (Throwable $e) {
+        error_log('Database migration failed: ' . $e->getMessage());
+    }
+}
+run_pending_migrations($pdo);
+
+/**
  * Insert a notification for a given user.
  */
 function notify(PDO $pdo, int $user_id, string $message, ?int $request_id = null) {
@@ -64,34 +105,37 @@ function status_badge(string $status): array {
 
 /**
  * Move a scan (path relative to ROOT_PATH) into the permanent repository
- * folder uploads/{faculty_id}/{document_type}/ and return its new
- * relative path, or null if the file could not be moved.
+ * folder uploads/{faculty_id}/{document_type}[/{subtype}]/ and return its
+ * new relative path, or null if the file could not be moved.
  */
-function move_to_repository(int $faculty_id, string $document_type, string $source_rel): ?string {
+function move_to_repository(int $faculty_id, string $document_type, string $source_rel, ?string $subtype = null): ?string {
     $srcAbs = ROOT_PATH . '/' . $source_rel;
-    $destDir = UPLOADS_PATH . '/' . $faculty_id . '/' . $document_type;
+    $relDir = 'uploads/' . $faculty_id . '/' . $document_type . ($subtype ? '/' . $subtype : '');
+    $destDir = ROOT_PATH . '/' . $relDir;
     if (!is_dir($destDir)) { @mkdir($destDir, 0775, true); }
     $filename = basename($source_rel);
     if (!is_file($srcAbs) || !@rename($srcAbs, $destDir . '/' . $filename)) {
         return null;
     }
-    return 'uploads/' . $faculty_id . '/' . $document_type . '/' . $filename;
+    return $relDir . '/' . $filename;
 }
 
 /**
  * Tell every Program Chair and Dean (and the Admin, as before) that a
- * faculty member uploaded a document to their 201 file.
+ * faculty member uploaded a document to their 201 file. $extra_lines
+ * are appended (e.g. that the upload also updated their PDS).
  */
-function notify_new_upload(PDO $pdo, string $faculty_name, string $document_type, int $request_id, ?string $uploaded_at = null): void {
-    $categories = document_categories();
-    $label = $categories[$document_type]['label'] ?? $document_type;
-    $when = new DateTime($uploaded_at ?? 'now', new DateTimeZone('Asia/Manila'));
+function notify_new_upload(PDO $pdo, string $faculty_name, string $document_type, ?string $subtype, int $request_id, array $extra_lines = []): void {
+    $when = new DateTime('now', new DateTimeZone('Asia/Manila'));
 
     $msg = "New Document Uploaded\n"
          . "Faculty: {$faculty_name}\n"
-         . "Document Type: {$label}\n"
+         . "Document Type: " . document_type_label($document_type, $subtype) . "\n"
          . "Date Uploaded: " . $when->format('F j, Y, g:i A') . "\n"
          . "The document has been added to the faculty member's 201 Repository.";
+    foreach ($extra_lines as $line) {
+        $msg .= "\n" . $line;
+    }
 
     notify_role($pdo, 'program_chair', $msg, $request_id);
     notify_role($pdo, 'dean', $msg, $request_id);
@@ -100,13 +144,16 @@ function notify_new_upload(PDO $pdo, string $faculty_name, string $document_type
 
 /**
  * File a faculty member's upload immediately: move the scan into the
- * repository, log it in submission_requests as 'uploaded', insert the
- * documents row, and notify the Program Chair / Dean. $ocr is the
- * OcrProcessor::process() result from the preview step.
- * Returns the request_id, or null if the file could not be stored.
+ * repository, log it in submission_requests as 'uploaded' and insert the
+ * documents row. $ocr is the OcrProcessor::process() result from the
+ * preview step; $meta holds subtype / academic_year / semester /
+ * period_year / expiration. The caller notifies the Chair / Dean
+ * (notify_new_upload) once any PDS update has been applied.
+ * Returns [request_id, document_id], or null if the file could not be stored.
  */
-function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, ?string $expiration, string $scan_rel, array $ocr): ?int {
-    $filePath = move_to_repository((int)$faculty['user_id'], $document_type, $scan_rel);
+function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, array $meta, string $scan_rel, array $ocr): ?array {
+    $subtype = $meta['subtype'] ?? null;
+    $filePath = move_to_repository((int)$faculty['user_id'], $document_type, $scan_rel, $subtype);
     if ($filePath === null) {
         return null;
     }
@@ -116,16 +163,20 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, ?
         $pdo->prepare(
             "INSERT INTO submission_requests (faculty_id, document_type_hint, expiration_date_hint, temp_file_path, status)
              VALUES (?, ?, ?, ?, 'uploaded')"
-        )->execute([$faculty['user_id'], $document_type, $expiration, $filePath]);
+        )->execute([$faculty['user_id'], $document_type, $meta['expiration'] ?? null, $filePath]);
         $request_id = (int)$pdo->lastInsertId();
 
         $pdo->prepare(
-            "INSERT INTO documents (request_id, faculty_id, document_type, file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO documents (request_id, faculty_id, document_type, document_subtype, academic_year, semester, period_year,
+                                    file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )->execute([
-            $request_id, $faculty['user_id'], $document_type, $filePath, $expiration,
+            $request_id, $faculty['user_id'], $document_type, $subtype,
+            $meta['academic_year'] ?? null, $meta['semester'] ?? null, $meta['period_year'] ?? null,
+            $filePath, $meta['expiration'] ?? null,
             $ocr['text'] ?? null, $ocr['matched_name'] ?? null, $ocr['confidence_note'] ?? null,
         ]);
+        $document_id = (int)$pdo->lastInsertId();
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) { $pdo->rollBack(); }
@@ -134,8 +185,107 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, ?
         throw $e;
     }
 
-    notify_new_upload($pdo, $faculty['full_name'], $document_type, $request_id);
-    return $request_id;
+    return [$request_id, $document_id];
+}
+
+// ---------------------------------------------------------------------
+// Semesters. The academic year starts in August: 1st semester Aug-Dec,
+// 2nd semester Jan-May, Summer Jun-Jul.
+// ---------------------------------------------------------------------
+
+/** @return array{academic_year: string, semester: int} */
+function current_academic_period(?int $timestamp = null): array {
+    $ts = $timestamp ?? time();
+    $y = (int)date('Y', $ts);
+    $m = (int)date('n', $ts);
+    if ($m >= 8) { return ['academic_year' => $y . '-' . ($y + 1), 'semester' => 1]; }
+    if ($m <= 5) { return ['academic_year' => ($y - 1) . '-' . $y, 'semester' => 2]; }
+    return ['academic_year' => ($y - 1) . '-' . $y, 'semester' => 3];
+}
+
+function semester_options(): array {
+    return [1 => '1st Semester', 2 => '2nd Semester', 3 => 'Summer'];
+}
+
+/** Academic years offered in upload forms: next year back to 6 years ago. */
+function academic_year_options(): array {
+    $start = (int)explode('-', current_academic_period()['academic_year'])[0];
+    $years = [];
+    for ($y = $start + 1; $y >= $start - 6; $y--) { $years[] = $y . '-' . ($y + 1); }
+    return $years;
+}
+
+/**
+ * What a faculty member's 201 file should currently contain, and whether
+ * it does: PDS for this year, FTA (and IPCR for full-time) for the
+ * current semester -- during Summer, the 2nd semester just ended -- and
+ * Contract of Service / Affidavit of Undertaking for part-time faculty.
+ * @return array<int, array{label: string, done: bool, type: string}>
+ */
+function faculty_201_checklist(PDO $pdo, int $faculty_id, ?string $employment_type): array {
+    require_once __DIR__ . '/pds.php';
+    $period = current_academic_period();
+    if ($period['semester'] === 3) { $period['semester'] = 2; }
+    $sem_label = semester_options()[$period['semester']] . ', AY ' . $period['academic_year'];
+
+    $has = function (string $type, ?array $sem = null) use ($pdo, $faculty_id): bool {
+        $sql = "SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ?";
+        $params = [$faculty_id, $type];
+        if ($sem) { $sql .= " AND academic_year = ? AND semester = ?"; array_push($params, $sem['academic_year'], $sem['semester']); }
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (int)$stmt->fetchColumn() > 0;
+    };
+
+    $pds = pds_status($pdo, $faculty_id);
+    $items = [['label' => 'PDS updated for ' . $pds['year'], 'done' => $pds['current'], 'type' => 'PDS']];
+    $items[] = ['label' => 'FTA -- ' . $sem_label, 'done' => $has('FTA', $period), 'type' => 'FTA'];
+    if ($employment_type !== 'part_time') {
+        $items[] = ['label' => 'IPCR -- ' . $sem_label, 'done' => $has('IPCR', $period), 'type' => 'IPCR'];
+    }
+    if ($employment_type !== 'full_time') {
+        $items[] = ['label' => 'Contract of Service on file', 'done' => $has('Contract'), 'type' => 'Contract'];
+        $items[] = ['label' => 'Affidavit of Undertaking on file', 'done' => $has('Affidavit'), 'type' => 'Affidavit'];
+    }
+    $items[] = ['label' => 'Diploma on file (per educational attainment)', 'done' => $has('Diploma'), 'type' => 'Diploma'];
+    $items[] = ['label' => 'Transcript of Records on file', 'done' => $has('TOR'), 'type' => 'TOR'];
+    return $items;
+}
+
+/** "1st Semester, AY 2026-2027" / "2026" / "" for a documents row. */
+function document_period_label(array $doc): string {
+    if (!empty($doc['academic_year'])) {
+        $sem = semester_options()[(int)($doc['semester'] ?? 0)] ?? null;
+        return ($sem ? $sem . ', ' : '') . 'AY ' . $doc['academic_year'];
+    }
+    return !empty($doc['period_year']) ? (string)$doc['period_year'] : '';
+}
+
+/**
+ * Newest document in each group (category + subtype; FTA / IPCR by
+ * latest semester) -- these get the "Latest" badge. Older versions stay
+ * in the list as history.
+ * @param array $documents rows from `documents`
+ * @return array<int,true> document_id => true
+ */
+function latest_document_ids(array $documents): array {
+    usort($documents, 'compare_documents_latest_first');
+    $latest = [];
+    $seen = [];
+    foreach ($documents as $d) {
+        $group = $d['document_type'] . '|' . ($d['document_subtype'] ?? '');
+        if (!isset($seen[$group])) {
+            $seen[$group] = true;
+            $latest[(int)$d['document_id']] = true;
+        }
+    }
+    return $latest;
+}
+
+/** Sort order for one category: latest period first, then latest upload. */
+function compare_documents_latest_first(array $a, array $b): int {
+    return [$b['academic_year'] ?? '', (int)($b['semester'] ?? 0), (int)($b['period_year'] ?? 0), $b['filed_at']]
+       <=> [$a['academic_year'] ?? '', (int)($a['semester'] ?? 0), (int)($a['period_year'] ?? 0), $a['filed_at']];
 }
 
 /**
@@ -185,19 +335,70 @@ function h(?string $s): string {
 }
 
 /**
- * The three faculty-document categories the 201-file repository is
- * organized around (matches document_type ENUM('TOR','Diploma',
- * 'Certificate') in the documents table, and Ch.3 of the capstone
- * paper). Every folder view in the system (Faculty "My 201 File",
- * Admin "Faculty Records" drill-down) is built from this single list
- * so the categories stay consistent everywhere.
+ * The Faculty 201 File categories (from the interview). Every folder
+ * view, upload form, filter and chart in the system is built from this
+ * single list so the categories stay consistent everywhere. The key is
+ * what's stored in documents.document_type.
+ *
+ *   applies_to  null = everyone, or 'full_time' / 'part_time' only
+ *   frequency   'yearly' (PDS), 'semester' (FTA, IPCR) or null
+ *   subtypes    optional sub-folders; default_subtype when OCR can't tell
  */
 function document_categories(): array {
     return [
-        'TOR'         => ['label' => 'Transcript of Records', 'icon' => 'fa-file-lines',     'color' => 'teal'],
-        'Diploma'     => ['label' => 'Diploma',                'icon' => 'fa-graduation-cap', 'color' => 'navy'],
-        'Certificate' => ['label' => 'Certificates',           'icon' => 'fa-certificate',    'color' => 'gold'],
+        'PDS'         => ['label' => 'Personal Data Sheet (PDS)', 'short' => 'PDS', 'icon' => 'fa-id-card', 'color' => 'navy',
+                          'applies_to' => null, 'frequency' => 'yearly'],
+        'Certificate' => ['label' => 'Certificates', 'short' => 'Certificates', 'icon' => 'fa-certificate', 'color' => 'gold',
+                          'applies_to' => null, 'frequency' => null,
+                          'subtypes' => ['Seminar' => 'Seminar', 'Training' => 'Training', 'Other' => 'Other Certificate'],
+                          'default_subtype' => 'Other'],
+        'Diploma'     => ['label' => 'Diploma', 'short' => 'Diploma', 'icon' => 'fa-graduation-cap', 'color' => 'navy',
+                          'applies_to' => null, 'frequency' => null,
+                          'subtypes' => ['Bachelor' => "Bachelor's Degree", 'Master' => "Master's Degree", 'Doctorate' => 'PhD / Doctorate'],
+                          'default_subtype' => 'Bachelor'],
+        'TOR'         => ['label' => 'Transcript of Records (TOR)', 'short' => 'TOR', 'icon' => 'fa-file-lines', 'color' => 'teal',
+                          'applies_to' => null, 'frequency' => null],
+        'FTA'         => ['label' => 'Final Teaching Assignment (FTA)', 'short' => 'FTA', 'icon' => 'fa-chalkboard-user', 'color' => 'blue',
+                          'applies_to' => null, 'frequency' => 'semester'],
+        'IPCR'        => ['label' => 'IPCR', 'short' => 'IPCR', 'icon' => 'fa-chart-line', 'color' => 'teal',
+                          'applies_to' => 'full_time', 'frequency' => 'semester',
+                          'description' => 'Individual Performance Commitment and Review'],
+        'Contract'    => ['label' => 'Contract of Service', 'short' => 'Contract of Service', 'icon' => 'fa-file-signature', 'color' => 'blue',
+                          'applies_to' => 'part_time', 'frequency' => null],
+        'Affidavit'   => ['label' => 'Affidavit of Undertaking', 'short' => 'Affidavit of Undertaking', 'icon' => 'fa-stamp', 'color' => 'gold',
+                          'applies_to' => 'part_time', 'frequency' => null],
+        'Other'       => ['label' => 'Other Documents', 'short' => 'Other Documents', 'icon' => 'fa-folder', 'color' => 'navy',
+                          'applies_to' => null, 'frequency' => null,
+                          'subtypes' => ['Memo' => 'Memorandum / Memo', 'Notice' => 'Notice', 'Promotion' => 'Promotion', 'Other' => 'Other'],
+                          'default_subtype' => 'Other'],
     ];
+}
+
+/** "Certificates > Seminar", "Diploma > Master's Degree", "FTA", ... */
+function document_type_label(string $type, ?string $subtype = null): string {
+    $cat = document_categories()[$type] ?? null;
+    if (!$cat) { return $type; }
+    $label = $cat['short'];
+    if ($subtype && isset($cat['subtypes'][$subtype])) {
+        $label .= ' > ' . $cat['subtypes'][$subtype];
+    }
+    return $label;
+}
+
+function faculty_employment_type(PDO $pdo, int $user_id): ?string {
+    $stmt = $pdo->prepare("SELECT employment_type FROM users WHERE user_id = ?");
+    $stmt->execute([$user_id]);
+    return $stmt->fetchColumn() ?: null;
+}
+
+/**
+ * Categories that apply to a faculty member (IPCR is full-time only;
+ * Contract of Service and Affidavit of Undertaking are part-time only).
+ */
+function categories_for_faculty(?string $employment_type): array {
+    return array_filter(document_categories(), function ($cat) use ($employment_type) {
+        return $cat['applies_to'] === null || $employment_type === null || $cat['applies_to'] === $employment_type;
+    });
 }
 
 /**

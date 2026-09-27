@@ -7,7 +7,8 @@ $page_title = 'Data Analytics';
 
 // Documents filed by category
 $by_type = $pdo->query("SELECT document_type, COUNT(*) c FROM documents GROUP BY document_type")->fetchAll(PDO::FETCH_KEY_PAIR);
-$by_type = array_merge(['TOR'=>0,'Diploma'=>0,'Certificate'=>0], $by_type);
+$by_type = array_merge(array_fill_keys(array_keys(document_categories()), 0), $by_type);
+$type_labels = array_map(fn($k) => document_categories()[$k]['short'] ?? $k, array_keys($by_type));
 
 // Faculty with the most uploaded documents
 $top_uploaders = $pdo->query(
@@ -92,8 +93,8 @@ const brand = '#1b4b93', teal = '#157975', gold = '#e0aa28', blue = '#0f89b8', c
 new Chart(document.getElementById('chartType'), {
   type: 'doughnut',
   data: {
-    labels: <?= json_encode(array_keys($by_type)) ?>,
-    datasets: [{ data: <?= json_encode(array_values($by_type)) ?>, backgroundColor: [teal, brand, gold] }]
+    labels: <?= json_encode($type_labels) ?>,
+    datasets: [{ data: <?= json_encode(array_values($by_type)) ?>, backgroundColor: [brand, gold, blue, teal, '#6f42c1', '#20c997', '#fd7e14', '#6c757d', charcoal] }]
   },
   options: { plugins: { legend: { position: 'bottom' } } }
 });

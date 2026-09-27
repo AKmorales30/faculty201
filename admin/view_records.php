@@ -48,8 +48,8 @@ include __DIR__ . '/../includes/header.php';
           </div>
         </div>
         <div class="d-flex gap-2 flex-wrap">
-          <?php foreach ($categories as $key => $meta): ?>
-            <span class="badge bg-light text-dark border"><?= h($key) ?>: <?= (int)$counts[$key] ?></span>
+          <?php foreach ($categories as $key => $meta): if (empty($counts[$key])) continue; ?>
+            <span class="badge bg-light text-dark border"><?= h($meta['short']) ?>: <?= (int)$counts[$key] ?></span>
           <?php endforeach; ?>
         </div>
         <div class="text-muted small mt-2"><?= $total ?> document<?= $total === 1 ? '' : 's' ?> filed</div>

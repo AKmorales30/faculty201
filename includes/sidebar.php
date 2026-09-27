@@ -34,6 +34,7 @@ function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
         <li class="nav-item"><a class="nav-link <?= nav_active('submit_document.php',$here) ?>" href="<?= BASE_URL ?>/faculty/submit_document.php"><i class="fa-solid fa-file-arrow-up"></i> Upload Document</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('my_requests.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_requests.php"><i class="fa-solid fa-list-check"></i> Upload History</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('my_documents.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_documents.php"><i class="fa-solid fa-folder-open"></i> My 201 File</a></li>
+        <li class="nav-item"><a class="nav-link <?= nav_active('pds.php',$here) ?>" href="<?= BASE_URL ?>/faculty/pds.php"><i class="fa-solid fa-id-card"></i> My PDS</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('notifications.php',$here) ?>" href="<?= BASE_URL ?>/faculty/notifications.php"><i class="fa-solid fa-bell"></i> Notifications</a></li>
       <?php endif; ?>
 

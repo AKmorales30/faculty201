@@ -8,7 +8,7 @@ $me = current_user();
 $categories = document_categories();
 
 $stmt = $pdo->prepare(
-    "SELECT sr.*, d.file_path FROM submission_requests sr
+    "SELECT sr.*, d.file_path, d.document_subtype FROM submission_requests sr
      LEFT JOIN documents d ON d.request_id = sr.request_id
      WHERE sr.faculty_id=? ORDER BY sr.submitted_at DESC"
 );
@@ -37,7 +37,7 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
         <?php foreach ($requests as $r): [$label, $badge] = status_badge($r['status']); ?>
         <tr>
-          <td><?= h($categories[$r['document_type_hint']]['label'] ?? $r['document_type_hint']) ?></td>
+          <td><?= h(document_type_label($r['document_type_hint'], $r['document_subtype'])) ?></td>
           <td>
             <span class="badge <?= $badge ?>"><?= h($label) ?></span>
             <?php if ($r['status'] === 'rejected'): ?>

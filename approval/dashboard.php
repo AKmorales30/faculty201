@@ -13,7 +13,8 @@ file_outstanding_requests($pdo);
 $active_type = $_GET['type'] ?? '';
 if (!array_key_exists($active_type, $categories)) { $active_type = ''; }
 
-$sql = "SELECT d.document_id, d.request_id, d.document_type, d.file_path, d.filed_at, u.full_name, u.employment_type
+$sql = "SELECT d.document_id, d.request_id, d.document_type, d.document_subtype, d.academic_year, d.semester, d.period_year,
+               d.file_path, d.filed_at, u.full_name, u.employment_type
         FROM documents d
         JOIN users u ON u.user_id = d.faculty_id";
 $params = [];
@@ -60,12 +61,14 @@ include __DIR__ . '/../includes/header.php';
 <div class="card stat-card">
   <div class="card-header bg-white d-flex justify-content-between align-items-center">
     <span class="fw-semibold"><?= $active_type ? h($categories[$active_type]['label']) : 'All Document Types' ?></span>
-    <div class="btn-group btn-group-sm">
-      <a href="dashboard.php" class="btn btn-outline-brand <?= $active_type === '' ? 'active' : '' ?>">All</a>
-      <?php foreach ($categories as $key => $meta): ?>
-        <a href="?type=<?= h($key) ?>" class="btn btn-outline-brand <?= $active_type === $key ? 'active' : '' ?>"><?= h($meta['label']) ?></a>
-      <?php endforeach; ?>
-    </div>
+    <form method="GET">
+      <select name="type" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Filter by document type">
+        <option value="">All document types</option>
+        <?php foreach ($categories as $key => $meta): ?>
+          <option value="<?= h($key) ?>" <?= $active_type === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
+        <?php endforeach; ?>
+      </select>
+    </form>
   </div>
   <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
@@ -79,7 +82,10 @@ include __DIR__ . '/../includes/header.php';
         <?php foreach ($uploads as $u): ?>
         <tr>
           <td><?= h($u['full_name']) ?></td>
-          <td><?= h($categories[$u['document_type']]['label'] ?? $u['document_type']) ?></td>
+          <td>
+            <?= h(document_type_label($u['document_type'], $u['document_subtype'])) ?>
+            <?php if ($p = document_period_label($u)): ?><div class="small text-muted"><?= h($p) ?></div><?php endif; ?>
+          </td>
           <td class="text-capitalize"><?= h(str_replace('_',' ',$u['employment_type'] ?? '')) ?></td>
           <td><?= date('M j, Y g:ia', strtotime($u['filed_at'])) ?></td>
           <td class="text-nowrap"><a href="request_detail.php?id=<?= (int)$u['request_id'] ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i> View</a></td>

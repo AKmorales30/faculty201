@@ -85,7 +85,7 @@ include __DIR__ . '/../includes/header.php';
             <a href="faculty_documents.php?id=<?= (int)$d['faculty_id'] ?>"><?= h($d['full_name']) ?></a>
             <div class="text-muted small text-capitalize"><?= h(str_replace('_',' ',$d['employment_type'])) ?></div>
           </td>
-          <td><?= h($d['document_type']) ?></td>
+          <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?><?php if ($p = document_period_label($d)): ?><div class="small text-muted"><?= h($p) ?></div><?php endif; ?></td>
           <td><?= h(basename($d['file_path'])) ?></td>
           <td><?= $d['ocr_matched_name'] ? h($d['ocr_matched_name']) : '<span class="text-muted">—</span>' ?></td>
           <td>

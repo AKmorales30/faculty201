@@ -12,7 +12,7 @@ $id = (int)($_GET['id'] ?? 0);
 // confirm / reject step here.
 $stmt = $pdo->prepare(
     "SELECT sr.*, u.full_name, u.email, u.employment_type, u.employment_status,
-            d.document_id, d.file_path, d.expiration_date, d.ocr_matched_name, d.ocr_confidence_note, d.filed_at
+            d.document_id, d.document_subtype, d.academic_year, d.semester, d.period_year, d.file_path, d.expiration_date, d.ocr_matched_name, d.ocr_confidence_note, d.filed_at
      FROM submission_requests sr
      JOIN users u ON u.user_id = sr.faculty_id
      LEFT JOIN documents d ON d.request_id = sr.request_id
@@ -30,7 +30,8 @@ if (!$request) {
 $file_path = $request['file_path'] ?: $request['temp_file_path'];
 $file_exists = $file_path && is_file(ROOT_PATH . '/' . $file_path);
 $ext = strtolower(pathinfo($file_path ?? '', PATHINFO_EXTENSION));
-$type_label = $categories[$request['document_type_hint']]['label'] ?? $request['document_type_hint'];
+$type_label = document_type_label($request['document_type_hint'], $request['document_subtype']);
+$period_label = $request['document_id'] ? document_period_label($request) : '';
 [$label, $badge] = status_badge($request['status']);
 
 include __DIR__ . '/../includes/header.php';
@@ -75,6 +76,7 @@ include __DIR__ . '/../includes/header.php';
           <dt class="col-sm-4">Email</dt><dd class="col-sm-8"><?= h($request['email']) ?></dd>
           <dt class="col-sm-4">Employment</dt><dd class="col-sm-8 text-capitalize"><?= h(str_replace('_',' ',$request['employment_type'] ?? '—')) ?></dd>
           <dt class="col-sm-4">Document Type</dt><dd class="col-sm-8"><?= h($type_label) ?></dd>
+          <?php if ($period_label): ?><dt class="col-sm-4">Period</dt><dd class="col-sm-8"><?= h($period_label) ?></dd><?php endif; ?>
           <dt class="col-sm-4">Date Uploaded</dt><dd class="col-sm-8"><?= date('F j, Y g:ia', strtotime($request['submitted_at'])) ?></dd>
           <dt class="col-sm-4">Expiration</dt><dd class="col-sm-8"><?= $request['expiration_date'] ? date('M j, Y', strtotime($request['expiration_date'])) : '—' ?></dd>
           <dt class="col-sm-4">Name Match (OCR)</dt>
@@ -93,6 +95,10 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
       </div>
     </div>
+
+    <a href="<?= BASE_URL ?>/faculty/pds_print.php?faculty_id=<?= (int)$request['faculty_id'] ?>" target="_blank" class="btn btn-outline-brand btn-sm mb-3">
+      <i class="fa-solid fa-id-card"></i> View this faculty member's digital PDS
+    </a>
 
     <div class="alert alert-info small">
       <i class="fa-solid fa-circle-info"></i> This document was added to the faculty member's 201 Repository automatically when it was uploaded. No action is needed.

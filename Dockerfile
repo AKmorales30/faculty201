@@ -13,6 +13,10 @@ RUN apt-get update && apt-get install -y \
     && a2enmod rewrite \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# The digital PDS edit form submits every field and Part VII row at once;
+# PHP's default limit of 1000 form fields is too low for a long PDS.
+RUN echo "max_input_vars = 5000" > /usr/local/etc/php/conf.d/faculty201.ini
+
 # Render assigns a random $PORT at runtime and expects the app to
 # listen on it -- these two files use ${PORT} instead of a hardcoded 80.
 COPY docker/ports.conf /etc/apache2/ports.conf

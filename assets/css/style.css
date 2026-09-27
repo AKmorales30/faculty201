@@ -268,3 +268,19 @@ html, body { overflow-x: hidden; }
 /* Multi-line notification messages ("New Document Uploaded" + details) */
 .notif-message { white-space: pre-line; }
 .notif-message::first-line { font-weight: 600; }
+
+/* 201 File browser */
+.min-w-0 { min-width: 0; }
+.folder-title { line-height: 1.2; }
+.doc-history td { color: #6c757d; }
+
+/* Digital PDS editor */
+.pds-table { min-width: 640px; margin-bottom: .5rem; }
+.pds-table td { min-width: 110px; }
+.pds-table td:first-child.ld-num { min-width: 32px; width: 32px; }
+.pds-table td:last-child { min-width: 40px; width: 40px; }
+#ldTable td:nth-child(2) { min-width: 240px; }
+.pds-save-bar {
+  position: sticky; bottom: 0; z-index: 10;
+  background: #f4f6f9; padding: .75rem 0; border-top: 1px solid #e2e2e2;
+}
