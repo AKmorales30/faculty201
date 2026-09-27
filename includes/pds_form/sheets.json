@@ -4,7 +4,6 @@
         "area": "$A$1:$N$62",
         "width": 896,
         "height": 1507,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15,
@@ -1116,7 +1115,6 @@
         "area": "$A$2:$M$44",
         "width": 832,
         "height": 1324,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.25,
@@ -2408,7 +2406,6 @@
         "area": "$A$1:$K$48",
         "width": 940,
         "height": 1501,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15748031496062992,
@@ -3590,7 +3587,6 @@
         "area": "$A$1:$N$71",
         "width": 783,
         "height": 1337,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15748031496062992,
@@ -5812,7 +5808,6 @@
         "area": "$A$2:$K$51",
         "width": 1084,
         "height": 1636,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15748031496062992,
@@ -7159,7 +7154,6 @@
         "area": "$A$2:$M$41",
         "width": 825,
         "height": 1313,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15748031496062992,
@@ -8516,7 +8510,6 @@
         "area": "$A$2:$L$25",
         "width": 1384,
         "height": 1319,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15748031496062992,
@@ -9543,7 +9536,6 @@
         "area": "A1:N44",
         "width": 886,
         "height": 1453,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.7,
@@ -11120,7 +11112,6 @@
         "area": "$A$2:$K$30",
         "width": 723,
         "height": 947,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15748031496062992,
@@ -11867,7 +11858,6 @@
         "area": "$A$1:$K$36",
         "width": 940,
         "height": 1115,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15748031496062992,
@@ -12624,7 +12614,6 @@
         "area": "$A$1:$K$36",
         "width": 940,
         "height": 1176,
-        "paper": 9,
         "orientation": "portrait",
         "margins": {
             "left": 0.15748031496062992,

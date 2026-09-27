@@ -8,7 +8,8 @@
  * converted cell-for-cell into HTML -- column widths, row heights, merged
  * cells, fonts (incl. rich-text runs), borders, fills, alignment -- plus
  * the form's checkboxes, photo box and lines at their anchored positions,
- * and each sheet's page setup (A4, margins, fit-to-page scale, centering).
+ * and each sheet's page setup (margins, fit-to-page scale, centering; the
+ * paper size itself is set in includes/pds_form.php).
  *
  * Output (committed; regenerate only when CSC releases a new form):
  *   includes/pds_form/sheets/C1.html ... C11.html   one page each
@@ -455,7 +456,7 @@ foreach ($wb->sheets->sheet as $sh) {
     $fit = (string)($ws->sheetPr->pageSetUpPr['fitToPage'] ?? '0') === '1';
     $meta[$key] = [
         'name' => $name, 'area' => $area, 'width' => $width, 'height' => $height,
-        'paper' => (int)($ps['paperSize'] ?? 9), 'orientation' => (string)($ps['orientation'] ?? 'portrait'),
+        'orientation' => (string)($ps['orientation'] ?? 'portrait'),
         'margins' => ['left' => (float)$pm['left'], 'right' => (float)$pm['right'], 'top' => (float)$pm['top'], 'bottom' => (float)$pm['bottom']],
         'fit' => $fit, 'fitW' => (int)($ps['fitToWidth'] ?? 1) ?: ((string)($ps['fitToWidth'] ?? '') === '0' ? 0 : 1),
         'fitH' => isset($ps['fitToHeight']) ? (int)$ps['fitToHeight'] : 1, 'zoom' => (int)($ps['scale'] ?? 100),

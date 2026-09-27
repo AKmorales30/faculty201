@@ -5,7 +5,7 @@
  * Pages C1-C4 (and the form's continuation sheets C5-C11 when a table
  * overflows) are rendered from templates generated from the official
  * workbook -- see tools/build_pds_template.php and includes/pds_form.php --
- * and printed on A4 with each sheet's own margins and scale, one sheet
+ * and printed on Long bond paper (8.5" x 13") with each sheet's own margins and scale, one sheet
  * per page. Use the browser's Print -> "Save as PDF" to generate the file.
  *
  * Faculty: their own PDS (?snapshot=ID for an earlier version).
@@ -78,7 +78,7 @@ $extra = count($pages) - 4;
 <div class="toolbar">
   <button type="button" onclick="window.print()">Print / Save as PDF</button>
   <span class="note">
-    CS Form No. 212 (Revised 2026) &middot; A4 &middot;
+    CS Form No. 212 (Revised 2026) &middot; Long bond paper 8.5" &times; 13" &middot;
     <?= $snapshot ? 'Earlier version: ' . h($snapshot['reason']) : 'Current version' ?>
     <?= $updated_at ? ' &middot; ' . date('M j, Y g:ia', strtotime($updated_at)) : '' ?>
     &middot; <?= count($pages) ?> pages<?= $extra > 0 ? ' (incl. ' . $extra . ' continuation sheet' . ($extra > 1 ? 's' : '') . ')' : '' ?>

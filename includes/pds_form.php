@@ -6,12 +6,12 @@
  * Each template is the sheet's print area converted cell-for-cell. Empty
  * cells are {{REF}} placeholders and checkboxes {{chk:REF}} (REF = the
  * checkbox's linked cell in the workbook). A page is laid out exactly as
- * Excel prints it: A4, the sheet's own margins, fit-to-page (or fixed)
+ * Excel prints it: Long bond paper (8.5" x 13"), the sheet's own margins, fit-to-page (or fixed)
  * scale rounded down to a whole percent like Excel, and centering.
  */
 
 const PDS_FORM_DIR = __DIR__ . '/pds_form';
-const PDS_A4_IN = [8.2677, 11.6929];   // paperSize 9
+const PDS_PAPER_IN = [8.5, 13];   // Long / Folio bond, 8.5" x 13" (612 x 936 pt), portrait
 
 function pds_form_meta(): array {
     static $meta = null;
@@ -24,8 +24,8 @@ function pds_form_meta(): array {
 /** CSS for all PDS pages: page box + generated cell/font styles. */
 function pds_form_css(): string {
     $base = <<<CSS
-@page { size: A4 portrait; margin: 0; }
-.pds-page { width: 210mm; height: 297mm; position: relative; overflow: hidden; background: #fff;
+@page { size: 8.5in 13in; margin: 0; }
+.pds-page { width: 8.5in; height: 13in; position: relative; overflow: hidden; background: #fff;
             page-break-after: always; break-after: page; }
 .pds-page:last-child { page-break-after: auto; break-after: auto; }
 .pds-page .xl-frame { position: absolute; }
@@ -60,8 +60,8 @@ CSS;
 /** Excel's print scale for a sheet (fit-to-page is rounded down to a whole percent). */
 function pds_form_scale(array $m): float {
     if (!$m['fit']) { return $m['zoom'] / 100; }
-    $pw = (PDS_A4_IN[0] - $m['margins']['left'] - $m['margins']['right']) * 96;
-    $ph = (PDS_A4_IN[1] - $m['margins']['top'] - $m['margins']['bottom']) * 96;
+    $pw = (PDS_PAPER_IN[0] - $m['margins']['left'] - $m['margins']['right']) * 96;
+    $ph = (PDS_PAPER_IN[1] - $m['margins']['top'] - $m['margins']['bottom']) * 96;
     $s = 1.0;
     if ($m['fitW'] > 0) { $s = min($s, $pw / $m['width']); }
     if ($m['fitH'] > 0) { $s = min($s, $ph / $m['height']); }
@@ -103,8 +103,8 @@ function pds_form_page(string $key, array $values = [], array $checks = [], arra
     }
 
     $s = pds_form_scale($m);
-    $pw = (PDS_A4_IN[0] - $m['margins']['left'] - $m['margins']['right']) * 96;
-    $ph = (PDS_A4_IN[1] - $m['margins']['top'] - $m['margins']['bottom']) * 96;
+    $pw = (PDS_PAPER_IN[0] - $m['margins']['left'] - $m['margins']['right']) * 96;
+    $ph = (PDS_PAPER_IN[1] - $m['margins']['top'] - $m['margins']['bottom']) * 96;
     $left = $m['margins']['left'] * 96 + ($m['hCenter'] ? max(0, ($pw - $m['width'] * $s) / 2) : 0);
     $top  = $m['margins']['top'] * 96 + ($m['vCenter'] ? max(0, ($ph - $m['height'] * $s) / 2) : 0);
     $html = preg_replace('/^<div class="xl-sheet" style="/', '<div class="xl-sheet" style="zoom:' . sprintf('%.4f', $s) . ';--z:' . sprintf('%.4f', $s) . ';', $html, 1);
