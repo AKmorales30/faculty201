@@ -60,8 +60,8 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     if ($type === 'Certificate' && in_array($subtype, ['Seminar', 'Training'], true) && !empty($_POST['add_to_pds'])) {
         $page = pds_add_training($pdo, $me['user_id'], (array)($_POST['ld'] ?? []), $document_id);
         if ($page !== null) {
-            $extra_lines[] = 'PDS Part VII (Learning and Development) was updated with this ' . strtolower($subtype) . '.';
-            $pds_note = " It was also added to Part VII of your PDS (page {$page}).";
+            $extra_lines[] = 'PDS Section VI (Learning and Development) was updated with this ' . strtolower($subtype) . '.';
+            $pds_note = " It was also added to Section VI (Learning and Development) of your PDS ({$page}).";
         }
     }
     if ($type === 'PDS') {
@@ -266,11 +266,11 @@ include __DIR__ . '/../includes/header.php';
           </div>
         </div>
 
-        <!-- Seminar / training certificate -> PDS Part VII -->
+        <!-- Seminar / training certificate -> PDS Section VI (L&D) -->
         <div class="card border mb-3 type-field" data-types="Certificate" data-subtypes="Seminar Training" id="pdsBlock">
           <div class="card-header bg-light small fw-semibold d-flex align-items-center gap-2">
             <input type="checkbox" class="form-check-input m-0" name="add_to_pds" value="1" id="addToPds" checked disabled>
-            <label for="addToPds" class="mb-0">Add to my PDS -- Part VII: Learning and Development</label>
+            <label for="addToPds" class="mb-0">Add to my PDS -- Section VI: Learning and Development (L&amp;D)</label>
           </div>
           <div class="card-body">
             <p class="small text-muted mb-3">Extracted from the certificate -- check and correct these before saving.</p>

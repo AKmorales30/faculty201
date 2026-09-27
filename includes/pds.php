@@ -4,7 +4,7 @@
  *
  * Parts I-VI, VIII, questions 34-40, references and government ID are
  * stored as one JSON document per faculty member (pds_records.data).
- * Part VII (Learning and Development) lives in its own table,
+ * Section VI (Learning and Development) lives in its own table,
  * pds_learning_development, because rows are added automatically from
  * uploaded seminar / training certificates and each row remembers the
  * certificate it came from.
@@ -30,23 +30,35 @@ function pds_schema(): array {
             'middle_name'        => ['Middle Name'],
             'date_of_birth'      => ['Date of Birth', 'date'],
             'place_of_birth'     => ['Place of Birth'],
-            'sex'                => ['Sex', 'select', ['Male', 'Female']],
-            'civil_status'       => ['Civil Status', 'select', ['Single', 'Married', 'Widowed', 'Separated', 'Other']],
+            'sex'                => ['Sex at Birth', 'select', ['Male', 'Female']],
+            'civil_status'       => ['Civil Status', 'select', ['Single', 'Married', 'Widowed', 'Separated', 'Other/s']],
+            'civil_status_other' => ['If Other/s, please specify'],
             'height'             => ['Height (m)'],
             'weight'             => ['Weight (kg)'],
             'blood_type'         => ['Blood Type'],
-            'gsis_id'            => ['GSIS ID No.'],
+            'umid_id'            => ['UMID ID No.'],
             'pagibig_id'         => ['PAG-IBIG ID No.'],
             'philhealth_no'      => ['PhilHealth No.'],
-            'sss_no'             => ['SSS No.'],
+            'philsys_pcn'        => ['PhilSys Card Number (PCN)'],
             'tin_no'             => ['TIN No.'],
             'agency_employee_no' => ['Agency Employee No.'],
             'citizenship'        => ['Citizenship', 'select', ['Filipino', 'Dual Citizenship']],
-            'dual_citizenship'   => ['If dual citizenship: by birth / by naturalization, country'],
-            'residential_address'=> ['Residential Address'],
-            'residential_zip'    => ['Residential ZIP Code'],
-            'permanent_address'  => ['Permanent Address'],
-            'permanent_zip'      => ['Permanent ZIP Code'],
+            'dual_citizenship_by'=> ['If dual citizenship', 'select', ['by birth', 'by naturalization']],
+            'dual_citizenship_country' => ['If dual citizenship, country'],
+            'res_house'          => ['Residential: House/Block/Lot No.'],
+            'res_street'         => ['Residential: Street'],
+            'res_subdivision'    => ['Residential: Subdivision/Village'],
+            'res_barangay'       => ['Residential: Barangay'],
+            'res_city'           => ['Residential: City/Municipality'],
+            'res_province'       => ['Residential: Province'],
+            'residential_zip'    => ['Residential: ZIP Code'],
+            'perm_house'         => ['Permanent: House/Block/Lot No.'],
+            'perm_street'        => ['Permanent: Street'],
+            'perm_subdivision'   => ['Permanent: Subdivision/Village'],
+            'perm_barangay'      => ['Permanent: Barangay'],
+            'perm_city'          => ['Permanent: City/Municipality'],
+            'perm_province'      => ['Permanent: Province'],
+            'permanent_zip'      => ['Permanent: ZIP Code'],
             'telephone_no'       => ['Telephone No.'],
             'mobile_no'          => ['Mobile No.'],
             'email'              => ['E-mail Address'],
@@ -107,7 +119,7 @@ function pds_schema(): array {
                 'govt_service'  => ["Gov't Service", 'select', ['Y', 'N']],
             ]],
         ]],
-        'VI' => ['title' => 'Voluntary Work or Involvement in Civic / Non-Government / People / Voluntary Organizations', 'page' => 3, 'tables' => [
+        'VII' => ['title' => 'Voluntary Work or Involvement in Civic / Non-Government / People / Voluntary Organizations', 'page' => 3, 'tables' => [
             'voluntary' => ['label' => 'Voluntary Work', 'columns' => [
                 'organization' => ['Name & Address of Organization'],
                 'from'         => ['From', 'date'],
@@ -124,10 +136,12 @@ function pds_schema(): array {
         'Q' => ['title' => 'Questions 34 to 40', 'page' => 4, 'fields' => [
             'q34a'         => ['34a. Related by consanguinity or affinity to the appointing / recommending authority, chief of bureau or office, or immediate supervisor -- within the third degree?', ...$yn],
             'q34b'         => ['34b. ...within the fourth degree (for Local Government Unit - Career Employees)?', ...$yn],
-            'q34_details'  => ['If YES, give details'],
+            'q34_details'  => ['34a. If YES, give details'],
+            'q34b_details' => ['34b. If YES, give details'],
             'q35a'         => ['35a. Have you ever been found guilty of any administrative offense?', ...$yn],
             'q35a_details' => ['If YES, give details'],
             'q35b'         => ['35b. Have you been criminally charged before any court?', ...$yn],
+            'q35b_details' => ['If YES, give details'],
             'q35b_date'    => ['If YES, date filed', 'date'],
             'q35b_status'  => ['If YES, status of case/s'],
             'q36'          => ['36. Have you ever been convicted of any crime or violation of any law, decree, ordinance or regulation by any court or tribunal?', ...$yn],
@@ -142,27 +156,27 @@ function pds_schema(): array {
             'q39_details'  => ['If YES, give details (country)'],
             'q40a'         => ['40a. Are you a member of any indigenous group? (RA 8371)', ...$yn],
             'q40a_details' => ['If YES, please specify'],
-            'q40b'         => ['40b. Are you a person with disability? (RA 7277)', ...$yn],
+            'q40b'         => ['40b. Are you a person with disability? (RA 7277, as amended)', ...$yn],
             'q40b_id'      => ['If YES, PWD ID No.'],
-            'q40c'         => ['40c. Are you a solo parent? (RA 8972)', ...$yn],
+            'q40c'         => ['40c. Are you a solo parent? (RA 11861)', ...$yn],
             'q40c_id'      => ['If YES, Solo Parent ID No.'],
         ]],
         'R' => ['title' => 'References', 'page' => 4, 'tables' => [
             'references' => ['label' => 'References (person not related by consanguinity or affinity)', 'max' => 3, 'columns' => [
                 'name'      => ['Name'],
                 'address'   => ['Address'],
-                'telephone' => ['Tel. No.'],
+                'telephone' => ['Contact No. and/or Email'],
             ]],
         ]],
         'ID' => ['title' => 'Government Issued ID', 'page' => 4, 'fields' => [
-            'gov_id_type'   => ['Government Issued ID (e.g. Passport, GSIS, SSS, PRC, Driver\'s License)'],
+            'gov_id_type'   => ['Government Issued ID (i.e. Passport, GSIS, SSS, PRC, Driver\'s License, etc.)'],
             'gov_id_number' => ['ID / License / Passport No.'],
             'gov_id_issued' => ['Date / Place of Issuance'],
         ]],
     ];
 }
 
-/** Part VII columns (stored in pds_learning_development). */
+/** Section VI (L&D) columns (stored in pds_learning_development). */
 function pds_ld_columns(): array {
     return [
         'title'        => ['Title of Learning and Development Interventions / Training Programs'],
@@ -197,7 +211,7 @@ function pds_load(PDO $pdo, int $faculty_id): array {
     ];
 }
 
-/** Part VII rows in entry order -- new entries go at the end (next page). */
+/** L&D rows in entry order -- new entries go at the end (next sheet). */
 function pds_ld_rows(PDO $pdo, int $faculty_id): array {
     $stmt = $pdo->prepare("SELECT * FROM pds_learning_development WHERE faculty_id = ? ORDER BY ld_id ASC");
     $stmt->execute([$faculty_id]);
@@ -223,7 +237,7 @@ function pds_write_data(PDO $pdo, int $faculty_id, array $data, ?int $source_doc
     )->execute([$faculty_id, json_encode($data), $source_document_id]);
 }
 
-/** Mark the PDS as updated (e.g. after Part VII changed). */
+/** Mark the PDS as updated (e.g. after an L&D entry was added). */
 function pds_touch(PDO $pdo, int $faculty_id): void {
     $pdo->prepare(
         "INSERT INTO pds_records (faculty_id, data) VALUES (?, '{}')
@@ -257,7 +271,7 @@ function pds_clean_input(array $input): array {
     return $clean;
 }
 
-/** Sanitize one Part VII row; returns null if it has no title. */
+/** Sanitize one L&D row; returns null if it has no title. */
 function pds_clean_ld_row(array $row): ?array {
     $title = mb_substr(trim((string)($row['title'] ?? '')), 0, 255);
     if ($title === '') { return null; }
@@ -278,7 +292,7 @@ function pds_clean_ld_row(array $row): ?array {
 }
 
 /**
- * Save the whole PDS from the edit form. Part VII rows carry their
+ * Save the whole PDS from the edit form. L&D rows carry their
  * ld_id; only rows the faculty member explicitly removed (_delete=1) are
  * deleted -- a row missing from the submission is left alone -- and new
  * rows are added. The previous version is snapshotted first.
@@ -329,17 +343,18 @@ function pds_insert_ld(PDO $pdo, int $faculty_id, array $clean, ?int $source_doc
 }
 
 /**
- * Add a seminar / training certificate to Part VII. Appends a new row --
- * existing entries are never changed -- and returns the Part VII page
- * number it landed on, or null if the entry had no title.
+ * Add a seminar / training certificate to Section VI (L&D). Appends a new
+ * row -- existing entries are never changed -- and returns where it lands
+ * on the printed form ("page 3", "continuation sheet C5", ...), or null
+ * if the entry had no title.
  */
-function pds_add_training(PDO $pdo, int $faculty_id, array $entry, int $document_id): ?int {
+function pds_add_training(PDO $pdo, int $faculty_id, array $entry, int $document_id): ?string {
     $clean = pds_clean_ld_row($entry);
     if ($clean === null) { return null; }
     pds_insert_ld($pdo, $faculty_id, $clean, $document_id);
     pds_touch($pdo, $faculty_id);
     $count = count(pds_ld_rows($pdo, $faculty_id));
-    return pds_part7_page_number((int)ceil($count / PDS_PART7_ROWS_PER_PAGE));
+    return pds_ld_sheet_label(count(pds_part7_pages(array_fill(0, $count, []))));
 }
 
 /**
@@ -365,19 +380,22 @@ function pds_import_upload(PDO $pdo, int $faculty_id, array $fields, int $docume
 }
 
 /**
- * Split Part VII into printed pages: the first chunk goes on page 3 of
- * the form (with Parts VI and VIII); every further chunk becomes its own
- * continuation page. Always returns at least one (possibly empty) page.
+ * Split Section VI (L&D) into printed sheets exactly as the official form
+ * holds them: the first PDS_LD_ROWS_PAGE3 entries on page 3 (sheet C3),
+ * then PDS_LD_ROWS_CONTINUATION per continuation sheet C5. Always returns
+ * at least one (possibly empty) chunk.
  * @return array<int, array> list of row chunks
  */
 function pds_part7_pages(array $ld_rows): array {
-    $chunks = array_chunk($ld_rows, PDS_PART7_ROWS_PER_PAGE);
-    return $chunks ?: [[]];
+    $chunks = [array_slice($ld_rows, 0, PDS_LD_ROWS_PAGE3)];
+    foreach (array_chunk(array_slice($ld_rows, PDS_LD_ROWS_PAGE3), PDS_LD_ROWS_CONTINUATION) as $c) { $chunks[] = $c; }
+    return $chunks;
 }
 
-/** Printed page number of the n-th (1-based) Part VII page: 3, 4, 5, ... */
-function pds_part7_page_number(int $n): int {
-    return 2 + max(1, $n);
+/** Where the n-th (1-based) L&D chunk prints: "page 3", "continuation sheet C5", "continuation sheet C5 (2)", ... */
+function pds_ld_sheet_label(int $n): string {
+    if ($n <= 1) { return 'page 3'; }
+    return 'continuation sheet C5' . ($n > 2 ? ' (' . ($n - 1) . ')' : '');
 }
 
 /**

@@ -63,10 +63,11 @@ define('DOCUMENT_SUBTYPE_KEYWORDS', [
     ],
 ]);
 
-// PDS Part VII (Learning and Development) rows that fit on one page of
-// CS Form No. 212. When a faculty member's entries go past this, the
-// printable PDS continues Part VII on an extra page.
-define('PDS_PART7_ROWS_PER_PAGE', 21);
+// PDS Section VI (Learning and Development) rows that fit on the official
+// CS Form No. 212 (Revised 2026): 17 on page 3 (sheet C3), then 44 per
+// continuation sheet C5. Extra entries always go on further C5 sheets.
+define('PDS_LD_ROWS_PAGE3', 17);
+define('PDS_LD_ROWS_CONTINUATION', 44);
 
 // Path to the tesseract binary. On XAMPP/Windows this is usually the full
 // path to tesseract.exe; on macOS/Linux with Tesseract installed via

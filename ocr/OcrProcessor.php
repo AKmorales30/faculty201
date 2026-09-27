@@ -202,7 +202,7 @@ class OcrProcessor
     }
 
     /**
-     * Details of a seminar / training certificate for PDS Part VII.
+     * Details of a seminar / training certificate for PDS Section VI (L&D).
      * Every value is a best guess the faculty member reviews before saving.
      * @return array{title: ?string, date_from: ?string, date_to: ?string, hours: ?string, ld_type: string, conducted_by: ?string}
      */

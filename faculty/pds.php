@@ -36,7 +36,8 @@ $stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ? AND document
 $stmt->execute([$me['user_id']]);
 $pds_files = $stmt->fetchAll();
 
-$per_page = PDS_PART7_ROWS_PER_PAGE;
+$ld_first = PDS_LD_ROWS_PAGE3;
+$ld_cont = PDS_LD_ROWS_CONTINUATION;
 
 /** Render one form control. */
 function pds_control(string $name, array $def, $value, string $extra_class = ''): string {
@@ -66,7 +67,7 @@ include __DIR__ . '/../includes/header.php';
     <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-file-arrow-up"></i> Upload PDS / Certificate</a>
   </div>
 </div>
-<p class="text-muted mb-3">CS Form No. 212. Edit any part below and save. Seminar and training certificates you upload are added to Part VII automatically.</p>
+<p class="text-muted mb-3">CS Form No. 212. Edit any part below and save. Seminar and training certificates you upload are added to Section VI (Learning and Development) automatically.</p>
 
 <?php if ($status['current']): ?>
   <div class="alert alert-success small py-2"><i class="fa-solid fa-circle-check"></i> Your PDS is up to date for <?= $status['year'] ?><?= $status['updated_at'] ? ' -- last updated ' . date('M j, Y g:ia', strtotime($status['updated_at'])) : '' ?>.</div>
@@ -81,17 +82,17 @@ include __DIR__ . '/../includes/header.php';
   <?php $first = true; foreach (pds_schema() as $part_key => $part):
     $pid = 'part' . $part_key; ?>
 
-    <?php if ($part_key === 'VIII'): /* Part VII goes before VIII */ ?>
+    <?php if ($part_key === 'VII'): /* Section VI (L&D) comes before VII (Voluntary Work), as on the 2026 form */ ?>
     <div class="accordion-item">
       <h2 class="accordion-header">
         <button class="accordion-button collapsed fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#partVII">
-          VII. Learning and Development (L&amp;D) Interventions / Training Programs Attended
+          VI. Learning and Development (L&amp;D) Interventions / Training Programs Attended
           <span class="badge bg-light text-dark border ms-2" id="ldCounter"></span>
         </button>
       </h2>
       <div id="partVII" class="accordion-collapse collapse" data-bs-parent="#pdsParts">
         <div class="accordion-body">
-          <p class="small text-muted">Up to <?= $per_page ?> entries fit on page 3 of the form. When it's full, new entries continue on an extra Part VII page automatically -- existing entries are never moved or overwritten.</p>
+          <p class="small text-muted">Up to <?= $ld_first ?> entries fit on page 3 of the form. When it's full, new entries continue on continuation sheet C5 (<?= $ld_cont ?> per sheet) automatically -- existing entries are never moved or overwritten.</p>
           <div class="table-responsive">
             <table class="table table-sm align-middle pds-table" id="ldTable">
               <thead class="table-light"><tr>
@@ -239,29 +240,30 @@ include __DIR__ . '/../includes/header.php';
 
 <script>
 (function () {
-  var PER_PAGE = <?= (int)$per_page ?>;
+  var FIRST = <?= (int)$ld_first ?>, CONT = <?= (int)$ld_cont ?>;
   var counter = 100000;
   var form = document.getElementById('pdsForm');
   var ldBody = document.querySelector('#ldTable tbody');
 
-  // Number Part VII rows and insert a page divider every PER_PAGE entries.
+  // Number L&D rows and insert a divider where each printed sheet starts
+  // (page 3 holds FIRST entries, each continuation sheet C5 holds CONT).
   function renumberLd() {
     ldBody.querySelectorAll('.ld-page-row').forEach(function (r) { r.remove(); });
     var rows = Array.prototype.filter.call(ldBody.querySelectorAll('.ld-row'), function (r) { return !r.classList.contains('d-none'); });
     rows.forEach(function (row, i) {
-      if (i % PER_PAGE === 0) {
-        var page = 3 + i / PER_PAGE;
+      if (i === 0 || (i >= FIRST && (i - FIRST) % CONT === 0)) {
+        var sheet = i === 0 ? 0 : 1 + (i - FIRST) / CONT;
         var tr = document.createElement('tr');
         tr.className = 'ld-page-row';
         var cols = row.children.length;
-        tr.innerHTML = '<td colspan="' + cols + '" class="table-secondary small fw-semibold">Part VII &ndash; Page ' + page +
-          (page > 3 ? ' (continuation)' : '') + '</td>';
+        tr.innerHTML = '<td colspan="' + cols + '" class="table-secondary small fw-semibold">' +
+          (sheet === 0 ? 'Section VI &ndash; page 3' : 'Continuation sheet C5' + (sheet > 1 ? ' (' + sheet + ')' : '')) + '</td>';
         row.parentNode.insertBefore(tr, row);
       }
       row.querySelector('.ld-num').textContent = i + 1;
     });
-    var pages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
-    document.getElementById('ldCounter').textContent = rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies') + ' · ' + pages + ' page' + (pages === 1 ? '' : 's');
+    var pages = rows.length <= FIRST ? 1 : 1 + Math.ceil((rows.length - FIRST) / CONT);
+    document.getElementById('ldCounter').textContent = rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies') + ' · ' + pages + ' sheet' + (pages === 1 ? '' : 's');
   }
 
   function fromTemplate(tpl) {
@@ -294,7 +296,7 @@ include __DIR__ . '/../includes/header.php';
     var rm = e.target.closest('.remove-row');
     if (rm) { rm.closest('tr').remove(); renumberLd(); return; }
     var rmLd = e.target.closest('.remove-ld');
-    if (rmLd && confirm('Remove this Part VII entry? It stays in your version history.')) {
+    if (rmLd && confirm('Remove this L&D entry? It stays in your version history.')) {
       var tr = rmLd.closest('tr');
       tr.querySelector('.ld-delete').value = '1';
       tr.classList.add('d-none');
