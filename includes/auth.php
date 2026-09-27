@@ -41,7 +41,7 @@ function redirect_to_dashboard() {
             break;
         case 'program_chair':
         case 'dean':
-            header('Location: ' . BASE_URL . '/approval/pending_requests.php');
+            header('Location: ' . BASE_URL . '/approval/dashboard.php');
             break;
         default:
             header('Location: ' . BASE_URL . '/index.php');

@@ -5,10 +5,13 @@ require_role('admin');
 
 $page_title = 'Admin Dashboard';
 
+// Anything left waiting under the old approval workflow gets filed now.
+file_outstanding_requests($pdo);
+
 $total_faculty = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND is_active=1")->fetchColumn();
 $full_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='full_time' AND is_active=1")->fetchColumn();
 $part_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='part_time' AND is_active=1")->fetchColumn();
-$pending_count = $pdo->query("SELECT COUNT(*) FROM submission_requests WHERE status NOT IN ('uploaded','rejected')")->fetchColumn();
+$month_count   = $pdo->query("SELECT COUNT(*) FROM documents WHERE filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")->fetchColumn();
 $filed_count   = $pdo->query("SELECT COUNT(*) FROM documents")->fetchColumn();
 $alert_count   = unresolved_security_alert_count($pdo);
 
@@ -39,8 +42,8 @@ include __DIR__ . '/../includes/header.php';
   </div>
   <div class="col-md-3 col-6">
     <div class="card stat-card p-3">
-      <div class="text-muted small">Pending Requests</div>
-      <div class="stat-number text-accent-gold"><?= (int)$pending_count ?></div>
+      <div class="text-muted small">Uploads This Month</div>
+      <div class="stat-number text-accent-gold"><?= (int)$month_count ?></div>
     </div>
   </div>
   <div class="col-md-3 col-6">
@@ -59,15 +62,15 @@ include __DIR__ . '/../includes/header.php';
 <?php endif; ?>
 
 <div class="card stat-card">
-  <div class="card-header bg-white fw-semibold">Recent Submission Requests</div>
+  <div class="card-header bg-white fw-semibold">Recent Faculty Uploads</div>
   <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light">
-        <tr><th>Faculty</th><th>Document Type</th><th>Status</th><th>Submitted</th></tr>
+        <tr><th>Faculty</th><th>Document Type</th><th>Status</th><th>Uploaded</th></tr>
       </thead>
       <tbody>
         <?php if (!$recent): ?>
-          <tr><td colspan="4" class="text-center text-muted py-4">No submissions yet.</td></tr>
+          <tr><td colspan="4" class="text-center text-muted py-4">No uploads yet.</td></tr>
         <?php endif; ?>
         <?php foreach ($recent as $r): [$label, $badge] = status_badge($r['status']); ?>
         <tr>

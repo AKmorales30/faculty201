@@ -51,7 +51,7 @@ unset($_SESSION['login_error_admin']);
 
       <hr>
       <p class="small text-muted mb-0">
-        This portal is for the Admin, Program Chair, and Dean — system administration, faculty account management, and confirmation of faculty document submissions.
+        This portal is for the Admin, Program Chair, and Dean — system administration, faculty account management, and monitoring of faculty document uploads.
       </p>
     </div>
   </div>

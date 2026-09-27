@@ -9,15 +9,17 @@ $page_title = 'Data Analytics';
 $by_type = $pdo->query("SELECT document_type, COUNT(*) c FROM documents GROUP BY document_type")->fetchAll(PDO::FETCH_KEY_PAIR);
 $by_type = array_merge(['TOR'=>0,'Diploma'=>0,'Certificate'=>0], $by_type);
 
-// Requests by status (full workflow funnel)
-$by_status = $pdo->query("SELECT status, COUNT(*) c FROM submission_requests GROUP BY status")->fetchAll(PDO::FETCH_KEY_PAIR);
-$status_order = ['pending','chair_confirmed','dean_confirmed','fully_confirmed','uploaded','rejected'];
-$by_status = array_merge(array_fill_keys($status_order, 0), $by_status);
+// Faculty with the most uploaded documents
+$top_uploaders = $pdo->query(
+    "SELECT u.full_name, COUNT(*) c FROM documents d
+     JOIN users u ON u.user_id = d.faculty_id
+     GROUP BY d.faculty_id, u.full_name ORDER BY c DESC LIMIT 8"
+)->fetchAll(PDO::FETCH_KEY_PAIR);
 
 // Full-time vs part-time faculty
 $by_employment = $pdo->query("SELECT employment_type, COUNT(*) c FROM users WHERE role='faculty' AND is_active=1 GROUP BY employment_type")->fetchAll(PDO::FETCH_KEY_PAIR);
 
-// Submissions over the last 6 months
+// Uploads over the last 6 months
 $monthly = $pdo->query(
     "SELECT DATE_FORMAT(submitted_at, '%Y-%m') ym, COUNT(*) c
      FROM submission_requests
@@ -47,7 +49,7 @@ include __DIR__ . '/../includes/header.php';
   </div>
   <div class="col-lg-4">
     <div class="card stat-card p-3">
-      <div class="text-muted small mb-2">Requests by Status</div>
+      <div class="text-muted small mb-2">Top Uploaders</div>
       <canvas id="chartStatus" height="220"></canvas>
     </div>
   </div>
@@ -56,7 +58,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="row g-3 mb-4">
   <div class="col-lg-7">
     <div class="card stat-card p-3">
-      <div class="text-muted small mb-2">Submissions — Last 6 Months</div>
+      <div class="text-muted small mb-2">Uploads — Last 6 Months</div>
       <canvas id="chartMonthly" height="140"></canvas>
     </div>
   </div>
@@ -108,8 +110,8 @@ new Chart(document.getElementById('chartEmployment'), {
 new Chart(document.getElementById('chartStatus'), {
   type: 'bar',
   data: {
-    labels: <?= json_encode(array_keys($by_status)) ?>,
-    datasets: [{ data: <?= json_encode(array_values($by_status)) ?>, backgroundColor: brand }]
+    labels: <?= json_encode(array_keys($top_uploaders)) ?>,
+    datasets: [{ data: <?= json_encode(array_values($top_uploaders)) ?>, backgroundColor: brand }]
   },
   options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
 });
@@ -118,7 +120,7 @@ new Chart(document.getElementById('chartMonthly'), {
   type: 'line',
   data: {
     labels: <?= json_encode(array_keys($monthly)) ?>,
-    datasets: [{ label: 'Submissions', data: <?= json_encode(array_values($monthly)) ?>, borderColor: teal, backgroundColor: 'rgba(21,121,117,.15)', fill: true, tension: .3 }]
+    datasets: [{ label: 'Uploads', data: <?= json_encode(array_values($monthly)) ?>, borderColor: teal, backgroundColor: 'rgba(21,121,117,.15)', fill: true, tension: .3 }]
   },
   options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
 });

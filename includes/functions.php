@@ -48,10 +48,130 @@ function status_badge(string $status): array {
         'chair_confirmed'  => ['Confirmed by Program Chair — awaiting Dean', 'bg-info text-dark'],
         'dean_confirmed'   => ['Confirmed by Dean — awaiting Program Chair', 'bg-info text-dark'],
         'fully_confirmed'  => ['Fully Confirmed — filing in progress', 'bg-primary'],
-        'uploaded'         => ['Filed to Repository', 'bg-success'],
+        'uploaded'         => ['Uploaded to 201 File', 'bg-success'],
         'rejected'         => ['Rejected', 'bg-danger'],
     ];
     return $map[$status] ?? [$status, 'bg-secondary'];
+}
+
+// ---------------------------------------------------------------------
+// Upload workflow (notification-based). A faculty upload is accepted and
+// filed as soon as the file is stored -- there is no Program Chair / Dean
+// approval step. The Chair and Dean are notified instead.
+// submission_requests is still written (status 'uploaded') as the upload
+// log, and documents.request_id points back to it.
+// ---------------------------------------------------------------------
+
+/**
+ * Move a scan (path relative to ROOT_PATH) into the permanent repository
+ * folder uploads/{faculty_id}/{document_type}/ and return its new
+ * relative path, or null if the file could not be moved.
+ */
+function move_to_repository(int $faculty_id, string $document_type, string $source_rel): ?string {
+    $srcAbs = ROOT_PATH . '/' . $source_rel;
+    $destDir = UPLOADS_PATH . '/' . $faculty_id . '/' . $document_type;
+    if (!is_dir($destDir)) { @mkdir($destDir, 0775, true); }
+    $filename = basename($source_rel);
+    if (!is_file($srcAbs) || !@rename($srcAbs, $destDir . '/' . $filename)) {
+        return null;
+    }
+    return 'uploads/' . $faculty_id . '/' . $document_type . '/' . $filename;
+}
+
+/**
+ * Tell every Program Chair and Dean (and the Admin, as before) that a
+ * faculty member uploaded a document to their 201 file.
+ */
+function notify_new_upload(PDO $pdo, string $faculty_name, string $document_type, int $request_id, ?string $uploaded_at = null): void {
+    $categories = document_categories();
+    $label = $categories[$document_type]['label'] ?? $document_type;
+    $when = new DateTime($uploaded_at ?? 'now', new DateTimeZone('Asia/Manila'));
+
+    $msg = "New Document Uploaded\n"
+         . "Faculty: {$faculty_name}\n"
+         . "Document Type: {$label}\n"
+         . "Date Uploaded: " . $when->format('F j, Y, g:i A') . "\n"
+         . "The document has been added to the faculty member's 201 Repository.";
+
+    notify_role($pdo, 'program_chair', $msg, $request_id);
+    notify_role($pdo, 'dean', $msg, $request_id);
+    notify_role($pdo, 'admin', $msg, $request_id);
+}
+
+/**
+ * File a faculty member's upload immediately: move the scan into the
+ * repository, log it in submission_requests as 'uploaded', insert the
+ * documents row, and notify the Program Chair / Dean. $ocr is the
+ * OcrProcessor::process() result from the preview step.
+ * Returns the request_id, or null if the file could not be stored.
+ */
+function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, ?string $expiration, string $scan_rel, array $ocr): ?int {
+    $filePath = move_to_repository((int)$faculty['user_id'], $document_type, $scan_rel);
+    if ($filePath === null) {
+        return null;
+    }
+
+    try {
+        $pdo->beginTransaction();
+        $pdo->prepare(
+            "INSERT INTO submission_requests (faculty_id, document_type_hint, expiration_date_hint, temp_file_path, status)
+             VALUES (?, ?, ?, ?, 'uploaded')"
+        )->execute([$faculty['user_id'], $document_type, $expiration, $filePath]);
+        $request_id = (int)$pdo->lastInsertId();
+
+        $pdo->prepare(
+            "INSERT INTO documents (request_id, faculty_id, document_type, file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )->execute([
+            $request_id, $faculty['user_id'], $document_type, $filePath, $expiration,
+            $ocr['text'] ?? null, $ocr['matched_name'] ?? null, $ocr['confidence_note'] ?? null,
+        ]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        // Put the scan back so the faculty member can retry from the preview.
+        @rename(ROOT_PATH . '/' . $filePath, ROOT_PATH . '/' . $scan_rel);
+        throw $e;
+    }
+
+    notify_new_upload($pdo, $faculty['full_name'], $document_type, $request_id);
+    return $request_id;
+}
+
+/**
+ * One-time catch-up for requests submitted under the old approval
+ * workflow that were still waiting on the Program Chair / Dean: file
+ * them now so nothing stays stuck. Safe to call repeatedly -- it does
+ * nothing once no such requests remain.
+ */
+function file_outstanding_requests(PDO $pdo): void {
+    $rows = $pdo->query(
+        "SELECT sr.*, u.full_name FROM submission_requests sr
+         JOIN users u ON u.user_id = sr.faculty_id
+         WHERE sr.status IN ('pending','chair_confirmed','dean_confirmed','fully_confirmed')"
+    )->fetchAll();
+    if (!$rows) { return; }
+
+    require_once ROOT_PATH . '/ocr/OcrProcessor.php';
+    foreach ($rows as $req) {
+        $scanAbs = ROOT_PATH . '/' . $req['temp_file_path'];
+        $ocr = is_file($scanAbs) ? OcrProcessor::process($scanAbs, $req['full_name']) : [];
+        $filePath = move_to_repository((int)$req['faculty_id'], $req['document_type_hint'], $req['temp_file_path'])
+                 ?? $req['temp_file_path'];
+
+        $pdo->prepare(
+            "INSERT INTO documents (request_id, faculty_id, document_type, file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )->execute([
+            $req['request_id'], $req['faculty_id'], $req['document_type_hint'], $filePath, $req['expiration_date_hint'] ?: null,
+            $ocr['text'] ?? null, $ocr['matched_name'] ?? null, $ocr['confidence_note'] ?? null,
+        ]);
+        $pdo->prepare("UPDATE submission_requests SET status='uploaded', temp_file_path=? WHERE request_id=?")
+            ->execute([$filePath, $req['request_id']]);
+
+        notify($pdo, (int)$req['faculty_id'],
+            "Your {$req['document_type_hint']} has been added to your 201 file.", (int)$req['request_id']);
+    }
 }
 
 function safe_filename(string $original): string {

@@ -264,3 +264,7 @@ html, body { overflow-x: hidden; }
   .app-main .btn:not(.btn-sm):not(.btn-close) { padding: .55rem .9rem; }
   .login-card { margin: 0 12px; }
 }
+
+/* Multi-line notification messages ("New Document Uploaded" + details) */
+.notif-message { white-space: pre-line; }
+.notif-message::first-line { font-weight: 600; }

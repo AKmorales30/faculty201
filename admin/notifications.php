@@ -34,7 +34,7 @@ include __DIR__ . '/../includes/header.php';
     <?php foreach ($notifications as $n): ?>
       <div class="list-group-item notif-item <?= $n['is_read'] ? '' : 'notif-unread' ?>">
         <div class="d-flex justify-content-between">
-          <div><?= h($n['message']) ?></div>
+          <div class="notif-message"><?= h($n['message']) ?></div>
           <div class="text-muted small text-nowrap ms-3"><?= time_ago($n['created_at']) ?></div>
         </div>
       </div>

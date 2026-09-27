@@ -3,8 +3,9 @@
  * OcrProcessor
  *
  * OCR + AI-style document categorization used by the Faculty "Submit
- * Document" portal (Figure 7 of the capstone paper) and by the filing
- * routine that runs once a submission request becomes fully_confirmed.
+ * Document" portal (Figure 7 of the capstone paper) and by the
+ * catch-up filing routine for requests left over from the old approval
+ * workflow (file_outstanding_requests() in includes/functions.php).
  *
  * - Text is extracted with the Tesseract OCR engine (TESSERACT_BINARY_PATH,
  *   see config/config.php) for image scans, and with pdftotext / a

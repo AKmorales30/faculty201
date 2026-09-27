@@ -11,7 +11,8 @@ $categories = document_categories();
 $action = $_POST['action'] ?? '';
 
 // ---------------------------------------------------------------------
-// Step 2a: faculty confirmed the previewed scan -> create the request
+// Step 2a: faculty confirmed the previewed scan -> file it immediately
+// (no Program Chair / Dean approval; they are notified instead)
 // ---------------------------------------------------------------------
 if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $scan = $_SESSION['pending_scan'];
@@ -24,21 +25,17 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
 
     $expiration = $_POST['expiration_date'] ?: null;
 
-    $stmt = $pdo->prepare(
-        "INSERT INTO submission_requests (faculty_id, document_type_hint, expiration_date_hint, temp_file_path, status)
-         VALUES (?, ?, ?, ?, 'pending')"
-    );
-    $stmt->execute([$me['user_id'], $type, $expiration, $scan['relative_path']]);
-    $request_id = (int)$pdo->lastInsertId();
-
-    $msg = "{$me['full_name']} submitted a {$type} for confirmation.";
-    notify_role($pdo, 'program_chair', $msg, $request_id);
-    notify_role($pdo, 'dean', $msg, $request_id);
-    notify_role($pdo, 'admin', $msg, $request_id);
+    $request_id = store_faculty_upload($pdo, $me, $type, $expiration, $scan['relative_path'], $scan['result']);
+    if ($request_id === null) {
+        unset($_SESSION['pending_scan']);
+        $_SESSION['flash_error'] = 'The uploaded file could not be stored. Please upload it again.';
+        header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+        exit;
+    }
 
     unset($_SESSION['pending_scan']);
-    $_SESSION['flash_success'] = "Document submitted. The Program Chair, Dean, and Admin have been notified. You'll see it in \"My Requests\" while it's confirmed.";
-    header('Location: ' . BASE_URL . '/faculty/my_requests.php');
+    $_SESSION['flash_success'] = "Your {$categories[$type]['label']} has been uploaded to your 201 file. The Program Chair and Dean have been notified.";
+    header('Location: ' . BASE_URL . '/faculty/my_documents.php?type=' . urlencode($type));
     exit;
 }
 
@@ -104,7 +101,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <h3 class="fw-bold mb-1">Submit Document</h3>
-<p class="text-muted mb-4">Scan and upload a TOR, Diploma, or Certificate. The system will extract and pre-categorize it automatically -- you confirm before it's submitted for Program Chair and Dean confirmation.</p>
+<p class="text-muted mb-4">Scan and upload a TOR, Diploma, or Certificate. The system will extract and pre-categorize it automatically -- once you confirm, it's added straight to your 201 file and the Program Chair and Dean are notified.</p>
 
 <?php if (!$pending): ?>
 
@@ -190,7 +187,7 @@ include __DIR__ . '/../includes/header.php';
 
         <div class="d-flex gap-2">
           <button type="submit" name="action" value="confirm" class="btn btn-brand flex-grow-1">
-            <i class="fa-solid fa-check"></i> Confirm Upload
+            <i class="fa-solid fa-check"></i> Upload to My 201 File
           </button>
           <button type="submit" name="action" value="cancel" formnovalidate class="btn btn-outline-secondary">
             <i class="fa-solid fa-xmark"></i> Cancel

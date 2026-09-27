@@ -43,8 +43,10 @@ CREATE TABLE employment_history (
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------
--- SUBMISSION REQUESTS: Faculty submits -> Program Chair + Dean confirm
--- Nothing enters the repository until BOTH have confirmed.
+-- SUBMISSION REQUESTS: upload log. Faculty uploads are filed immediately
+-- (status 'uploaded') and the Program Chair + Dean are notified -- there
+-- is no approval step. The other statuses and chair/dean/rejection columns
+-- are kept only for records created under the old approval workflow.
 -- ---------------------------------------------------------------------
 CREATE TABLE submission_requests (
     request_id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -78,7 +80,7 @@ CREATE TABLE submission_requests (
 
 -- ---------------------------------------------------------------------
 -- DOCUMENTS: the official, filed 201-file repository record.
--- A row here only exists once a request reaches 'uploaded'.
+-- Created at the moment a faculty member uploads a document.
 -- ---------------------------------------------------------------------
 CREATE TABLE documents (
     document_id          INT AUTO_INCREMENT PRIMARY KEY,

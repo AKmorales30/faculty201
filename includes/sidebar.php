@@ -31,15 +31,14 @@ function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
 
       <?php if ($role === 'faculty'): ?>
         <li class="nav-item"><a class="nav-link <?= nav_active('dashboard.php',$here) ?>" href="<?= BASE_URL ?>/faculty/dashboard.php"><i class="fa-solid fa-gauge"></i> Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('submit_document.php',$here) ?>" href="<?= BASE_URL ?>/faculty/submit_document.php"><i class="fa-solid fa-file-arrow-up"></i> Submit Document</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('my_requests.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_requests.php"><i class="fa-solid fa-list-check"></i> My Requests</a></li>
+        <li class="nav-item"><a class="nav-link <?= nav_active('submit_document.php',$here) ?>" href="<?= BASE_URL ?>/faculty/submit_document.php"><i class="fa-solid fa-file-arrow-up"></i> Upload Document</a></li>
+        <li class="nav-item"><a class="nav-link <?= nav_active('my_requests.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_requests.php"><i class="fa-solid fa-list-check"></i> Upload History</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('my_documents.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_documents.php"><i class="fa-solid fa-folder-open"></i> My 201 File</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('notifications.php',$here) ?>" href="<?= BASE_URL ?>/faculty/notifications.php"><i class="fa-solid fa-bell"></i> Notifications</a></li>
       <?php endif; ?>
 
       <?php if (in_array($role, ['program_chair','dean'], true)): ?>
-        <li class="nav-item"><a class="nav-link <?= nav_active('pending_requests.php',$here) ?>" href="<?= BASE_URL ?>/approval/pending_requests.php"><i class="fa-solid fa-hourglass-half"></i> Pending Requests</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('history.php',$here) ?>" href="<?= BASE_URL ?>/approval/history.php"><i class="fa-solid fa-clock-rotate-left"></i> Confirmation History</a></li>
+        <li class="nav-item"><a class="nav-link <?= in_array($here, ['dashboard.php','request_detail.php'], true) ? 'active' : '' ?>" href="<?= BASE_URL ?>/approval/dashboard.php"><i class="fa-solid fa-file-circle-check"></i> Recent Uploads</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('notifications.php',$here) ?>" href="<?= BASE_URL ?>/approval/notifications.php"><i class="fa-solid fa-bell"></i> Notifications</a></li>
       <?php endif; ?>
 

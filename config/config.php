@@ -10,7 +10,7 @@ define('BASE_URL', rtrim(getenv('APP_BASE_URL') ?: 'http://localhost/faculty201'
 
 // Filesystem paths
 define('ROOT_PATH', dirname(__DIR__));
-define('TEMP_SCAN_PATH', ROOT_PATH . '/temp_scans');   // holds unconfirmed submissions
+define('TEMP_SCAN_PATH', ROOT_PATH . '/temp_scans');   // holds scans while the faculty member previews them, before upload
 define('UPLOADS_PATH', ROOT_PATH . '/uploads');         // final filed repository: uploads/{faculty_id}/{document_type}/
 
 // Allowed scan file types

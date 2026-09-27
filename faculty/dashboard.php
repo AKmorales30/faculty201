@@ -6,9 +6,12 @@ require_role('faculty');
 $page_title = 'My Dashboard';
 $me = current_user();
 
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM submission_requests WHERE faculty_id=? AND status NOT IN ('uploaded','rejected')");
+// Anything left waiting under the old approval workflow gets filed now.
+file_outstanding_requests($pdo);
+
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id=? AND filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
 $stmt->execute([$me['user_id']]);
-$pending = $stmt->fetchColumn();
+$this_month = $stmt->fetchColumn();
 
 $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id=?");
 $stmt->execute([$me['user_id']]);
@@ -27,8 +30,8 @@ include __DIR__ . '/../includes/header.php';
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-4">
     <div class="card stat-card p-3 h-100">
-      <div class="text-muted small">Pending Requests</div>
-      <div class="stat-number text-accent-gold"><?= (int)$pending ?></div>
+      <div class="text-muted small">Uploaded This Month</div>
+      <div class="stat-number text-accent-gold"><?= (int)$this_month ?></div>
     </div>
   </div>
   <div class="col-6 col-md-4">
@@ -40,20 +43,20 @@ include __DIR__ . '/../includes/header.php';
   <div class="col-12 col-md-4">
     <div class="card stat-card p-3 h-100 d-flex justify-content-center">
       <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand">
-        <i class="fa-solid fa-file-arrow-up"></i> Submit a New Document
+        <i class="fa-solid fa-file-arrow-up"></i> Upload a New Document
       </a>
     </div>
   </div>
 </div>
 
 <div class="card stat-card">
-  <div class="card-header bg-white fw-semibold">My Recent Requests</div>
+  <div class="card-header bg-white fw-semibold">My Recent Uploads</div>
   <div class="card-body p-0 table-responsive">
     <table class="table mb-0 align-middle">
-      <thead class="table-light"><tr><th>Document Type</th><th>Status</th><th>Submitted</th></tr></thead>
+      <thead class="table-light"><tr><th>Document Type</th><th>Status</th><th>Uploaded</th></tr></thead>
       <tbody>
         <?php if (!$recent): ?>
-          <tr><td colspan="3" class="text-center text-muted py-4">You haven't submitted any documents yet.</td></tr>
+          <tr><td colspan="3" class="text-center text-muted py-4">You haven't uploaded any documents yet.</td></tr>
         <?php endif; ?>
         <?php foreach ($recent as $r): [$label,$badge] = status_badge($r['status']); ?>
         <tr>

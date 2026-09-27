@@ -20,7 +20,7 @@ if (is_logged_in()) { redirect_to_dashboard(); }
     <h1 class="fw-bold display-5">College of Computing Studies</h1>
     <h2 class="fw-semibold h4 mb-4">Faculty 201-File Repository</h2>
     <p class="mx-auto hero-lead">
-      A secure, centralized system for submitting, confirming, and filing faculty 201-file
+      A secure, centralized system for uploading, storing, and monitoring faculty 201-file
       documents — Transcripts of Records, Diplomas, Certificates, and other supporting documents.
     </p>
   </div>
@@ -53,7 +53,7 @@ if (is_logged_in()) { redirect_to_dashboard(); }
         </div>
         <h5 class="fw-bold">Admin</h5>
         <p class="text-muted small flex-grow-1">
-          For the Admin, Program Chairs, and Deans — managing accounts and records, and confirming submission requests.
+          For the Admin, Program Chairs, and Deans — managing accounts and records, and staying notified of faculty document uploads.
         </p>
         <a href="login_admin.php" target="_blank" rel="noopener" class="fw-semibold text-brand">
           Login <i class="fa-solid fa-arrow-right"></i>
