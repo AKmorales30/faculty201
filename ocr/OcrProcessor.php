@@ -94,10 +94,49 @@ class OcrProcessor
 
     private static function runTesseract(string $imagePath): string
     {
-        $out = @shell_exec(
-            escapeshellcmd(TESSERACT_BINARY_PATH) . ' ' . escapeshellarg($imagePath) . ' stdout 2>/dev/null'
-        );
+        $prepared = self::prepareImage($imagePath);
+        $out = self::tesseract($prepared ?? $imagePath, '');
+        if ($prepared !== null) {
+            @unlink($prepared);
+        }
         return is_string($out) ? trim($out) : '';
+    }
+
+    /** One tesseract run. OMP_THREAD_LIMIT=1: extra threads only slow it down on a small (shared-CPU) server. */
+    private static function tesseract(string $imagePath, string $args): ?string
+    {
+        $env = DIRECTORY_SEPARATOR === '/' ? 'OMP_THREAD_LIMIT=1 ' : '';
+        $out = @shell_exec($env . escapeshellcmd(TESSERACT_BINARY_PATH) . ' ' . escapeshellarg($imagePath) . ' stdout ' . $args . ' 2>/dev/null');
+        return is_string($out) ? $out : null;
+    }
+
+    /**
+     * Make a phone photo readable for tesseract, which ignores EXIF
+     * orientation: iPhone photos are stored sideways with a "rotate me"
+     * tag, so they were OCR'd sideways and came out as gibberish. Applies
+     * the EXIF rotation, scales large photos down, converts to grayscale,
+     * then lets tesseract's orientation detection (OSD) fix pages that are
+     * still sideways or upside down. Needs ImageMagick; returns the path of
+     * a temporary PNG, or null to OCR the original as-is.
+     */
+    private static function prepareImage(string $imagePath): ?string
+    {
+        if (!self::binaryExists('convert')) {
+            return null;
+        }
+        $out = sys_get_temp_dir() . '/ocr_' . bin2hex(random_bytes(4)) . '.png';
+        @shell_exec('convert ' . escapeshellarg($imagePath . '[0]') . ' -auto-orient -resize ' . escapeshellarg('2600x2600>')
+            . ' -colorspace Gray -normalize ' . escapeshellarg($out) . ' 2>/dev/null');
+        if (!is_file($out) || filesize($out) === 0) {
+            @unlink($out);
+            return null;
+        }
+        // "Rotate: 90" = turn 90 degrees clockwise to make the text upright
+        $osd = self::tesseract($out, '--psm 0');
+        if ($osd !== null && preg_match('/Rotate:\s*(90|180|270)\b/', $osd, $m)) {
+            @shell_exec('convert ' . escapeshellarg($out) . ' -rotate ' . $m[1] . ' ' . escapeshellarg($out) . ' 2>/dev/null');
+        }
+        return $out;
     }
 
     private static function binaryExists(string $bin): bool

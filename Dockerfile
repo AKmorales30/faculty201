@@ -1,12 +1,14 @@
 # PHP + Apache image with everything OcrProcessor.php needs to keep
-# working: tesseract-ocr (image OCR) and poppler-utils (pdftotext /
-# pdftoppm, for PDF scans). This is what a normal XAMPP install gives
+# working: tesseract-ocr (image OCR), poppler-utils (pdftotext /
+# pdftoppm, for PDF scans) and imagemagick (straightens / cleans up phone
+# photos before OCR). This is what a normal XAMPP install gives
 # you "for free" locally -- on Render, we have to install it ourselves.
 FROM php:8.2-apache
 
 RUN apt-get update && apt-get install -y \
         tesseract-ocr \
         poppler-utils \
+        imagemagick \
         libzip-dev \
         unzip \
     && docker-php-ext-install pdo pdo_mysql \
