@@ -5,6 +5,7 @@
  * a filed document.
  *
  * Allowed: the document's owner, or the Admin (can_access_document()).
+ * The file is read from the database (document_files).
  * Program Chairs and Deans can open only their own documents -- never a
  * faculty member's.
  */
@@ -22,18 +23,33 @@ if (!$doc || !can_access_document($me, $doc)) {
     exit('You do not have access to this document.');
 }
 
-$path = realpath(ROOT_PATH . '/' . $doc['file_path']);
-$uploads = realpath(UPLOADS_PATH);
-if (!$path || !$uploads || !str_starts_with($path, $uploads . DIRECTORY_SEPARATOR) || !is_file($path)) {
-    http_response_code(404);
-    exit('The file is no longer available on the server.');
+// Served from the database (document_files); the server's disk is wiped on
+// every redeploy. A file that only exists on disk (uploaded before files
+// were kept in the database, e.g. on XAMPP) is copied in the first time
+// it's opened.
+$stmt = $pdo->prepare("SELECT mime_type, file_size, data FROM document_files WHERE document_id = ?");
+$stmt->execute([(int)$doc['document_id']]);
+$file = $stmt->fetch();
+
+if (!$file) {
+    $path = realpath(ROOT_PATH . '/' . $doc['file_path']);
+    $uploads = realpath(UPLOADS_PATH);
+    if (!$path || !$uploads || !str_starts_with($path, $uploads . DIRECTORY_SEPARATOR) || !is_file($path)) {
+        http_response_code(404);
+        exit('This file is no longer available: it was uploaded before documents were kept in the database, '
+           . 'and the server copy was removed when the site was updated. Please upload it again.');
+    }
+    try {
+        store_document_file($pdo, (int)$doc['document_id'], $path, $doc['file_path']);
+    } catch (Throwable $e) {
+        error_log('Copying document ' . $doc['document_id'] . ' into the database failed: ' . $e->getMessage());
+    }
+    $file = ['mime_type' => document_mime_type($path), 'file_size' => filesize($path), 'data' => file_get_contents($path)];
 }
 
-$types = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
-$ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-header('Content-Type: ' . ($types[$ext] ?? 'application/octet-stream'));
-header('Content-Length: ' . filesize($path));
-header('Content-Disposition: inline; filename="' . basename($path) . '"');
+header('Content-Type: ' . $file['mime_type']);
+header('Content-Length: ' . strlen($file['data']));
+header('Content-Disposition: inline; filename="' . basename($doc['file_path']) . '"');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, no-store');
-readfile($path);
+echo $file['data'];

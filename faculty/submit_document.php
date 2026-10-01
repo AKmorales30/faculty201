@@ -92,8 +92,13 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
 
     $stored = store_faculty_upload($pdo, $me, $type, $meta, $scan['relative_path'], $scan['result']);
     if ($stored === null) {
-        unset($_SESSION['pending_scan']);
-        $_SESSION['flash_error'] = 'The uploaded file could not be stored. Please upload it again.';
+        if (is_file(ROOT_PATH . '/' . $scan['relative_path'])) {
+            // Still have the scan: stay on the preview so it can simply be confirmed again
+            $_SESSION['flash_error'] = 'The document could not be saved just now. Please press "Upload to My 201 File" again.';
+        } else {
+            unset($_SESSION['pending_scan']);
+            $_SESSION['flash_error'] = 'The uploaded file could not be stored. Please upload it again.';
+        }
         header('Location: ' . BASE_URL . '/faculty/submit_document.php');
         exit;
     }

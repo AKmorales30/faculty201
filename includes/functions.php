@@ -11,7 +11,7 @@ require_once __DIR__ . '/../config/db.php';
  * -- the older migrations were already run manually.
  */
 function run_pending_migrations(PDO $pdo): void {
-    $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql'];
+    $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
@@ -183,6 +183,38 @@ function mark_notification_read(PDO $pdo, int $user_id, int $notification_id): v
     $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE notification_id = ? AND user_id = ?")->execute([$notification_id, $user_id]);
 }
 
+/** MIME type served for a stored document, from its file extension. */
+function document_mime_type(string $file_path): string {
+    $types = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
+    return $types[strtolower(pathinfo($file_path, PATHINFO_EXTENSION))] ?? 'application/octet-stream';
+}
+
+/**
+ * Save a document's file in the database (document_files), so it survives
+ * the hosting server wiping its disk. $abs_path is the file on disk.
+ * Throws if the file can't be read or is bigger than the database accepts
+ * in one query (max_allowed_packet).
+ */
+function store_document_file(PDO $pdo, int $document_id, string $abs_path, string $file_path): void {
+    $bytes = @file_get_contents($abs_path);
+    if ($bytes === false) {
+        throw new RuntimeException("Could not read $abs_path to store it");
+    }
+    $limit = (int)$pdo->query("SELECT @@max_allowed_packet")->fetchColumn();
+    if ($limit > 0 && strlen($bytes) > $limit - 1024 * 1024) {
+        throw new RuntimeException('File of ' . strlen($bytes) . ' bytes exceeds the database max_allowed_packet (' . $limit . ')');
+    }
+    $stmt = $pdo->prepare(
+        "INSERT INTO document_files (document_id, mime_type, file_size, data) VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_size = VALUES(file_size), data = VALUES(data)"
+    );
+    $stmt->bindValue(1, $document_id, PDO::PARAM_INT);
+    $stmt->bindValue(2, document_mime_type($file_path));
+    $stmt->bindValue(3, strlen($bytes), PDO::PARAM_INT);
+    $stmt->bindValue(4, $bytes, PDO::PARAM_LOB);
+    $stmt->execute();
+}
+
 /**
  * Who may open a 201-file document: its owner, or the Admin. Program
  * Chairs and Deans only receive upload notifications -- they can't view,
@@ -232,12 +264,15 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
             $ocr['text'] ?? null, $ocr['matched_name'] ?? null, $ocr['confidence_note'] ?? null,
         ]);
         $document_id = (int)$pdo->lastInsertId();
+        // The file itself goes into the database too -- the disk copy doesn't survive a redeploy
+        store_document_file($pdo, $document_id, ROOT_PATH . '/' . $filePath, $filePath);
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) { $pdo->rollBack(); }
         // Put the scan back so the faculty member can retry from the preview.
         @rename(ROOT_PATH . '/' . $filePath, ROOT_PATH . '/' . $scan_rel);
-        throw $e;
+        error_log('Storing upload failed: ' . $e->getMessage());
+        return null;
     }
 
     return [$request_id, $document_id];
@@ -371,6 +406,10 @@ function file_outstanding_requests(PDO $pdo): void {
             $req['request_id'], $req['faculty_id'], $req['document_type_hint'], $filePath, $req['expiration_date_hint'] ?: null,
             $ocr['text'] ?? null, $ocr['matched_name'] ?? null, $ocr['confidence_note'] ?? null,
         ]);
+        if (is_file(ROOT_PATH . '/' . $filePath)) {
+            try { store_document_file($pdo, (int)$pdo->lastInsertId(), ROOT_PATH . '/' . $filePath, $filePath); }
+            catch (Throwable $e) { error_log('Storing filed request failed: ' . $e->getMessage()); }
+        }
         $pdo->prepare("UPDATE submission_requests SET status='uploaded', temp_file_path=? WHERE request_id=?")
             ->execute([$filePath, $req['request_id']]);
 
