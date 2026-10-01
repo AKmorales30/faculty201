@@ -86,6 +86,11 @@ define('PROGRAMS', [
 // brew/apt it is typically just "tesseract" (must be on PATH).
 define('TESSERACT_BINARY_PATH', 'tesseract');
 
+// Python with OpenCV for ocr/docscan.py (cropping / straightening photos of
+// documents). The Docker image installs it in /opt/docscan; elsewhere the
+// system python3 is tried, and uploads work without it (no auto-crop).
+define('DOCSCAN_PYTHON', getenv('DOCSCAN_PYTHON') ?: (is_file('/opt/docscan/bin/python') ? '/opt/docscan/bin/python' : 'python3'));
+
 // Error display. Errors are always logged; they are only shown in the
 // browser when APP_DEBUG=1, or on local XAMPP (no APP_BASE_URL set).
 // Anywhere else a user sees a plain message -- never paths, line

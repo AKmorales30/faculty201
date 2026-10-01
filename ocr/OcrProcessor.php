@@ -32,9 +32,10 @@ class OcrProcessor
      *   confidence_note: string
      * }
      */
-    public static function process(string $filePath, string $facultyFullName): array
+    public static function process(string $filePath, string $facultyFullName, bool $alreadyPrepared = false): array
     {
-        $text = self::extractText($filePath);
+        // A page from DocScanner is already upright and cleaned up; skip the extra pass
+        $text = $alreadyPrepared ? trim((string)self::tesseract($filePath, '')) : self::extractText($filePath);
         [$detectedType, $scores] = self::classify($text);
         $detectedSubtype = $detectedType ? self::classifySubtype($detectedType, $text) : null;
         $matchedName = self::matchName($text, $facultyFullName);

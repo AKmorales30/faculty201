@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/pds.php';
 require_once __DIR__ . '/../ocr/OcrProcessor.php';
+require_once __DIR__ . '/../ocr/DocScanner.php';
 require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Deans keep their own 201 file too
 
 $page_title = 'Upload Document';
@@ -12,6 +13,37 @@ $categories = categories_for_faculty($employment_type);
 $period_now = current_academic_period();
 
 $action = $_POST['action'] ?? '';
+
+/** Temp files of a pending scan other than the one being filed (photo, page preview, photo preview). */
+function pending_extra_files(array $pending): array {
+    return array_values(array_filter([$pending['raw_path'] ?? null, $pending['page_image'] ?? null, $pending['orig_preview'] ?? null]));
+}
+function discard_files(array $rel_paths): void {
+    foreach ($rel_paths as $rel) {
+        $abs = ROOT_PATH . '/' . $rel;
+        if (is_file($abs)) { @unlink($abs); }
+    }
+}
+/** OCR + categorization of a scan; uses the cleaned-up page when there is one. */
+function ocr_pending(array $pending, string $name): array {
+    if (!empty($pending['page_image'])) {
+        return OcrProcessor::process(ROOT_PATH . '/' . $pending['page_image'], $name, true);
+    }
+    return OcrProcessor::process(ROOT_PATH . '/' . $pending['relative_path'], $name);
+}
+
+// Preview images of the pending scan (temp_scans/ is not web-accessible)
+if (isset($_GET['preview'])) {
+    $rel = ($_SESSION['pending_scan'] ?? [])[$_GET['preview'] === 'orig' ? 'orig_preview' : 'page_image'] ?? null;
+    if ($rel && is_file(ROOT_PATH . '/' . $rel)) {
+        header('Content-Type: image/jpeg');
+        header('Cache-Control: private, no-store');
+        readfile(ROOT_PATH . '/' . $rel);
+    } else {
+        http_response_code(404);
+    }
+    exit;
+}
 
 // A request bigger than post_max_size arrives with $_POST and $_FILES
 // empty, so it would otherwise just fall through to the blank upload form.
@@ -66,6 +98,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         exit;
     }
     [$request_id, $document_id] = $stored;
+    discard_files(pending_extra_files($scan));   // the original photo isn't kept -- the cleaned-up PDF is the record
 
     // Relevant information -> PDS
     $extra_lines = [];
@@ -99,9 +132,40 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
 // Step 2b: faculty cancelled the previewed scan -> discard temp file
 // ---------------------------------------------------------------------
 if ($action === 'cancel' && isset($_SESSION['pending_scan'])) {
-    $abs = ROOT_PATH . '/' . $_SESSION['pending_scan']['relative_path'];
-    if (is_file($abs)) { @unlink($abs); }
+    discard_files(array_merge([$_SESSION['pending_scan']['relative_path']], pending_extra_files($_SESSION['pending_scan'])));
     unset($_SESSION['pending_scan']);
+    header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+    exit;
+}
+
+// ---------------------------------------------------------------------
+// Step 2c: faculty adjusted the crop corners (or chose the whole photo)
+// -> re-process the original photo, then OCR / categorize again
+// ---------------------------------------------------------------------
+if ($action === 'recrop' && isset($_SESSION['pending_scan']['raw_path'])) {
+    $scan = $_SESSION['pending_scan'];
+    $whole = !empty($_POST['whole']);
+    $corners = null;
+    if (!$whole) {
+        $c = json_decode((string)($_POST['corners'] ?? ''), true);
+        if (is_array($c) && count($c) === 4) {
+            foreach ($c as $pt) {
+                if (!is_array($pt) || count($pt) !== 2 || !is_numeric($pt[0] ?? null) || !is_numeric($pt[1] ?? null)) { $c = null; break; }
+            }
+        } else {
+            $c = null;
+        }
+        $corners = $c;
+    }
+    $base = ROOT_PATH . '/' . preg_replace('/\.pdf$/', '', $scan['relative_path']);
+    $info = ($whole || $corners) ? DocScanner::scan(ROOT_PATH . '/' . $scan['raw_path'], $base, $corners, $whole) : null;
+    if ($info === null) {
+        $_SESSION['flash_error'] = 'The crop could not be applied. Please try again.';
+    } else {
+        $scan['docscan'] = $info;
+        $scan['result'] = ocr_pending($scan, $me['full_name']);
+        $_SESSION['pending_scan'] = $scan;
+    }
     header('Location: ' . BASE_URL . '/faculty/submit_document.php');
     exit;
 }
@@ -151,13 +215,26 @@ if ($action === 'scan') {
         exit;
     }
 
-    $result = OcrProcessor::process($destAbs, $me['full_name']);
+    $pending = ['relative_path' => 'temp_scans/' . $filename, 'original_name' => $file['name']];
 
-    $_SESSION['pending_scan'] = [
-        'relative_path' => 'temp_scans/' . $filename,
-        'original_name' => $file['name'],
-        'result'         => $result,
-    ];
+    // Photo of a paper document: find the page, crop & straighten it, and
+    // file that (as a PDF) instead of the photo. OCR runs on the clean page.
+    if (in_array($ext, DocScanner::IMAGE_EXTENSIONS, true)) {
+        $base = pathinfo($filename, PATHINFO_FILENAME) . '_scan';
+        $info = DocScanner::scan($destAbs, TEMP_SCAN_PATH . '/' . $base);
+        if ($info !== null) {
+            $pending = [
+                'relative_path' => 'temp_scans/' . $base . '.pdf',
+                'original_name' => $file['name'],
+                'raw_path'      => 'temp_scans/' . $filename,
+                'page_image'    => 'temp_scans/' . $base . '.jpg',
+                'orig_preview'  => 'temp_scans/' . $base . '_orig.jpg',
+                'docscan'       => $info,
+            ];
+        }
+    }
+    $pending['result'] = ocr_pending($pending, $me['full_name']);
+    $_SESSION['pending_scan'] = $pending;
 
     header('Location: ' . BASE_URL . '/faculty/submit_document.php');
     exit;
@@ -178,7 +255,7 @@ include __DIR__ . '/../includes/header.php';
       <i class="fa-solid fa-file-arrow-up text-brand"></i> Document Upload &amp; OCR/AI Extraction Portal
     </div>
     <div class="card-body">
-      <form action="submit_document.php" method="POST" enctype="multipart/form-data">
+      <form action="submit_document.php" method="POST" enctype="multipart/form-data" id="scanForm">
         <input type="hidden" name="action" value="scan">
 
         <div class="mb-3">
@@ -188,16 +265,113 @@ include __DIR__ . '/../includes/header.php';
 
         <div class="mb-3">
           <label class="form-label small fw-semibold">Upload / Scan File</label>
-          <input type="file" name="scan_file" class="form-control" accept=".jpg,.jpeg,.png,.webp,.pdf" required>
-          <div class="form-text">JPG, PNG, WEBP, or PDF -- max 10MB. The document type is detected automatically in the next step.</div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-outline-brand flex-fill" id="chooseBtn"><i class="fa-solid fa-folder-open"></i> Choose File</button>
+            <button type="button" class="btn btn-outline-brand flex-fill" id="photoBtn"><i class="fa-solid fa-camera"></i> Take Photo</button>
+          </div>
+          <!-- Only one of these carries name="scan_file" at a time: whichever was used last -->
+          <input type="file" name="scan_file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.pdf" class="d-none">
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" class="d-none">
+          <div class="small mt-2" id="chosenFile"><span class="text-muted">No file selected.</span></div>
+          <div class="form-text">JPG, PNG, WEBP, or PDF -- max <?= MAX_UPLOAD_BYTES / 1024 / 1024 ?>MB. Photos of paper documents are cropped and straightened automatically and saved as PDF; the document type is detected in the next step.</div>
         </div>
 
-        <button type="submit" class="btn btn-brand w-100">
+        <button type="submit" class="btn btn-brand w-100" id="scanBtn" disabled>
           <i class="fa-solid fa-magnifying-glass"></i> Scan &amp; Preview
         </button>
       </form>
     </div>
   </div>
+
+  <!-- Desktop "Take Photo": webcam capture -->
+  <div class="modal fade" id="cameraModal" tabindex="-1" aria-labelledby="cameraTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="cameraTitle">Take a photo of the document</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body text-center">
+          <video id="cameraVideo" class="w-100 rounded bg-dark" autoplay playsinline muted style="max-height:65vh"></video>
+          <div class="small text-muted mt-2">Hold the whole page in view on a contrasting surface -- it's cropped and straightened automatically.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-brand" id="captureBtn"><i class="fa-solid fa-camera"></i> Capture</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var MAX = <?= (int)MAX_UPLOAD_BYTES ?>;
+  var form = document.getElementById('scanForm');
+  var fileInput = document.getElementById('fileInput');
+  var cameraInput = document.getElementById('cameraInput');
+  var chosen = document.getElementById('chosenFile');
+  var scanBtn = document.getElementById('scanBtn');
+  var stream = null;
+
+  function use(input) {   // the input the file is submitted from
+    [fileInput, cameraInput].forEach(function (i) { if (i === input) i.setAttribute('name', 'scan_file'); else i.removeAttribute('name'); });
+    var f = input.files && input.files[0];
+    if (!f) { chosen.innerHTML = '<span class="text-muted">No file selected.</span>'; scanBtn.disabled = true; return; }
+    var tooBig = f.size > MAX;
+    chosen.innerHTML = '';
+    var span = document.createElement('span');
+    span.className = tooBig ? 'text-danger' : 'text-body';
+    span.textContent = (tooBig ? 'Too large (max ' + Math.round(MAX / 1048576) + 'MB): ' : 'Selected: ') + f.name + ' (' + (f.size / 1048576).toFixed(1) + ' MB)';
+    chosen.appendChild(span);
+    scanBtn.disabled = tooBig;
+  }
+  fileInput.addEventListener('change', function () { use(fileInput); });
+  cameraInput.addEventListener('change', function () { use(cameraInput); });
+  document.getElementById('chooseBtn').addEventListener('click', function () { fileInput.click(); });
+
+  // Phones / tablets open the camera app; desktops use the webcam (if any)
+  var touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  document.getElementById('photoBtn').addEventListener('click', function () {
+    if (touch || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || typeof DataTransfer === 'undefined') {
+      cameraInput.click();
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false })
+      .then(function (s) {
+        stream = s;
+        document.getElementById('cameraVideo').srcObject = s;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('cameraModal')).show();
+      })
+      .catch(function () {
+        chosen.innerHTML = '<span class="text-danger">No camera is available (or permission was denied). Use Choose File instead.</span>';
+      });
+  });
+  document.getElementById('cameraModal').addEventListener('hidden.bs.modal', function () {
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+  });
+  document.getElementById('captureBtn').addEventListener('click', function () {
+    var video = document.getElementById('cameraVideo');
+    if (!video.videoWidth) return;
+    var canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    canvas.toBlob(function (blob) {
+      var dt = new DataTransfer();
+      dt.items.add(new File([blob], 'photo-' + Date.now() + '.jpg', { type: 'image/jpeg' }));
+      fileInput.files = dt.files;
+      use(fileInput);
+      bootstrap.Modal.getInstance(document.getElementById('cameraModal')).hide();
+    }, 'image/jpeg', 0.92);
+  });
+
+  form.addEventListener('submit', function (e) {
+    if (scanBtn.disabled) { e.preventDefault(); return; }
+    scanBtn.disabled = true;   // scanning can take a while on the server
+    scanBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning document&hellip; this can take up to a minute';
+  });
+})();
+</script>
 
 <?php else:
   $result = $pending['result'];
@@ -223,6 +397,84 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
       </div>
 
+      <?php if (!empty($pending['docscan'])): $ds = $pending['docscan']; ?>
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+          <label class="form-label small fw-semibold mb-0">Processed Document</label>
+          <span class="badge <?= $ds['cropped'] ? 'bg-success' : 'bg-secondary' ?>">
+            <?= $ds['cropped'] ? 'Cropped &amp; straightened automatically' : 'Whole image kept -- no page edges to crop' ?>
+          </span>
+        </div>
+        <div class="border rounded bg-light text-center p-2" id="pagePreview">
+          <img src="submit_document.php?preview=page&amp;v=<?= time() ?>" alt="Processed document" class="img-fluid" style="max-height:480px">
+        </div>
+        <div class="form-text">This cleaned-up page is what will be saved to your 201 file, as a PDF.
+          Not right? <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="adjustBtn">Adjust the crop</button></div>
+
+        <div id="cropEditor" class="border rounded p-2 mt-2" hidden>
+          <p class="small mb-2">Drag the four corner handles onto the corners of the paper.</p>
+          <div class="crop-stage">
+            <img id="cropImg" src="submit_document.php?preview=orig&amp;v=<?= time() ?>" alt="Original photo" draggable="false">
+            <svg id="cropSvg"><polygon id="cropPoly"></polygon></svg>
+          </div>
+          <form method="POST" action="submit_document.php" id="cropForm" class="d-flex gap-2 flex-wrap mt-2">
+            <input type="hidden" name="action" value="recrop">
+            <input type="hidden" name="corners" id="cornersInput">
+            <button type="submit" class="btn btn-brand btn-sm"><i class="fa-solid fa-crop-simple"></i> Apply crop</button>
+            <button type="submit" name="whole" value="1" class="btn btn-outline-secondary btn-sm">Use whole photo</button>
+            <button type="button" class="btn btn-link btn-sm" id="cropCancel">Cancel</button>
+          </form>
+        </div>
+      </div>
+      <script>
+      (function () {
+        var SRC = [<?= (int)$ds['src_width'] ?>, <?= (int)$ds['src_height'] ?>];
+        var start = <?= json_encode($ds['corners'] ?: [[0, 0], [$ds['src_width'] - 1, 0], [$ds['src_width'] - 1, $ds['src_height'] - 1], [0, $ds['src_height'] - 1]]) ?>;
+        var editor = document.getElementById('cropEditor'), img = document.getElementById('cropImg');
+        var stage = img.parentNode, poly = document.getElementById('cropPoly');
+        var pts = start.map(function (p) { return p.slice(); }), handles = [];
+
+        function scale() { return img.clientWidth / SRC[0]; }
+        function draw() {
+          var s = scale();
+          poly.setAttribute('points', pts.map(function (p) { return (p[0] * s) + ',' + (p[1] * s); }).join(' '));
+          handles.forEach(function (h, i) { h.style.left = (pts[i][0] * s) + 'px'; h.style.top = (pts[i][1] * s) + 'px'; });
+        }
+        pts.forEach(function (p, i) {
+          var h = document.createElement('div');
+          h.className = 'crop-handle';
+          h.addEventListener('pointerdown', function (e) {
+            e.preventDefault();
+            h.setPointerCapture(e.pointerId);
+            function move(ev) {
+              var r = img.getBoundingClientRect(), s = scale();
+              pts[i] = [Math.min(SRC[0] - 1, Math.max(0, (ev.clientX - r.left) / s)), Math.min(SRC[1] - 1, Math.max(0, (ev.clientY - r.top) / s))];
+              draw();
+            }
+            function up() { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); }
+            h.addEventListener('pointermove', move);
+            h.addEventListener('pointerup', up);
+          });
+          stage.appendChild(h);
+          handles.push(h);
+        });
+        document.getElementById('adjustBtn').addEventListener('click', function () {
+          editor.hidden = false;
+          if (img.complete) draw(); else img.addEventListener('load', draw, { once: true });
+          editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        document.getElementById('cropCancel').addEventListener('click', function () { editor.hidden = true; });
+        window.addEventListener('resize', function () { if (!editor.hidden) draw(); });
+        document.getElementById('cropForm').addEventListener('submit', function (e) {
+          document.getElementById('cornersInput').value = JSON.stringify(pts.map(function (p) { return [Math.round(p[0]), Math.round(p[1])]; }));
+          var btns = this.querySelectorAll('button');
+          setTimeout(function () { btns.forEach(function (b) { b.disabled = true; }); }, 0);   // after the clicked button's value is submitted
+          (e.submitter || btns[0]).innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing&hellip;';
+        });
+      })();
+      </script>
+      <?php endif; ?>
+
       <div class="row g-3 mb-3">
         <div class="col-md-6">
           <label class="form-label small fw-semibold">Faculty Name</label>
@@ -230,7 +482,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <div class="col-md-6">
           <label class="form-label small fw-semibold">File</label>
-          <input type="text" class="form-control text-truncate" value="<?= h($pending['original_name']) ?>" disabled>
+          <input type="text" class="form-control text-truncate" value="<?= h($pending['original_name']) ?><?= !empty($pending['docscan']) ? ' (saved as PDF)' : '' ?>" disabled>
         </div>
       </div>
 

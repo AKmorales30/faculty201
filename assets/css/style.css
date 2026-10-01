@@ -286,3 +286,11 @@ html, body { overflow-x: hidden; }
 }
 .pds-alt { font-size: .75rem; cursor: pointer; user-select: none; }
 .pds-table .input-group { min-width: 150px; }
+
+/* Upload: manual crop adjustment */
+.crop-stage { position: relative; display: inline-block; max-width: 100%; touch-action: none; user-select: none; }
+.crop-stage img { display: block; max-width: 100%; max-height: 70vh; }
+.crop-stage svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.crop-stage polygon { fill: rgba(13, 110, 253, .12); stroke: #0d6efd; stroke-width: 2; }
+.crop-handle { position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%;
+               background: #fff; border: 3px solid #0d6efd; box-shadow: 0 1px 4px rgba(0,0,0,.4); cursor: grab; touch-action: none; }
