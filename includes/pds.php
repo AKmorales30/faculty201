@@ -188,6 +188,220 @@ function pds_ld_columns(): array {
     ];
 }
 
+/**
+ * Input formats. `re` is written so it works unchanged as a JavaScript
+ * RegExp and a PCRE pattern (no \u escapes, no "~"); `strip` characters
+ * are removed before matching, `min` / `max` bound the numeric value.
+ */
+function pds_formats(): array {
+    $year = (int)date('Y');
+    return [
+        'name'    => ['re' => "^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.' -]*$", 'msg' => 'may only contain letters, spaces, periods, apostrophes and hyphens'],
+        'ext'     => ['re' => '^(JR|SR|I{1,3}|IV|V|VI{1,3}|IX|X)\.?$', 'flags' => 'i', 'msg' => 'must be a name extension such as Jr., Sr., II or III'],
+        'height'  => ['re' => '^\d(\.\d{1,2})?$', 'min' => 0.5, 'max' => 2.5, 'msg' => 'must be in meters, e.g. 1.65'],
+        'weight'  => ['re' => '^\d{1,3}(\.\d{1,2})?$', 'min' => 20, 'max' => 300, 'msg' => 'must be in kilograms, e.g. 58.5'],
+        'blood'   => ['re' => '^(A|B|AB|O)[+-]$', 'flags' => 'i', 'msg' => 'must be one of A+, A-, B+, B-, AB+, AB-, O+ or O-'],
+        'zip'     => ['re' => '^\d{4}$', 'msg' => 'must be a 4-digit ZIP code'],
+        'mobile'  => ['re' => '^(09|\+639)\d{9}$', 'strip' => '[\s-]', 'msg' => 'must be a Philippine mobile number, e.g. 09171234567'],
+        'phone'   => ['re' => '^\+?[0-9()]{7,15}$', 'strip' => '[\s-]', 'msg' => 'must be a valid telephone number (digits only, e.g. 02 8123 4567)'],
+        'email'   => ['re' => '^[^\s@]+@[^\s@]+\.[^\s@]+$', 'msg' => 'must be a valid e-mail address'],
+        'contact' => ['re' => '^(\+?[0-9()\s-]{7,20}|[^\s@]+@[^\s@]+\.[^\s@]+)$', 'msg' => 'must be a telephone number or an e-mail address'],
+        'umid'    => ['re' => '^\d{12}$', 'strip' => '[\s-]', 'msg' => 'must be the 12-digit UMID CRN'],
+        'pagibig' => ['re' => '^\d{12}$', 'strip' => '[\s-]', 'msg' => 'must be the 12-digit PAG-IBIG MID number'],
+        'philhealth' => ['re' => '^\d{12}$', 'strip' => '[\s-]', 'msg' => 'must be the 12-digit PhilHealth number'],
+        'pcn'     => ['re' => '^\d{16}$', 'strip' => '[\s-]', 'msg' => 'must be the 16-digit PhilSys Card Number'],
+        'tin'     => ['re' => '^\d{9}(\d{3}|\d{5})?$', 'strip' => '[\s-]', 'msg' => 'must be a 9- or 12-digit TIN, e.g. 123-456-789-000'],
+        'idno'    => ['re' => '^[A-Za-z0-9][A-Za-z0-9 -]*$', 'msg' => 'may only contain letters, digits, spaces and hyphens'],
+        'year'    => ['re' => '^\d{4}$', 'min' => 1900, 'max' => $year, 'msg' => "must be a 4-digit year from 1900 to $year"],
+        'money'   => ['re' => '^\d+(\.\d{1,2})?$', 'strip' => '[,\s]', 'min' => 0, 'msg' => 'must be an amount, e.g. 35,000.00'],
+        'rating'  => ['re' => '^\d{1,3}(\.\d{1,2})?$', 'min' => 0, 'max' => 100, 'msg' => 'must be a rating from 0 to 100'],
+        'hours'   => ['re' => '^\d+(\.\d)?$', 'min' => 0.5, 'max' => 9999, 'msg' => 'must be a number of hours greater than 0'],
+    ];
+}
+
+/**
+ * Validation rules, keyed by field ("surname") or "table.column"
+ * ("education.school"; "ld.*" is Section VI). Fields not listed are
+ * optional.
+ *   req    required
+ *   alt    required, but the user may tick this value instead ("N/A",
+ *          "Present") -- the only way to answer N/A
+ *   if     [field, [values]]: required only when that field has one of the values
+ *   fmt    a pds_formats() key
+ *   past   date / year may not be in the future
+ *   after  column in the same row this one may not be earlier than
+ */
+function pds_rules(): array {
+    $na = ['alt' => 'N/A'];
+    $yes = fn($q) => ['if' => [$q, ['Yes']]];
+    return [
+        // I. Personal information
+        'surname' => ['req' => 1, 'fmt' => 'name'], 'first_name' => ['req' => 1, 'fmt' => 'name'],
+        'name_extension' => $na + ['fmt' => 'ext'], 'middle_name' => $na + ['fmt' => 'name'],
+        'date_of_birth' => ['req' => 1, 'past' => 1], 'place_of_birth' => ['req' => 1],
+        'sex' => ['req' => 1], 'civil_status' => ['req' => 1], 'civil_status_other' => ['if' => ['civil_status', ['Other/s']]],
+        'height' => ['req' => 1, 'fmt' => 'height'], 'weight' => ['req' => 1, 'fmt' => 'weight'], 'blood_type' => $na + ['fmt' => 'blood'],
+        'umid_id' => $na + ['fmt' => 'umid'], 'pagibig_id' => $na + ['fmt' => 'pagibig'], 'philhealth_no' => $na + ['fmt' => 'philhealth'],
+        'philsys_pcn' => $na + ['fmt' => 'pcn'], 'tin_no' => $na + ['fmt' => 'tin'], 'agency_employee_no' => $na + ['fmt' => 'idno'],
+        'citizenship' => ['req' => 1],
+        'dual_citizenship_by' => ['if' => ['citizenship', ['Dual Citizenship']]],
+        'dual_citizenship_country' => ['if' => ['citizenship', ['Dual Citizenship']]],
+        'res_house' => $na, 'res_street' => $na, 'res_subdivision' => $na,
+        'res_barangay' => ['req' => 1], 'res_city' => ['req' => 1], 'res_province' => ['req' => 1], 'residential_zip' => ['req' => 1, 'fmt' => 'zip'],
+        'perm_house' => $na, 'perm_street' => $na, 'perm_subdivision' => $na,
+        'perm_barangay' => ['req' => 1], 'perm_city' => ['req' => 1], 'perm_province' => ['req' => 1], 'permanent_zip' => ['req' => 1, 'fmt' => 'zip'],
+        'telephone_no' => $na + ['fmt' => 'phone'], 'mobile_no' => ['req' => 1, 'fmt' => 'mobile'], 'email' => ['req' => 1, 'fmt' => 'email'],
+
+        // II. Family background
+        'spouse_surname' => $na + ['fmt' => 'name'], 'spouse_first_name' => $na + ['fmt' => 'name'],
+        'spouse_name_extension' => $na + ['fmt' => 'ext'], 'spouse_middle_name' => $na + ['fmt' => 'name'],
+        'spouse_occupation' => $na, 'spouse_employer' => $na, 'spouse_business_address' => $na, 'spouse_telephone' => $na + ['fmt' => 'phone'],
+        'father_surname' => $na + ['fmt' => 'name'], 'father_first_name' => $na + ['fmt' => 'name'],
+        'father_name_extension' => $na + ['fmt' => 'ext'], 'father_middle_name' => $na + ['fmt' => 'name'],
+        'mother_surname' => $na + ['fmt' => 'name'], 'mother_first_name' => $na + ['fmt' => 'name'], 'mother_middle_name' => $na + ['fmt' => 'name'],
+        'children.name' => ['req' => 1, 'fmt' => 'name'], 'children.date_of_birth' => ['req' => 1, 'past' => 1],
+
+        // III. Education
+        'education.level' => ['req' => 1], 'education.school' => ['req' => 1], 'education.degree' => ['req' => 1],
+        'education.from' => ['req' => 1, 'fmt' => 'year'], 'education.to' => ['alt' => 'Present', 'fmt' => 'year', 'after' => 'from'],
+        'education.units' => $na, 'education.year_graduated' => $na + ['fmt' => 'year', 'after' => 'from'], 'education.honors' => $na,
+
+        // IV. Eligibility
+        'eligibility.name' => ['req' => 1], 'eligibility.rating' => $na + ['fmt' => 'rating'],
+        'eligibility.exam_date' => ['req' => 1, 'past' => 1], 'eligibility.exam_place' => ['req' => 1],
+        'eligibility.license_number' => $na + ['fmt' => 'idno'], 'eligibility.license_valid' => $na,
+
+        // V. Work experience
+        'work.from' => ['req' => 1, 'past' => 1], 'work.to' => ['alt' => 'Present', 'after' => 'from'],
+        'work.position' => ['req' => 1], 'work.agency' => ['req' => 1], 'work.salary' => $na + ['fmt' => 'money'],
+        'work.salary_grade' => $na, 'work.status' => ['req' => 1], 'work.govt_service' => ['req' => 1],
+
+        // VI. Learning and development
+        'ld.title' => ['req' => 1], 'ld.date_from' => ['req' => 1, 'past' => 1], 'ld.date_to' => ['req' => 1, 'past' => 1, 'after' => 'date_from'],
+        'ld.hours' => ['req' => 1, 'fmt' => 'hours'], 'ld.ld_type' => ['req' => 1], 'ld.conducted_by' => ['req' => 1],
+
+        // VII. Voluntary work
+        'voluntary.organization' => ['req' => 1], 'voluntary.from' => ['req' => 1, 'past' => 1], 'voluntary.to' => ['alt' => 'Present', 'after' => 'from'],
+        'voluntary.hours' => $na + ['fmt' => 'hours'], 'voluntary.position' => ['req' => 1],
+
+        // VIII. Other information
+        'skills.value' => ['req' => 1], 'recognitions.value' => ['req' => 1], 'memberships.value' => ['req' => 1],
+
+        // Questions 34-40: each needs an answer, details only when the answer is YES
+        'q34a' => ['req' => 1], 'q34b' => ['req' => 1], 'q34_details' => $yes('q34a'), 'q34b_details' => $yes('q34b'),
+        'q35a' => ['req' => 1], 'q35a_details' => $yes('q35a'),
+        'q35b' => ['req' => 1], 'q35b_details' => $yes('q35b'), 'q35b_date' => $yes('q35b') + ['past' => 1], 'q35b_status' => $yes('q35b'),
+        'q36' => ['req' => 1], 'q36_details' => $yes('q36'), 'q37' => ['req' => 1], 'q37_details' => $yes('q37'),
+        'q38a' => ['req' => 1], 'q38a_details' => $yes('q38a'), 'q38b' => ['req' => 1], 'q38b_details' => $yes('q38b'),
+        'q39' => ['req' => 1], 'q39_details' => $yes('q39'),
+        'q40a' => ['req' => 1], 'q40a_details' => $yes('q40a'),
+        'q40b' => ['req' => 1], 'q40b_id' => $yes('q40b') + ['fmt' => 'idno'], 'q40c' => ['req' => 1], 'q40c_id' => $yes('q40c') + ['fmt' => 'idno'],
+
+        // References and government ID
+        'references.name' => ['req' => 1, 'fmt' => 'name'], 'references.address' => ['req' => 1], 'references.telephone' => ['req' => 1, 'fmt' => 'contact'],
+        'gov_id_type' => ['req' => 1], 'gov_id_number' => ['req' => 1, 'fmt' => 'idno'], 'gov_id_issued' => ['req' => 1],
+    ];
+}
+
+/**
+ * Row rules for repeating tables: `min` rows needed, or -- when `na` is
+ * set -- the "N/A" box ticked instead (stored as data[<table>_na]).
+ */
+function pds_table_rules(): array {
+    return [
+        'children' => ['min' => 1, 'na' => 1], 'education' => ['min' => 1], 'eligibility' => ['min' => 1, 'na' => 1],
+        'work' => ['min' => 1, 'na' => 1], 'ld' => ['min' => 1, 'na' => 1], 'voluntary' => ['min' => 1, 'na' => 1],
+        'skills' => ['min' => 1, 'na' => 1], 'recognitions' => ['min' => 1, 'na' => 1], 'memberships' => ['min' => 1, 'na' => 1],
+        'references' => ['min' => 3],
+    ];
+}
+
+/** True for values that are a hand-typed "N/A" (n/a, NA, N.A., not applicable). */
+function pds_is_na_text(string $v): bool {
+    return (bool)preg_match('~^\s*(n\s*[/\\\\.]?\s*a\.?|not\s+applicable)\s*$~i', $v);
+}
+
+/** Does this rule make the field required, given the rest of the form? */
+function pds_rule_required(array $rule, array $data): bool {
+    if (!empty($rule['req']) || isset($rule['alt'])) { return true; }
+    if (isset($rule['if'])) { return in_array(trim((string)($data[$rule['if'][0]] ?? '')), $rule['if'][1], true); }
+    return false;
+}
+
+/**
+ * Check one value. Returns an error message (without the label) or null.
+ * Keep in step with checkValue() in faculty/pds.php.
+ */
+function pds_check_value(array $rule, string $type, string $v, array $data, array $row = []): ?string {
+    $v = trim($v);
+    if (isset($rule['alt']) && strcasecmp($v, $rule['alt']) === 0) { return null; }
+    if ($v === '') { return pds_rule_required($rule, $data) ? 'is required' . (isset($rule['alt']) ? ' (or tick ' . $rule['alt'] . ')' : '') : null; }
+    if (pds_is_na_text($v)) {
+        return ($rule['alt'] ?? '') === 'N/A' ? null : 'cannot be N/A -- please enter the actual information';
+    }
+    if (isset($rule['fmt'])) {
+        $f = pds_formats()[$rule['fmt']];
+        $s = isset($f['strip']) ? preg_replace('~' . $f['strip'] . '~u', '', $v) : $v;
+        $ok = preg_match('~' . $f['re'] . '~u' . ($f['flags'] ?? ''), $s)
+           && (!isset($f['min']) || (float)$s >= $f['min']) && (!isset($f['max']) || (float)$s <= $f['max']);
+        if (!$ok) { return $f['msg']; }
+    }
+    if ($type === 'date') {
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $v, $m) || !checkdate((int)$m[2], (int)$m[3], (int)$m[1])) {
+            return 'must be a valid date';
+        }
+        // one day of slack so a browser ahead of the server's time zone isn't rejected
+        if (!empty($rule['past']) && $v > date('Y-m-d', strtotime('+1 day'))) { return 'cannot be a future date'; }
+    }
+    if (isset($rule['after'])) {
+        $other = trim((string)($row[$rule['after']] ?? ''));
+        if ($other !== '' && strlen($other) === strlen($v) && $v < $other) { return 'cannot be earlier than the start'; }
+    }
+    return null;
+}
+
+/**
+ * Validate a submitted PDS against pds_rules() / pds_table_rules(). The
+ * form checks the same rules section by section before it can be saved;
+ * this is the server-side backstop.
+ * @return string[] error messages
+ */
+function pds_validate(array $data, array $ld): array {
+    $rules = pds_rules();
+    $trules = pds_table_rules();
+    $errors = [];
+    $check_table = function (string $tkey, string $title, array $columns, array $rows) use (&$errors, $rules, $trules, $data) {
+        $rows = array_values(array_filter($rows, fn($r) => is_array($r) && empty($r['_delete'])
+            && implode('', array_map(fn($c) => trim((string)($r[$c] ?? '')), array_keys($columns))) !== ''));
+        $tr = $trules[$tkey] ?? [];
+        if ($rows && !empty($data[$tkey . '_na'])) { $errors[] = "$title: remove the entries or untick N/A."; }
+        if (count($rows) < ($tr['min'] ?? 0) && !(!empty($tr['na']) && !empty($data[$tkey . '_na']))) {
+            $errors[] = "$title: add at least " . $tr['min'] . ' entr' . ($tr['min'] === 1 ? 'y' : 'ies') . (!empty($tr['na']) ? ' or tick N/A' : '') . '.';
+        }
+        foreach ($rows as $i => $row) {
+            foreach ($columns as $ckey => $cdef) {
+                [$label, $type] = pds_field_def($cdef);
+                if (!isset($rules["$tkey.$ckey"])) { continue; }
+                $msg = pds_check_value($rules["$tkey.$ckey"], $type, (string)($row[$ckey] ?? ''), $data, $row);
+                if ($msg) { $errors[] = "$title, row " . ($i + 1) . ": $label $msg."; }
+            }
+        }
+    };
+    foreach (pds_schema() as $part_key => $part) {
+        if ($part_key === 'VII') { $check_table('ld', 'Learning and Development', pds_ld_columns(), $ld); }
+        foreach ($part['fields'] ?? [] as $key => $def) {
+            [$label, $type] = pds_field_def($def);
+            if (!isset($rules[$key])) { continue; }
+            $msg = pds_check_value($rules[$key], $type, (string)($data[$key] ?? ''), $data);
+            if ($msg) { $errors[] = "$label $msg."; }
+        }
+        foreach ($part['tables'] ?? [] as $tkey => $table) {
+            $check_table($tkey, $table['label'], $table['columns'], (array)($data[$tkey] ?? []));
+        }
+    }
+    return $errors;
+}
+
 /** Normalize a field definition to [label, type, options]. */
 function pds_field_def(array $def): array {
     return [$def[0], $def[1] ?? 'text', $def[2] ?? []];
@@ -249,10 +463,18 @@ function pds_touch(PDO $pdo, int $faculty_id): void {
  * Keep only known keys from submitted form data, trimmed.
  */
 function pds_clean_input(array $input): array {
+    $rules = pds_rules();
+    // A ticked N/A / Present always reaches the database spelled the same way
+    $value = function (string $rkey, $v) use ($rules): string {
+        $v = mb_substr(trim((string)$v), 0, 500);
+        $alt = $rules[$rkey]['alt'] ?? null;
+        if ($alt !== null && (strcasecmp($v, $alt) === 0 || ($alt === 'N/A' && pds_is_na_text($v)))) { return $alt; }
+        return $v;
+    };
     $clean = [];
     foreach (pds_schema() as $part) {
         foreach ($part['fields'] ?? [] as $key => $def) {
-            $clean[$key] = mb_substr(trim((string)($input[$key] ?? '')), 0, 500);
+            $clean[$key] = $value($key, $input[$key] ?? '');
         }
         foreach ($part['tables'] ?? [] as $tkey => $table) {
             $rows = [];
@@ -260,14 +482,17 @@ function pds_clean_input(array $input): array {
                 if (!is_array($row)) { continue; }
                 $r = [];
                 foreach ($table['columns'] as $ckey => $cdef) {
-                    $r[$ckey] = mb_substr(trim((string)($row[$ckey] ?? '')), 0, 500);
+                    $r[$ckey] = $value("$tkey.$ckey", $row[$ckey] ?? '');
                 }
                 if (implode('', $r) !== '') { $rows[] = $r; }
             }
             if (!empty($table['max'])) { $rows = array_slice($rows, 0, $table['max']); }
             $clean[$tkey] = $rows;
+            $clean[$tkey . '_na'] = !$rows && !empty($input[$tkey . '_na']) ? '1' : '';
         }
     }
+    // Section VI rows live in their own table; only its N/A box is kept here
+    $clean['ld_na'] = !empty($input['ld_na']) ? '1' : '';
     return $clean;
 }
 
