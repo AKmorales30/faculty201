@@ -2,7 +2,8 @@
 require_once __DIR__ . '/includes/auth.php';
 if (is_logged_in()) { redirect_to_dashboard(); }
 $error = $_SESSION['login_error_admin'] ?? null;
-unset($_SESSION['login_error_admin']);
+$email = $_SESSION['login_email'] ?? '';
+unset($_SESSION['login_error_admin'], $_SESSION['login_email']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -38,11 +39,11 @@ unset($_SESSION['login_error_admin']);
         <input type="hidden" name="portal" value="admin">
         <div class="mb-3">
           <label class="form-label">Email</label>
-          <input type="email" name="email" class="form-control" required autofocus>
+          <input type="email" name="email" class="form-control<?= $error ? ' is-invalid' : '' ?>" value="<?= h($email) ?>" required<?= $email === '' ? ' autofocus' : '' ?>>
         </div>
         <div class="mb-3">
           <label class="form-label">Password</label>
-          <input type="password" name="password" class="form-control" required>
+          <input type="password" name="password" class="form-control<?= $error ? ' is-invalid' : '' ?>" required<?= $email !== '' ? ' autofocus' : '' ?>>
         </div>
         <button type="submit" class="btn btn-brand w-100">
           <i class="fa-solid fa-right-to-bracket"></i> Log In

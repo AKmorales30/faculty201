@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/auth.php';   // config, session, h()
 require_once __DIR__ . '/../config/db.php';
 
 /**
@@ -382,10 +383,6 @@ function safe_filename(string $original): string {
     $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
     $base = preg_replace('/[^a-zA-Z0-9_-]/', '_', pathinfo($original, PATHINFO_FILENAME));
     return date('Ymd_His') . '_' . substr($base, 0, 40) . '_' . bin2hex(random_bytes(3)) . '.' . $ext;
-}
-
-function h(?string $s): string {
-    return htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
 }
 
 /**

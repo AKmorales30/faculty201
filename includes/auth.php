@@ -1,6 +1,11 @@
 <?php
 require_once __DIR__ . '/../config/config.php';
 
+/** Escape for HTML output. Lives here so pages that don't need the database (the login pages) have it too. */
+function h(?string $s): string {
+    return htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
+}
+
 function current_user() {
     return $_SESSION['user'] ?? null;
 }

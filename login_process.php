@@ -1,6 +1,5 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
-require_once __DIR__ . '/includes/functions.php';
 
 // Maps each portal's form value to: the login page to bounce back to on
 // failure, the session key used for that page's flash error, and a
@@ -42,36 +41,52 @@ $email = trim($_POST['email'] ?? '');
 $password = $_POST['password'] ?? '';
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
+/** Back to the login page with a message; the email is kept so it doesn't have to be retyped. */
+function login_fail(string $message): void {
+    global $error_key, $fallback_page, $email;
+    $_SESSION[$error_key] = $message;
+    $_SESSION['login_email'] = mb_substr($email, 0, 190);
+    header('Location: ' . BASE_URL . '/' . $fallback_page);
+    exit;
+}
+
 if ($email === '' || $password === '') {
-    $_SESSION[$error_key] = 'Please enter both email and password.';
-    header('Location: ' . BASE_URL . '/' . $fallback_page);
-    exit;
+    login_fail('Please enter both your email and password.');
+}
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    login_fail('Incorrect email or password. Please try again.');
 }
 
-$stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? AND is_active = 1 LIMIT 1");
-$stmt->execute([$email]);
-$user = $stmt->fetch();
+try {
+    require_once __DIR__ . '/includes/functions.php';   // connects to the database
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? AND is_active = 1 LIMIT 1");
+    $stmt->execute([$email]);
+    $user = $stmt->fetch();
 
-if (!$user || !password_verify($password, $user['password_hash'])) {
-    record_login_attempt($pdo, $email, $user['user_id'] ?? null, false, $ip);
-    $_SESSION[$error_key] = 'Invalid email or password.';
-    header('Location: ' . BASE_URL . '/' . $fallback_page);
-    exit;
+    if (!$user || !password_verify($password, $user['password_hash'])) {
+        record_login_attempt($pdo, $email, $user['user_id'] ?? null, false, $ip);
+        login_fail('Incorrect email or password. Please try again.');
+    }
+
+    // Confirm the account actually belongs to the portal it logged in through
+    if ($portal && !$portal['validate']($user)) {
+        record_login_attempt($pdo, $email, (int)$user['user_id'], false, $ip);
+        login_fail('This account is not registered for this login portal. Please use the correct login page.');
+    }
+
+    // Successful login: log it, then screen for suspicious patterns (RBAC /
+    // suspicious-login-alerts module, Ch.3 3.1 of the capstone paper) before
+    // the session is established.
+    record_login_attempt($pdo, $email, (int)$user['user_id'], true, $ip);
+    flag_suspicious_login($pdo, (int)$user['user_id'], $user['full_name'], $ip);
+} catch (Throwable $e) {
+    // Database or other server problem: log the details, show the user a plain message
+    error_log('Login failed for ' . $email . ': ' . $e->getMessage());
+    login_fail('We couldn\'t sign you in right now. Please try again in a moment.');
 }
 
-// Confirm the account actually belongs to the portal it logged in through
-if ($portal && !$portal['validate']($user)) {
-    record_login_attempt($pdo, $email, (int)$user['user_id'], false, $ip);
-    $_SESSION[$error_key] = 'This account is not registered for this login portal. Please use the correct login page.';
-    header('Location: ' . BASE_URL . '/' . $fallback_page);
-    exit;
-}
-
-// Successful login: log it, then screen for suspicious patterns (RBAC /
-// suspicious-login-alerts module, Ch.3 3.1 of the capstone paper) before
-// the session is established.
-record_login_attempt($pdo, $email, (int)$user['user_id'], true, $ip);
-flag_suspicious_login($pdo, (int)$user['user_id'], $user['full_name'], $ip);
+session_regenerate_id(true);   // new session id on login (prevents session fixation)
+unset($_SESSION['login_email']);
 
 // Store only what's needed in session — never the password hash
 $_SESSION['user'] = [

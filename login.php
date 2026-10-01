@@ -20,7 +20,8 @@ $meta = $portal_meta[$portal] ?? ['label' => 'Faculty 201-File Repository', 'ico
 // landing here via require_login() actually shows up.
 $error_key = $portal !== '' ? 'login_error_' . $portal : 'login_error';
 $error = $_SESSION[$error_key] ?? null;
-unset($_SESSION[$error_key]);
+$email = $_SESSION['login_email'] ?? '';
+unset($_SESSION[$error_key], $_SESSION['login_email']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -55,11 +56,11 @@ unset($_SESSION[$error_key]);
       <input type="hidden" name="portal" value="<?= h($portal) ?>">
       <div class="mb-3">
         <label class="form-label small fw-semibold">Email</label>
-        <input type="email" name="email" class="form-control" required autofocus>
+        <input type="email" name="email" class="form-control<?= $error ? ' is-invalid' : '' ?>" value="<?= h($email) ?>" required<?= $email === '' ? ' autofocus' : '' ?>>
       </div>
       <div class="mb-3">
         <label class="form-label small fw-semibold">Password</label>
-        <input type="password" name="password" class="form-control" required>
+        <input type="password" name="password" class="form-control<?= $error ? ' is-invalid' : '' ?>" required<?= $email !== '' ? ' autofocus' : '' ?>>
       </div>
       <button type="submit" class="btn btn-brand w-100">
         <i class="fa-solid fa-right-to-bracket"></i> Login

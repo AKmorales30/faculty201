@@ -86,4 +86,23 @@ define('PROGRAMS', [
 // brew/apt it is typically just "tesseract" (must be on PATH).
 define('TESSERACT_BINARY_PATH', 'tesseract');
 
+// Error display. Errors are always logged; they are only shown in the
+// browser when APP_DEBUG=1, or on local XAMPP (no APP_BASE_URL set).
+// Anywhere else a user sees a plain message -- never paths, line
+// numbers, stack traces or database errors.
+define('APP_DEBUG', getenv('APP_DEBUG') !== false ? getenv('APP_DEBUG') === '1' : getenv('APP_BASE_URL') === false);
+error_reporting(E_ALL);
+ini_set('log_errors', '1');
+ini_set('display_errors', APP_DEBUG ? '1' : '0');
+if (!APP_DEBUG) {
+    set_exception_handler(function (Throwable $e) {
+        error_log('Uncaught ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        if (!headers_sent()) { http_response_code(500); header('Content-Type: text/html; charset=UTF-8'); }
+        echo '<!DOCTYPE html><meta charset="UTF-8"><title>Something went wrong</title>'
+           . '<div style="font-family:system-ui,sans-serif;max-width:480px;margin:15vh auto;padding:0 16px;text-align:center">'
+           . '<h2>Something went wrong</h2><p>Please try again in a moment. If the problem continues, contact the administrator.</p>'
+           . '<p><a href="' . htmlspecialchars(BASE_URL, ENT_QUOTES) . '/index.php">Back to the home page</a></p></div>';
+    });
+}
+
 session_start();

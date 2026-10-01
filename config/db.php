@@ -40,5 +40,8 @@ try {
         $options
     );
 } catch (PDOException $e) {
-    die('Database connection failed: ' . $e->getMessage());
+    // The message can include the host and user name: log it, don't show it
+    error_log('Database connection failed: ' . $e->getMessage());
+    if (defined('APP_DEBUG') && APP_DEBUG) { die('Database connection failed: ' . htmlspecialchars($e->getMessage())); }
+    throw new RuntimeException('Database connection failed');   // shown as a plain "Something went wrong" page
 }
