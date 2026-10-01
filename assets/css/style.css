@@ -300,3 +300,19 @@ html, body { overflow-x: hidden; }
                    border-bottom: 2px solid var(--c-navy); padding-bottom: .4rem; margin-bottom: 1rem; }
 .faculty-search { position: relative; min-width: 240px; }
 .faculty-suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 1050; margin-top: 2px; max-height: 320px; overflow-y: auto; }
+
+/* Reports: print / save as PDF shows only the report header, counts and list */
+.report-print-header { border-bottom: 2px solid var(--c-navy); padding-bottom: .5rem; margin-bottom: 1rem; }
+@media print {
+  .app-navbar, #appSidebar, .no-print, .app-main > .alert { display: none !important; }
+  body { background: #fff; }
+  .app-main { width: 100% !important; max-width: 100% !important; flex: 0 0 100% !important; margin: 0 !important; padding: 0 !important; }
+  .stat-card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
+  .stat-card .stat-number { font-size: 1.4rem; }
+  .table-responsive { overflow: visible !important; }
+  .report-table { font-size: .8rem; }
+  .report-table a { color: inherit; text-decoration: none; }
+  .report-table thead { display: table-header-group; }
+  .report-table tr { break-inside: avoid; }
+  .badge { border: 1px solid #999; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

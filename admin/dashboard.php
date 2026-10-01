@@ -26,7 +26,10 @@ $recent = $pdo->query(
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-4">Welcome, <?= h(current_user()['full_name']) ?></h3>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+  <h3 class="fw-bold mb-0">Welcome, <?= h(current_user()['full_name']) ?></h3>
+  <a href="<?= BASE_URL ?>/admin/reports.php" class="btn btn-brand"><i class="fa-solid fa-file-lines"></i> Generate Report</a>
+</div>
 
 <div class="row g-3 mb-4">
   <div class="col-md-3 col-6">
