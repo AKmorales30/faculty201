@@ -15,7 +15,10 @@ RUN apt-get update && apt-get install -y \
 
 # The digital PDS edit form submits every field and Part VII row at once;
 # PHP's default limit of 1000 form fields is too low for a long PDS.
-RUN echo "max_input_vars = 5000" > /usr/local/etc/php/conf.d/faculty201.ini
+# Uploads: PHP's defaults (2M per file, 8M per request) are below the
+# app's own 10MB limit (MAX_UPLOAD_BYTES), so phone photos and scans were
+# silently rejected before the scan step even started.
+RUN printf "max_input_vars = 5000\nupload_max_filesize = 12M\npost_max_size = 16M\n" > /usr/local/etc/php/conf.d/faculty201.ini
 
 # Render assigns a random $PORT at runtime and expects the app to
 # listen on it -- these two files use ${PORT} instead of a hardcoded 80.

@@ -13,6 +13,14 @@ $period_now = current_academic_period();
 
 $action = $_POST['action'] ?? '';
 
+// A request bigger than post_max_size arrives with $_POST and $_FILES
+// empty, so it would otherwise just fall through to the blank upload form.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$_POST && !$_FILES && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+    $_SESSION['flash_error'] = 'That file is too large to upload. The maximum size is ' . (MAX_UPLOAD_BYTES / 1024 / 1024) . 'MB.';
+    header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+    exit;
+}
+
 // ---------------------------------------------------------------------
 // Step 2a: faculty confirmed the previewed scan -> file it immediately,
 // update the PDS where applicable, then notify the Program Chair / Dean.
@@ -102,15 +110,26 @@ if ($action === 'cancel' && isset($_SESSION['pending_scan'])) {
 // Step 1: faculty uploaded a scan -> run OCR/AI extraction + preview
 // ---------------------------------------------------------------------
 if ($action === 'scan') {
-    if (empty($_FILES['scan_file']) || $_FILES['scan_file']['error'] !== UPLOAD_ERR_OK) {
-        $_SESSION['flash_error'] = 'Please choose a file to upload.';
+    $upload_error = $_FILES['scan_file']['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($upload_error !== UPLOAD_ERR_OK) {
+        $_SESSION['flash_error'] = match ($upload_error) {
+            UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'That file is too large to upload. The maximum size is ' . (MAX_UPLOAD_BYTES / 1024 / 1024) . 'MB.',
+            UPLOAD_ERR_PARTIAL => 'The upload was interrupted. Please try again.',
+            UPLOAD_ERR_NO_FILE => 'Please choose a file to upload.',
+            default => 'The file could not be uploaded because of a server problem. Please try again or contact the administrator.',
+        };
+        if (!in_array($upload_error, [UPLOAD_ERR_NO_FILE, UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE, UPLOAD_ERR_PARTIAL], true)) {
+            error_log('Upload failed with PHP upload error ' . $upload_error);
+        }
         header('Location: ' . BASE_URL . '/faculty/submit_document.php');
         exit;
     }
     $file = $_FILES['scan_file'];
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    // Check the file's real type; browsers report it inconsistently (image/jpg, image/pjpeg, '')
+    $mime = function_exists('finfo_open') ? (finfo_file(finfo_open(FILEINFO_MIME_TYPE), $file['tmp_name']) ?: '') : $file['type'];
 
-    if (!in_array($ext, ALLOWED_EXTENSIONS, true) || !in_array($file['type'], ALLOWED_MIME_TYPES, true)) {
+    if (!in_array($ext, ALLOWED_EXTENSIONS, true) || !in_array($mime, ALLOWED_MIME_TYPES, true)) {
         $_SESSION['flash_error'] = 'Unsupported file type. Allowed: JPG, PNG, WEBP, PDF.';
         header('Location: ' . BASE_URL . '/faculty/submit_document.php');
         exit;
@@ -126,6 +145,7 @@ if ($action === 'scan') {
     $destAbs = TEMP_SCAN_PATH . '/' . $filename;
 
     if (!move_uploaded_file($file['tmp_name'], $destAbs)) {
+        error_log('Could not move upload to ' . $destAbs . ' (is temp_scans/ writable?)');
         $_SESSION['flash_error'] = 'Could not save the uploaded file. Please try again.';
         header('Location: ' . BASE_URL . '/faculty/submit_document.php');
         exit;
