@@ -294,3 +294,9 @@ html, body { overflow-x: hidden; }
 .crop-stage polygon { fill: rgba(13, 110, 253, .12); stroke: #0d6efd; stroke-width: 2; }
 .crop-handle { position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%;
                background: #fff; border: 3px solid #0d6efd; box-shadow: 0 1px 4px rgba(0,0,0,.4); cursor: grab; touch-action: none; }
+
+/* Faculty Records: sections + live search */
+.records-heading { font-size: .85rem; font-weight: 700; letter-spacing: .06em; color: var(--c-navy);
+                   border-bottom: 2px solid var(--c-navy); padding-bottom: .4rem; margin-bottom: 1rem; }
+.faculty-search { position: relative; min-width: 240px; }
+.faculty-suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 1050; margin-top: 2px; max-height: 320px; overflow-y: auto; }

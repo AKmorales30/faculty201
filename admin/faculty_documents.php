@@ -4,7 +4,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_role('admin');
 
 $faculty_id = (int)($_GET['id'] ?? 0);
-$stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ? AND role = 'faculty'");
+$stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ? AND role IN ('faculty', 'program_chair', 'dean')");   // Chairs and Deans keep a 201 file too
 $stmt->execute([$faculty_id]);
 $faculty = $stmt->fetch();
 
@@ -29,7 +29,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="portal-icon portal-icon-navy"><i class="fa-solid fa-user"></i></div>
     <div>
       <h4 class="fw-bold mb-0"><?= h($faculty['full_name']) ?></h4>
-      <div class="text-muted small text-capitalize"><?= h(str_replace('_',' ',$faculty['employment_type'])) ?> Faculty · <?= h($faculty['email']) ?></div>
+      <div class="text-muted small text-capitalize"><?= h($faculty['role'] === 'faculty' ? str_replace('_', ' ', (string)$faculty['employment_type']) . ' Faculty' : str_replace('_', ' ', $faculty['role'])) ?> · <span class="text-lowercase"><?= h($faculty['email']) ?></span></div>
     </div>
   </div>
   <a href="<?= BASE_URL ?>/faculty/pds_print.php?faculty_id=<?= $faculty_id ?>" target="_blank" class="btn btn-outline-brand btn-sm">
