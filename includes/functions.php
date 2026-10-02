@@ -11,7 +11,8 @@ require_once __DIR__ . '/../config/db.php';
  * -- the older migrations were already run manually.
  */
 function run_pending_migrations(PDO $pdo): void {
-    $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql'];
+    $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
+                   'migration_classification_confidence.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
@@ -253,15 +254,19 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
         )->execute([$faculty['user_id'], $document_type, $meta['expiration'] ?? null, $filePath]);
         $request_id = (int)$pdo->lastInsertId();
 
+        $check = $meta['classification'] ?? null;   // classification_check() result
         $pdo->prepare(
             "INSERT INTO documents (request_id, faculty_id, document_type, document_subtype, academic_year, semester, period_year,
-                                    file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                                    file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note,
+                                    confidence_score, predicted_category, chosen_category, is_low_confidence)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )->execute([
             $request_id, $faculty['user_id'], $document_type, $subtype,
             $meta['academic_year'] ?? null, $meta['semester'] ?? null, $meta['period_year'] ?? null,
             $filePath, $meta['expiration'] ?? null,
-            $ocr['text'] ?? null, $ocr['matched_name'] ?? null, $ocr['confidence_note'] ?? null,
+            $ocr['text'] ?? null, $ocr['matched_name'] ?? null,
+            isset($ocr['confidence_note']) ? mb_substr($ocr['confidence_note'], 0, 255) : null,
+            $check['score'] ?? null, $check['predicted'] ?? null, $document_type, !empty($check['low']) ? 1 : 0,
         ]);
         $document_id = (int)$pdo->lastInsertId();
         // The file itself goes into the database too -- the disk copy doesn't survive a redeploy
@@ -276,6 +281,47 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
     }
 
     return [$request_id, $document_id];
+}
+
+/**
+ * The "confident?" check (Fig. 5) on an OcrProcessor::process() result,
+ * for the categories that apply to the uploader. Low confidence when the
+ * score is under CONFIDENCE_THRESHOLD, nothing was detected, or the
+ * detected category doesn't apply to them (e.g. IPCR for part-time) --
+ * then nothing is pre-selected and the upload is flagged for Admin review.
+ *
+ * @return array{score: float, predicted: ?string, suggested: ?string, low: bool, candidates: string[]}
+ *   suggested  category to pre-select (null when low)
+ *   candidates up to 3 applicable categories with keyword hits, best first (hints)
+ */
+function classification_check(array $ocr, array $categories): array {
+    $scores = $ocr['scores'] ?? [];
+    if (!isset($ocr['confidence'])) {   // preview started before the confidence check existed
+        require_once ROOT_PATH . '/ocr/OcrProcessor.php';
+        $ocr['confidence'] = OcrProcessor::confidence($scores);
+    }
+    $score = (float)$ocr['confidence'];
+    $predicted = $ocr['detected_type'] ?? null;
+    $low = $predicted === null || !isset($categories[$predicted]) || $score < CONFIDENCE_THRESHOLD;
+
+    arsort($scores);
+    $candidates = array_slice(array_keys(array_filter($scores, fn($s, $type) => $s > 0 && isset($categories[$type]), ARRAY_FILTER_USE_BOTH)), 0, 3);
+
+    return ['score' => $score, 'predicted' => $predicted, 'suggested' => $low ? null : $predicted, 'low' => $low, 'candidates' => $candidates];
+}
+
+/** "72%" for a stored confidence_score, or "Not scored" for NULL (documents uploaded before scoring). */
+function confidence_label($score): string {
+    return $score === null ? 'Not scored' : round((float)$score * 100) . '%';
+}
+
+/** Low-confidence uploads the Admin hasn't reviewed yet (sidebar badge). */
+function unreviewed_low_confidence_count(PDO $pdo): int {
+    try {
+        return (int)$pdo->query("SELECT COUNT(*) FROM documents WHERE is_low_confidence = 1 AND reviewed_at IS NULL")->fetchColumn();
+    } catch (PDOException $e) {
+        return 0;   // migration not applied yet
+    }
 }
 
 // ---------------------------------------------------------------------

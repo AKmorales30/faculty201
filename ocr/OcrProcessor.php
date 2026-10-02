@@ -15,6 +15,9 @@
  *   counted and the highest-scoring type is suggested. This mirrors
  *   what the paper describes (Ch.3 3.1: "automated document
  *   categorization" module) without requiring a trained ML model.
+ * - Each result carries a 0-1 confidence (confidence()). Below
+ *   CONFIDENCE_THRESHOLD the type is not pre-selected and the upload is
+ *   listed for Admin review (Fig. 5 "confident?").
  * - If no OCR binary is available, or extraction returns nothing, the
  *   faculty member is told to confirm the type manually instead of the
  *   system silently guessing.
@@ -28,6 +31,7 @@ class OcrProcessor
      *   text: string,
      *   detected_type: ?string,
      *   scores: array<string,int>,
+     *   confidence: float,
      *   matched_name: ?string,
      *   confidence_note: string
      * }
@@ -38,14 +42,16 @@ class OcrProcessor
         $text = $alreadyPrepared ? trim((string)self::tesseract($filePath, '')) : self::extractText($filePath);
         [$detectedType, $scores] = self::classify($text);
         $detectedSubtype = $detectedType ? self::classifySubtype($detectedType, $text) : null;
+        $confidence = self::confidence($scores);
         $matchedName = self::matchName($text, $facultyFullName);
-        $confidenceNote = self::buildConfidenceNote($detectedType, $detectedSubtype, $scores, $matchedName, $text);
+        $confidenceNote = self::buildConfidenceNote($detectedType, $detectedSubtype, $scores, $confidence, $matchedName, $text);
 
         return [
             'text'             => $text,
             'detected_type'    => $detectedType,
             'detected_subtype' => $detectedSubtype,
             'scores'           => $scores,
+            'confidence'       => $confidence,
             'matched_name'     => $matchedName,
             'confidence_note'  => $confidenceNote,
             'period'           => self::extractPeriod($text),
@@ -166,6 +172,27 @@ class OcrProcessor
         $top = array_key_first($scores);
         $detected = ($top !== null && $scores[$top] > 0) ? $top : null;
         return [$detected, $scores];
+    }
+
+    /**
+     * How sure the classifier is of its top category, 0-1. The classifier
+     * is keyword-based (no class probabilities), so this is the margin
+     * between the two best keyword scores: (top - second) / top. Only one
+     * category matched -> 1.0; nothing matched -> 0.0. A probability-based
+     * model would return its top class probability here instead.
+     * Compared against CONFIDENCE_THRESHOLD by classification_check().
+     *
+     * @param array<string,int> $scores keyword score per category
+     */
+    public static function confidence(array $scores): float
+    {
+        rsort($scores);
+        $top = (int)($scores[0] ?? 0);
+        if ($top <= 0) {
+            return 0.0;
+        }
+        $second = (int)($scores[1] ?? 0);
+        return round(($top - $second) / $top, 3);
     }
 
     /** Subtype within a category (e.g. Certificate -> Seminar / Training). */
@@ -430,16 +457,21 @@ class OcrProcessor
         return null;
     }
 
-    private static function buildConfidenceNote(?string $detectedType, ?string $detectedSubtype, array $scores, ?string $matchedName, string $text): string
+    private static function buildConfidenceNote(?string $detectedType, ?string $detectedSubtype, array $scores, float $confidence, ?string $matchedName, string $text): string
     {
         if ($text === '') {
             return 'No text could be extracted automatically. Please select the document type manually and double-check the details before confirming.';
         }
         $notes = [];
-        $notes[] = $detectedType
-            ? 'Auto-categorized as ' . document_type_label($detectedType, $detectedSubtype)
-              . " ({$scores[$detectedType]} keyword match" . ($scores[$detectedType] === 1 ? '' : 'es') . ' found).'
-            : 'Could not confidently auto-categorize this document -- please confirm the type manually.';
+        $percent = round($confidence * 100) . '%';
+        if (!$detectedType) {
+            $notes[] = 'Could not confidently auto-categorize this document -- please confirm the type manually.';
+        } elseif ($confidence < CONFIDENCE_THRESHOLD) {
+            $notes[] = 'Best guess: ' . document_type_label($detectedType, $detectedSubtype) . " (only {$percent} confidence).";
+        } else {
+            $notes[] = 'Auto-categorized as ' . document_type_label($detectedType, $detectedSubtype)
+                     . " ({$scores[$detectedType]} keyword match" . ($scores[$detectedType] === 1 ? '' : 'es') . ", {$percent} confidence).";
+        }
         $notes[] = $matchedName
             ? "Faculty name \"{$matchedName}\" was found in the extracted text."
             : 'The faculty name was not found in the extracted text -- please double-check this is the correct document before confirming.';

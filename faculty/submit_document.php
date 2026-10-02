@@ -60,9 +60,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$_POST && !$_FILES && (int)($_SERV
 // ---------------------------------------------------------------------
 if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $scan = $_SESSION['pending_scan'];
+    $check = classification_check($scan['result'], $categories);
     $type = $_POST['document_type'] ?? '';
+    // Below the confidence threshold nothing is pre-selected, so an empty type
+    // here means the faculty member didn't pick one -- the upload can't go through.
     if (!array_key_exists($type, $categories)) {
-        $_SESSION['flash_error'] = 'Please choose a valid document type before confirming.';
+        $_SESSION['flash_error'] = $check['low']
+            ? "The system is not confident about this document's type. Please select the correct category before uploading."
+            : 'Please choose a valid document type before confirming.';
         header('Location: ' . BASE_URL . '/faculty/submit_document.php');
         exit;
     }
@@ -72,8 +77,9 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $subtype = isset($cat['subtypes'][$subtype]) ? $subtype : ($cat['default_subtype'] ?? null);
 
     $meta = [
-        'subtype'    => $subtype,
-        'expiration' => ($_POST['expiration_date'] ?? '') ?: null,
+        'subtype'        => $subtype,
+        'expiration'     => ($_POST['expiration_date'] ?? '') ?: null,
+        'classification' => $check,   // stored with the document: score, the system's guess, low-confidence flag
     ];
     if ($cat['frequency'] === 'semester') {
         $ay  = $_POST['academic_year'] ?? '';
@@ -380,10 +386,10 @@ include __DIR__ . '/../includes/header.php';
 
 <?php else:
   $result = $pending['result'];
-  $suggested = $result['detected_type'] ?? null;
+  $check = classification_check($result, $categories);
+  $suggested = $check['suggested'];   // null below CONFIDENCE_THRESHOLD: nothing is pre-selected
   $suggested_sub = $result['detected_subtype'] ?? null;
-  $not_applicable = $suggested && !isset($categories[$suggested]);
-  if ($not_applicable) { $suggested = null; }
+  $not_applicable = $check['predicted'] && !isset($categories[$check['predicted']]);
   $period = $result['period'] ?? [];
   $training = $result['training'] ?? [];
   $ld_types = pds_ld_columns()['ld_type'][2];
@@ -395,12 +401,27 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <div class="card-body">
 
-      <div class="alert <?= $suggested ? 'alert-info' : 'alert-warning' ?> small">
+      <?php if ($check['low']): ?>
+      <div class="alert alert-warning small" id="lowConfidenceAlert">
+        <div class="fw-semibold mb-1"><i class="fa-solid fa-triangle-exclamation"></i> The system is not confident about this document's type. Please select the correct category.</div>
         <i class="fa-solid fa-robot"></i> <?= h($result['confidence_note']) ?>
         <?php if ($not_applicable): ?>
           <div class="mt-1">The detected type (<?= h(document_type_label($result['detected_type'])) ?>) doesn't apply to <?= h(str_replace('_', '-', $employment_type)) ?> faculty -- please choose the correct type.</div>
         <?php endif; ?>
+        <?php if ($check['candidates']): ?>
+          <div class="mt-2 d-flex flex-wrap align-items-center gap-1">
+            <span>Possible types:</span>
+            <?php foreach ($check['candidates'] as $cand): ?>
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0 candidate-btn" data-type="<?= h($cand) ?>"><?= h($categories[$cand]['label']) ?></button>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
       </div>
+      <?php else: ?>
+      <div class="alert alert-info small">
+        <i class="fa-solid fa-robot"></i> <?= h($result['confidence_note']) ?>
+      </div>
+      <?php endif; ?>
 
       <?php if (!empty($pending['docscan'])): $ds = $pending['docscan']; ?>
       <div class="mb-3">
@@ -496,7 +517,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="row g-3 mb-3">
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Document Type <span class="text-danger">*</span></label>
-            <select name="document_type" id="docType" class="form-select" required>
+            <select name="document_type" id="docType" class="form-select<?= $check['low'] ? ' border-warning' : '' ?>" required>
               <option value="">-- Select type --</option>
               <?php foreach ($categories as $key => $meta): ?>
                 <option value="<?= h($key) ?>" <?= $suggested === $key ? 'selected' : '' ?>>
@@ -504,6 +525,7 @@ include __DIR__ . '/../includes/header.php';
                 </option>
               <?php endforeach; ?>
             </select>
+            <div class="invalid-feedback">Please select the document type before uploading.</div>
           </div>
 
           <?php foreach ($categories as $key => $meta): if (empty($meta['subtypes'])) continue; ?>
@@ -641,7 +663,27 @@ include __DIR__ . '/../includes/header.php';
     });
   }
   form.addEventListener('change', function (e) {
+    if (e.target === typeSel) { typeSel.classList.toggle('is-invalid', typeSel.value === ''); }
     if (e.target === typeSel || e.target.name === 'document_subtype') { refresh(); }
+  });
+  // Low confidence: a hint button picks that type
+  document.querySelectorAll('.candidate-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      typeSel.value = btn.dataset.type;
+      typeSel.dispatchEvent(new Event('change', { bubbles: true }));
+      typeSel.focus();
+    });
+  });
+  // No upload without a document type (the server checks this too).
+  // "required" blocks the submit natively; this also highlights the field.
+  typeSel.addEventListener('invalid', function () { typeSel.classList.add('is-invalid'); });
+  form.addEventListener('submit', function (e) {
+    if (e.submitter && e.submitter.value === 'cancel') { return; }
+    if (typeSel.value === '') {
+      e.preventDefault();
+      typeSel.classList.add('is-invalid');
+      typeSel.focus();
+    }
   });
   refresh();
 })();

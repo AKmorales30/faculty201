@@ -23,6 +23,10 @@ function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
         <li class="nav-item"><a class="nav-link <?= nav_active('search_documents.php',$here) ?>" href="<?= BASE_URL ?>/admin/search_documents.php"><i class="fa-solid fa-magnifying-glass"></i> Search Documents</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('analytics.php',$here) ?>" href="<?= BASE_URL ?>/admin/analytics.php"><i class="fa-solid fa-chart-column"></i> Data Analytics</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('reports.php',$here) ?>" href="<?= BASE_URL ?>/admin/reports.php"><i class="fa-solid fa-file-lines"></i> Reports</a></li>
+        <li class="nav-item"><a class="nav-link <?= nav_active('classification_review.php',$here) ?>" href="<?= BASE_URL ?>/admin/classification_review.php">
+          <i class="fa-solid fa-robot"></i> Classification Review
+          <?php $lc = unreviewed_low_confidence_count($pdo); if ($lc): ?><span class="badge bg-warning rounded-pill ms-1"><?= $lc ?></span><?php endif; ?>
+        </a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('security_alerts.php',$here) ?>" href="<?= BASE_URL ?>/admin/security_alerts.php">
           <i class="fa-solid fa-shield-halved"></i> Security Alerts
           <?php $sa = unresolved_security_alert_count($pdo); if ($sa): ?><span class="badge bg-danger rounded-pill ms-1"><?= $sa ?></span><?php endif; ?>

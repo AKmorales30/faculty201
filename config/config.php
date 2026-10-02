@@ -47,6 +47,13 @@ define('DOCUMENT_TYPE_KEYWORDS', [
     'Other'       => ['memorandum', 'memo', 'notice', 'promotion', 'special order', 'office order', 'notice of salary adjustment'],
 ]);
 
+// Confidence check on the auto-categorization (Fig. 5 "confident?"). The
+// classifier's confidence is 0-1 (see OcrProcessor::confidence()); at or
+// above this the detected category is pre-selected on the upload form,
+// below it the faculty member must pick the category themselves and the
+// upload is listed for the Admin in Classification Review.
+define('CONFIDENCE_THRESHOLD', 0.60);
+
 // Subtype hints, tried once the main category is known. The first
 // subtype with the most hits wins; if none match, the category's
 // fallback subtype (see document_categories()) is used.
