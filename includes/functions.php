@@ -7,11 +7,13 @@ require_once __DIR__ . '/../config/db.php';
  * deploy doesn't depend on someone running SQL by hand. Applied files
  * are recorded in schema_migrations. "Already exists" errors (duplicate
  * column / index / table) are skipped, so a half-finished run is simply
- * retried on the next request. Only files listed here are auto-applied
- * -- the older migrations were already run manually.
+ * retried on the next request. Only files listed here are auto-applied.
+ * The two oldest (expiration, security alerts) were once run by hand; they
+ * are listed so a database that missed them catches up, and are harmless
+ * where they already ran (their objects exist, so each statement is skipped).
  */
 function run_pending_migrations(PDO $pdo): void {
-    $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
+    $migrations = ['migration_add_expiration.sql', 'migration_add_security_alerts.sql', 'migration_201_contents_pds.sql','migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
                    'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
                    'migration_search_indexes.sql'];

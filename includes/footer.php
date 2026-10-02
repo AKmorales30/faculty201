@@ -1,7 +1,7 @@
     </main>
   </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+<script src="<?= BASE_URL ?>/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script>
 // Close the mobile slide-in menu once a link is tapped (navigation still proceeds).
 document.querySelectorAll('#appSidebar .nav-link').forEach(function (link) {
