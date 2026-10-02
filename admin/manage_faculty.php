@@ -79,8 +79,12 @@ if ($action === 'create') {
 
     $valid_roles = ['admin', 'faculty', 'program_chair', 'dean'];
     $assignment = in_array($role, $valid_roles, true) ? account_assignment($role, $_POST) : null;
-    if ($full_name === '' || $email === '' || !in_array($role, $valid_roles, true) || strlen($password) < 8) {
-        $_SESSION['flash_error'] = 'Please fill in all fields. Password must be at least 8 characters.';
+    if (!csrf_valid()) {
+        $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
+    } elseif ($full_name === '' || $email === '' || !in_array($role, $valid_roles, true) || $password === '') {
+        $_SESSION['flash_error'] = 'Please fill in all fields.';
+    } elseif ($rules = password_rule_errors($password)) {
+        $_SESSION['flash_error'] = 'Temporary password: ' . lcfirst(password_rule_message($rules));
     } elseif (is_string($assignment)) {
         $_SESSION['flash_error'] = $assignment;
     } else {
@@ -90,10 +94,11 @@ if ($action === 'create') {
         if ($dupe->fetchColumn()) {
             $_SESSION['flash_error'] = 'An account with that email already exists.';
         } else {
-            $hash = password_hash($password, PASSWORD_BCRYPT);
+            // A temporary password: the user must replace it at their first login
+            $hash = password_hash($password, PASSWORD_DEFAULT);
             $stmt = $pdo->prepare(
-                "INSERT INTO users (role, full_name, email, password_hash, employment_type, program, college, employment_status, date_engaged)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO users (role, full_name, email, password_hash, must_change_password, employment_type, program, college, employment_status, date_engaged)
+                 VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)"
             );
             $stmt->execute([
                 $role, $full_name, $email, $hash,
@@ -111,9 +116,43 @@ if ($action === 'create') {
                     ->execute([$new_id]);
             }
             $_SESSION['flash_success'] = "Account created for {$full_name}.";
+            // Shown once on the next page load, then forgotten (never logged or stored in plain text)
+            $_SESSION['temp_password_notice'] = ['name' => $full_name, 'email' => $email, 'password' => $password, 'what' => 'created'];
         }
     }
     header('Location: ' . BASE_URL . '/admin/manage_faculty.php');
+    exit;
+}
+
+// ---------------------------------------------------------------------
+// Reset password: the Admin sets a temporary password (typed or
+// generated). The old password is never shown -- only its hash is stored.
+// The user must change the temporary one at their next login.
+// ---------------------------------------------------------------------
+if ($action === 'reset_password') {
+    $target = account_for_log($pdo, (int)($_POST['user_id'] ?? 0));
+    $password = (string)($_POST['temp_password'] ?? '');
+    if ($password === '') { $password = generate_temporary_password(); }
+
+    if (!csrf_valid()) {
+        $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
+    } elseif (!$target) {
+        $_SESSION['flash_error'] = 'That account could not be found.';
+    } elseif ((int)$target['user_id'] === (int)$me['user_id']) {
+        $_SESSION['flash_error'] = 'Use Change Password to change your own password.';
+    } elseif ($rules = password_rule_errors($password)) {
+        $_SESSION['flash_error'] = 'Temporary password: ' . lcfirst(password_rule_message($rules));
+    } else {
+        $pdo->prepare("UPDATE users SET password_hash = ?, must_change_password = 1 WHERE user_id = ?")
+            ->execute([password_hash($password, PASSWORD_DEFAULT), $target['user_id']]);
+        log_my_activity($pdo, 'PASSWORD_RESET', 'Reset the password of ' . account_log_name($target)
+            . ' to a temporary password; they must change it at their next login.');
+        notify($pdo, (int)$target['user_id'], 'The Admin reset your password on ' . date('F j, Y, g:i A')
+            . '. Log in with the temporary password the Admin gave you, then choose a new one. If you did not ask for this, contact the Admin.');
+        $_SESSION['flash_success'] = "Password reset for {$target['full_name']}.";
+        $_SESSION['temp_password_notice'] = ['name' => $target['full_name'], 'email' => $target['email'], 'password' => $password, 'what' => 'reset'];
+    }
+    header('Location: ' . BASE_URL . '/admin/manage_faculty.php' . (isset($_GET['role']) ? '?role=' . urlencode($_GET['role']) : ''));
     exit;
 }
 
@@ -174,12 +213,35 @@ include __DIR__ . '/../includes/header.php';
 
 <h3 class="fw-bold mb-4">Manage Faculty &amp; Accounts</h3>
 
+<?php if (!empty($_SESSION['temp_password_notice'])):
+  // Temporary password from the last create / reset: shown this once, then removed from the session
+  $notice = $_SESSION['temp_password_notice'];
+  unset($_SESSION['temp_password_notice']); ?>
+<div class="alert alert-warning">
+  <div class="fw-semibold mb-1"><i class="fa-solid fa-key"></i> Temporary password for <?= h($notice['name']) ?> (<?= h($notice['email']) ?>)</div>
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+    <code class="fs-5 px-2 py-1 bg-white border rounded user-select-all" id="tempPassword"><?= h($notice['password']) ?></code>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="copyTempPassword"><i class="fa-regular fa-copy"></i> Copy</button>
+  </div>
+  <div class="small">This is shown only once -- give it to the account holder now. They'll be asked to choose their own password when they log in.</div>
+</div>
+<script>
+document.getElementById('copyTempPassword').addEventListener('click', function () {
+  var btn = this;
+  navigator.clipboard.writeText(document.getElementById('tempPassword').textContent).then(function () {
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Copied';
+  });
+});
+</script>
+<?php endif; ?>
+
 <div class="row g-4">
   <div class="col-lg-4">
     <div class="card stat-card">
       <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-user-plus text-brand"></i> Create Account</div>
       <div class="card-body">
         <form method="POST">
+          <?= csrf_field() ?>
           <input type="hidden" name="action" value="create">
           <div class="mb-2">
             <label class="form-label small">Full Name</label>
@@ -229,8 +291,11 @@ include __DIR__ . '/../includes/header.php';
           </div>
           <div class="mb-3">
             <label class="form-label small">Temporary Password</label>
-            <input type="text" name="password" class="form-control form-control-sm" minlength="8" required>
-            <div class="form-text">At least 8 characters. Share this with the account holder securely.</div>
+            <div class="input-group input-group-sm">
+              <input type="text" name="password" id="createPassword" class="form-control" minlength="8" autocomplete="off" required>
+              <button type="button" class="btn btn-outline-secondary pw-generate" data-target="createPassword"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate</button>
+            </div>
+            <div class="form-text">At least 8 characters with an uppercase letter, a lowercase letter and a number. The account holder must change it at their first login.</div>
           </div>
           <button class="btn btn-brand btn-sm w-100"><i class="fa-solid fa-user-plus"></i> Create Account</button>
         </form>
@@ -302,6 +367,9 @@ include __DIR__ . '/../includes/header.php';
               </td>
               <td>
                 <span class="badge <?= $u['is_active'] ? 'bg-success' : 'bg-secondary' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
+                <?php if (!empty($u['must_change_password'])): ?>
+                  <div class="mt-1"><span class="badge bg-warning" title="Must choose a new password at next login"><i class="fa-solid fa-key"></i> Temporary password</span></div>
+                <?php endif; ?>
                 <?php if ($u['role'] === 'faculty'): ?>
                   <div class="mt-1">
                     <span class="badge <?= $u['employment_status'] === 'active' ? 'bg-info text-dark' : 'bg-warning text-dark' ?> text-capitalize"><?= h($u['employment_status']) ?></span>
@@ -318,6 +386,12 @@ include __DIR__ . '/../includes/header.php';
                     </button>
                   </form>
                 <?php endif; ?>
+                <button type="button" class="btn btn-sm btn-outline-brand" title="Reset password"
+                        data-bs-toggle="modal" data-bs-target="#resetPasswordModal"
+                        data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-email="<?= h($u['email']) ?>"
+                        <?= (int)$u['user_id'] === (int)$me['user_id'] ? 'disabled' : '' ?>>
+                  <i class="fa-solid fa-key"></i>
+                </button>
                 <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure?');">
                   <input type="hidden" name="action" value="toggle_active">
                   <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
@@ -334,5 +408,62 @@ include __DIR__ . '/../includes/header.php';
     </div>
   </div>
 </div>
+
+<!-- Reset password: confirmation dialog -->
+<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetPasswordTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="POST" action="?<?= $role_filter !== '' ? 'role=' . h($role_filter) : '' ?>" class="modal-content">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="reset_password">
+      <input type="hidden" name="user_id" id="resetUserId">
+      <div class="modal-header">
+        <h5 class="modal-title" id="resetPasswordTitle">Reset Password</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1">Reset the password of <strong id="resetUserName"></strong>?</p>
+        <p class="small text-muted" id="resetUserEmail"></p>
+        <p class="small">Their current password stops working right away. They'll log in with the temporary password below and must then choose their own.</p>
+        <label for="resetPassword" class="form-label small fw-semibold">Temporary Password</label>
+        <div class="input-group">
+          <input type="text" name="temp_password" id="resetPassword" class="form-control" autocomplete="off" placeholder="Leave blank to generate one">
+          <button type="button" class="btn btn-outline-secondary pw-generate" data-target="resetPassword"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate</button>
+        </div>
+        <div class="form-text">At least 8 characters with an uppercase letter, a lowercase letter and a number. It's shown once after the reset so you can give it to them.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-danger"><i class="fa-solid fa-key"></i> Reset Password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Random temporary password (same character sets as generate_temporary_password() on the server)
+  function generatePassword(length) {
+    var sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnpqrstuvwxyz', '23456789'], all = sets.join('');
+    function pick(s) { var r = new Uint32Array(1); crypto.getRandomValues(r); return s[r[0] % s.length]; }
+    var chars = sets.map(pick);
+    while (chars.length < length) chars.push(pick(all));
+    for (var i = chars.length - 1; i > 0; i--) {
+      var r = new Uint32Array(1); crypto.getRandomValues(r);
+      var j = r[0] % (i + 1), t = chars[i]; chars[i] = chars[j]; chars[j] = t;
+    }
+    return chars.join('');
+  }
+  document.querySelectorAll('.pw-generate').forEach(function (btn) {
+    btn.addEventListener('click', function () { document.getElementById(btn.dataset.target).value = generatePassword(12); });
+  });
+  document.getElementById('resetPasswordModal').addEventListener('show.bs.modal', function (e) {
+    var b = e.relatedTarget;
+    document.getElementById('resetUserId').value = b.dataset.id;
+    document.getElementById('resetUserName').textContent = b.dataset.name;
+    document.getElementById('resetUserEmail').textContent = b.dataset.email;
+    document.getElementById('resetPassword').value = '';
+  });
+})();
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

@@ -38,6 +38,7 @@ $user = current_user();
       </a>
       <span class="text-white-50 small text-capitalize d-none d-lg-inline"><?= h(str_replace('_',' ',$user['role'])) ?></span>
       <span class="text-white fw-semibold d-none d-md-inline navbar-username text-truncate"><?= h($user['full_name']) ?></span>
+      <a href="<?= BASE_URL ?>/change_password.php" class="text-white px-1" title="Change Password" aria-label="Change Password"><i class="fa-solid fa-key"></i></a>
       <a href="<?= BASE_URL ?>/logout.php" class="btn btn-sm btn-outline-light" title="Logout"><i class="fa-solid fa-right-from-bracket"></i><span class="d-none d-sm-inline"> Logout</span></a>
     </div>
     <?php endif; ?>

@@ -54,7 +54,8 @@ function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
         <li class="nav-item"><a class="nav-link <?= nav_active('notifications.php',$here) ?>" href="<?= BASE_URL ?>/approval/notifications.php"><i class="fa-solid fa-bell"></i> Notifications</a></li>
       <?php endif; ?>
 
-      <li class="nav-item d-md-none border-top mt-2 pt-2"><a class="nav-link text-danger" href="<?= BASE_URL ?>/logout.php"><i class="fa-solid fa-right-from-bracket"></i> Logout</a></li>
+      <li class="nav-item border-top mt-2 pt-2"><a class="nav-link <?= nav_active('change_password.php',$here) ?>" href="<?= BASE_URL ?>/change_password.php"><i class="fa-solid fa-key"></i> Change Password</a></li>
+      <li class="nav-item d-md-none"><a class="nav-link text-danger" href="<?= BASE_URL ?>/logout.php"><i class="fa-solid fa-right-from-bracket"></i> Logout</a></li>
 
     </ul>
   </div>

@@ -80,6 +80,12 @@ try {
     record_login_attempt($pdo, $email, (int)$user['user_id'], true, $ip);
     flag_suspicious_login($pdo, (int)$user['user_id'], $user['full_name'], $ip);
     log_activity($pdo, (int)$user['user_id'], 'LOGIN', 'Signed in through the ' . ($portal_key === 'faculty' ? 'Faculty' : 'Admin') . ' login page.', $user['role']);
+
+    // Keep the stored hash on PHP's current default algorithm / cost
+    if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
+        $pdo->prepare("UPDATE users SET password_hash = ? WHERE user_id = ?")
+            ->execute([password_hash($password, PASSWORD_DEFAULT), $user['user_id']]);
+    }
 } catch (Throwable $e) {
     // Database or other server problem: log the details, show the user a plain message
     error_log('Login failed for ' . $email . ': ' . $e->getMessage());
@@ -95,6 +101,12 @@ $_SESSION['user'] = [
     'role'      => $user['role'],
     'full_name' => $user['full_name'],
     'email'     => $user['email'],
+    // Temporary password from the Admin: require_login() allows only Change Password until it's replaced
+    'must_change_password' => !empty($user['must_change_password']),
 ];
 
+if ($_SESSION['user']['must_change_password']) {
+    header('Location: ' . BASE_URL . '/change_password.php');
+    exit;
+}
 redirect_to_dashboard();
