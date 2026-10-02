@@ -21,6 +21,15 @@ body { background-color: #f4f6f9; color: var(--c-charcoal); }
 .stat-card { border: none; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
 .stat-card .stat-number { font-size: 2rem; font-weight: 700; color: var(--c-navy); }
 
+/* Data Analytics charts (assets/js/analytics.js): the box sets the height, the chart fills it */
+.chart-box { position: relative; height: 260px; }
+.chart-box.chart-box-tall { height: 300px; }
+.chart-empty {
+  height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .5rem; color: #6c757d; font-size: .9rem; background: #f8f9fb; border-radius: 10px;
+}
+.chart-empty i { font-size: 1.6rem; opacity: .5; }
+
 .login-wrapper {
   min-height: 100vh;
   display: flex; align-items: center; justify-content: center;
