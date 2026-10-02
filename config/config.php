@@ -59,6 +59,19 @@ define('CONFIDENCE_THRESHOLD', 0.60);
 // archive or delete it. Hours; the check is in document_action.php.
 define('FACULTY_DELETE_WINDOW_HOURS', 24);
 
+// Brute-force login protection (login_process.php). Failures are counted
+// over the last FAILED_ATTEMPT_WINDOW_MINUTES; reaching a limit refuses
+// further logins for LOCKOUT_MINUTES, even with the right password.
+// Per email entered (whether or not the account exists, so a lock doesn't
+// reveal that), and per IP address with a higher limit so a shared campus
+// network isn't easily blocked. A successful login resets the email's count.
+define('MAX_FAILED_ATTEMPTS', 5);
+define('MAX_IP_FAILED_ATTEMPTS', 20);
+define('FAILED_ATTEMPT_WINDOW_MINUTES', 15);
+define('LOCKOUT_MINUTES', 15);
+// Warn "N attempts left" once only this many remain (0 = never say)
+define('WARN_REMAINING_ATTEMPTS', 2);
+
 // Subtype hints, tried once the main category is known. The first
 // subtype with the most hits wins; if none match, the category's
 // fallback subtype (see document_categories()) is used.

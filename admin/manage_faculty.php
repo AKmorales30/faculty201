@@ -157,6 +157,22 @@ if ($action === 'reset_password') {
 }
 
 // ---------------------------------------------------------------------
+// Unlock: end a brute-force login lock on the account before it expires
+// ---------------------------------------------------------------------
+if ($action === 'unlock_login') {
+    $target = account_for_log($pdo, (int)($_POST['user_id'] ?? 0));
+    if (!csrf_valid()) {
+        $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
+    } elseif ($target && clear_login_lock($pdo, 'account', mb_strtolower($target['email']), (int)$me['user_id'])) {
+        $_SESSION['flash_success'] = "Unlocked login for {$target['full_name']}.";
+    } else {
+        $_SESSION['flash_error'] = 'That account is not locked.';
+    }
+    header('Location: ' . BASE_URL . '/admin/manage_faculty.php' . (isset($_GET['role']) ? '?role=' . urlencode($_GET['role']) : ''));
+    exit;
+}
+
+// ---------------------------------------------------------------------
 // Toggle active / inactive
 // ---------------------------------------------------------------------
 if ($action === 'toggle_active') {
@@ -207,6 +223,14 @@ $sql .= " ORDER BY role, full_name";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $users = $stmt->fetchAll();
+
+// Accounts locked out by failed logins right now: email => seconds left
+$locked = [];
+foreach (active_login_locks($pdo) as $lock) {
+    if ($lock['lock_type'] === 'account') {
+        $locked[$lock['lock_key']] = max($locked[$lock['lock_key']] ?? 0, (int)$lock['seconds_left']);
+    }
+}
 
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -369,6 +393,17 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <span class="badge <?= $u['is_active'] ? 'bg-success' : 'bg-secondary' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
                 <?php if (!empty($u['must_change_password'])): ?>
                   <div class="mt-1"><span class="badge bg-warning" title="Must choose a new password at next login"><i class="fa-solid fa-key"></i> Temporary password</span></div>
+                <?php endif; ?>
+                <?php if (isset($locked[mb_strtolower($u['email'])])): ?>
+                  <div class="mt-1 d-flex align-items-center gap-1 flex-wrap">
+                    <span class="badge bg-danger" title="Too many failed login attempts"><i class="fa-solid fa-lock"></i> Locked until <?= h(date('g:i A', time() + $locked[mb_strtolower($u['email'])])) ?></span>
+                    <form method="POST" action="?<?= $role_filter !== '' ? 'role=' . h($role_filter) : '' ?>" class="d-inline" onsubmit="return confirm('Unlock login for this account now?');">
+                      <?= csrf_field() ?>
+                      <input type="hidden" name="action" value="unlock_login">
+                      <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
+                      <button class="btn btn-sm btn-outline-danger py-0"><i class="fa-solid fa-lock-open"></i> Unlock</button>
+                    </form>
+                  </div>
                 <?php endif; ?>
                 <?php if ($u['role'] === 'faculty'): ?>
                   <div class="mt-1">

@@ -37,8 +37,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$email = trim($_POST['email'] ?? '');
+$email = mb_substr(mb_strtolower(trim($_POST['email'] ?? '')), 0, 150);   // the lockout key; fits login_attempts.email
 $password = $_POST['password'] ?? '';
+// The connecting address only: X-Forwarded-For can be set by anyone, so it
+// isn't trusted (a known proxy in front of the app would have to be configured).
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
 /** Back to the login page with a message; the email is kept so it doesn't have to be retyped. */
@@ -63,9 +65,25 @@ try {
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 
+    // Brute-force protection, checked BEFORE the password: while the email or
+    // this IP is locked, even the right password is refused. Locks apply to
+    // any email entered, so they don't reveal whether an account exists.
+    $locks = array_filter([active_login_lock($pdo, 'account', $email), active_login_lock($pdo, 'ip', $ip)]);
+    if ($locks) {
+        record_login_attempt($pdo, $email, $user['user_id'] ?? null, false, $ip, true);
+        login_fail(login_lock_message(max(array_column($locks, 'seconds_left'))));
+    }
+
     if (!$user || !password_verify($password, $user['password_hash'])) {
         record_login_attempt($pdo, $email, $user['user_id'] ?? null, false, $ip);
-        login_fail('Incorrect email or password. Please try again.');
+        $lock = register_failed_login($pdo, $email, $ip, $attempts_left);
+        if ($lock) {
+            login_fail(login_lock_message($lock['seconds_left']));
+        }
+        login_fail('Incorrect email or password. Please try again.'
+            . ($attempts_left > 0 && $attempts_left <= WARN_REMAINING_ATTEMPTS
+                ? ' ' . $attempts_left . ' attempt' . ($attempts_left === 1 ? '' : 's') . ' left before login is locked for ' . LOCKOUT_MINUTES . ' minutes.'
+                : ''));
     }
 
     // Confirm the account actually belongs to the portal it logged in through

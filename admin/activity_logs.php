@@ -10,7 +10,7 @@ require_role('admin');
 $page_title = 'Activity Logs';
 $actions = activity_actions();
 $roles = ['admin' => 'Admin', 'faculty' => 'Faculty', 'program_chair' => 'Program Chair', 'dean' => 'Dean'];
-$results = ['success' => 'Successful', 'failed' => 'Failed'];
+$results = ['success' => 'Successful', 'failed' => 'Failed', 'blocked' => 'Blocked (locked out)'];
 const LOGS_PER_PAGE = 25;
 
 // Filters (all optional). Anything invalid is ignored rather than erroring.
@@ -58,10 +58,10 @@ if ($tab === 'activity') {
     $date_col = 'la.attempted_at';
     if ($user_id) { $where[] = 'la.user_id = ?'; $params[] = $user_id; }
     if ($role_filter) { $where[] = 'u.role = ?';     $params[] = $role_filter; }
-    if ($result)  { $where[] = 'la.was_successful = ?'; $params[] = $result === 'success' ? 1 : 0; }
+    if ($result)  { $where[] = ['success' => 'la.was_successful = 1', 'failed' => 'la.was_successful = 0 AND la.was_blocked = 0', 'blocked' => 'la.was_blocked = 1'][$result]; }
     if ($q !== '') { $where[] = '(la.email LIKE ? OR la.ip_address LIKE ?)'; array_push($params, "%$q%", "%$q%"); }
     $from_sql = "FROM login_attempts la LEFT JOIN users u ON u.user_id = la.user_id";
-    $select = "SELECT la.attempted_at, la.email, la.was_successful, la.ip_address, u.full_name, u.role";
+    $select = "SELECT la.attempted_at, la.email, la.was_successful, la.was_blocked, la.ip_address, u.full_name, u.role";
     $order = "ORDER BY la.attempted_at DESC, la.attempt_id DESC";
 }
 if ($from !== '') { $where[] = "$date_col >= ?"; $params[] = $from . ' 00:00:00'; }
@@ -211,7 +211,8 @@ include __DIR__ . '/../includes/header.php';
             <?php endif; ?>
           </td>
           <td>
-            <span class="badge <?= $r['was_successful'] ? 'bg-success' : 'bg-danger' ?>"><?= $r['was_successful'] ? 'Success' : 'Failed' ?></span>
+            <?php [$res_label, $res_class] = $r['was_successful'] ? ['Success', 'bg-success'] : ($r['was_blocked'] ? ['Blocked (locked)', 'bg-secondary'] : ['Failed', 'bg-danger']); ?>
+            <span class="badge <?= $res_class ?>"><?= h($res_label) ?></span>
           </td>
           <td><code><?= h($r['ip_address'] ?? '—') ?></code></td>
         </tr>

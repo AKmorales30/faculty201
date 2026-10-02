@@ -13,7 +13,7 @@ require_once __DIR__ . '/../config/db.php';
 function run_pending_migrations(PDO $pdo): void {
     $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
-                   'migration_document_removal.sql', 'migration_password_management.sql'];
+                   'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
@@ -918,10 +918,125 @@ function role_notifications_path(string $role): string {
 // every Admin through the existing notification system.
 // ---------------------------------------------------------------------
 
-function record_login_attempt(PDO $pdo, string $email, ?int $user_id, bool $success, string $ip): void {
+/** $blocked: refused because of a lockout, password not checked (not counted as a failure). */
+function record_login_attempt(PDO $pdo, string $email, ?int $user_id, bool $success, string $ip, bool $blocked = false): void {
     $pdo->prepare(
-        "INSERT INTO login_attempts (email, user_id, ip_address, was_successful) VALUES (?, ?, ?, ?)"
-    )->execute([$email, $user_id, $ip, $success ? 1 : 0]);
+        "INSERT INTO login_attempts (email, user_id, ip_address, was_successful, was_blocked) VALUES (?, ?, ?, ?, ?)"
+    )->execute([$email, $user_id, $ip, $success ? 1 : 0, $blocked ? 1 : 0]);
+}
+
+// ---------------------------------------------------------------------
+// Brute-force protection. MAX_FAILED_ATTEMPTS failures for one email, or
+// MAX_IP_FAILED_ATTEMPTS from one IP, within FAILED_ATTEMPT_WINDOW_MINUTES
+// lock further logins for LOCKOUT_MINUTES (config.php). Failures are
+// counted from login_attempts by time window; login_lockouts holds one row
+// per lock, so the Admins are notified once and can unlock early. All
+// times are compared inside MySQL (NOW(), session time zone +08:00).
+// ---------------------------------------------------------------------
+
+/**
+ * The lock in force on an email ('account') or IP address ('ip'), if any.
+ * @return array{id: int, locked_until: string, seconds_left: int}|null
+ */
+function active_login_lock(PDO $pdo, string $type, string $key): ?array {
+    $stmt = $pdo->prepare(
+        "SELECT id, locked_until, TIMESTAMPDIFF(SECOND, NOW(), locked_until) AS seconds_left
+         FROM login_lockouts
+         WHERE lock_type = ? AND lock_key = ? AND cleared_at IS NULL AND locked_until > NOW()
+         ORDER BY locked_until DESC LIMIT 1"
+    );
+    $stmt->execute([$type, $key]);
+    $lock = $stmt->fetch();
+    return $lock ? ['id' => (int)$lock['id'], 'locked_until' => $lock['locked_until'], 'seconds_left' => (int)$lock['seconds_left']] : null;
+}
+
+/**
+ * Failures that count toward locking an email / IP: in the window, and
+ * since its last lock started or was cleared -- and, for an email, since
+ * its last successful login (a successful login resets the count).
+ * Attempts refused during a lock (was_blocked) don't count.
+ */
+function recent_login_failures(PDO $pdo, string $type, string $key): int {
+    $column = $type === 'account' ? 'email' : 'ip_address';
+    $since = "GREATEST(NOW() - INTERVAL ? MINUTE,
+                       COALESCE((SELECT MAX(GREATEST(locked_at, COALESCE(cleared_at, locked_at))) FROM login_lockouts
+                                 WHERE lock_type = ? AND lock_key = ?), '1000-01-01')"
+           . ($type === 'account'
+                ? ", COALESCE((SELECT MAX(attempted_at) FROM login_attempts WHERE email = ? AND was_successful = 1), '1000-01-01')"
+                : '')
+           . ")";
+    $params = [(int)FAILED_ATTEMPT_WINDOW_MINUTES, $type, $key];
+    if ($type === 'account') { $params[] = $key; }
+    $params[] = $key;
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM login_attempts
+         WHERE attempted_at > $since AND $column = ? AND was_successful = 0 AND was_blocked = 0"
+    );
+    $stmt->execute($params);
+    return (int)$stmt->fetchColumn();
+}
+
+/** "12 minutes left" -- remaining lock time, rounded up to a whole minute. */
+function login_lock_minutes_label(int $seconds_left): string {
+    $minutes = max(1, (int)ceil($seconds_left / 60));
+    return $minutes . ' minute' . ($minutes === 1 ? '' : 's') . ' left';
+}
+
+/** "Too many failed login attempts. Please try again in 12 minutes." */
+function login_lock_message(int $seconds_left): string {
+    $minutes = max(1, (int)ceil($seconds_left / 60));
+    return 'Too many failed login attempts. Please try again in ' . $minutes . ' minute' . ($minutes === 1 ? '' : 's') . '.';
+}
+
+/**
+ * After a failed login: lock the email and / or IP if this failure reached
+ * its limit -- recording the lock, logging it and notifying every Admin,
+ * once per lock. Returns the new lock (the longer one when both were
+ * locked), or null with $attempts_left set for the email.
+ */
+function register_failed_login(PDO $pdo, string $email, string $ip, ?int &$attempts_left = null): ?array {
+    $limits = ['account' => [$email, (int)MAX_FAILED_ATTEMPTS], 'ip' => [$ip, (int)MAX_IP_FAILED_ATTEMPTS]];
+    $new_lock = null;
+    foreach ($limits as $type => [$key, $limit]) {
+        $failures = recent_login_failures($pdo, $type, $key);
+        if ($type === 'account') { $attempts_left = max(0, $limit - $failures); }
+        if ($failures < $limit || active_login_lock($pdo, $type, $key)) { continue; }
+
+        $pdo->prepare(
+            "INSERT INTO login_lockouts (lock_type, lock_key, failed_count, locked_at, locked_until)
+             VALUES (?, ?, ?, NOW(), NOW() + INTERVAL ? MINUTE)"
+        )->execute([$type, $key, $failures, (int)LOCKOUT_MINUTES]);
+        $lock = active_login_lock($pdo, $type, $key);
+        $until = date('g:i A', time() + $lock['seconds_left']);
+        $what = $type === 'account' ? "Login for {$email} locked" : "Logins from IP address {$ip} locked";
+        $why = "{$failures} failed attempts in " . FAILED_ATTEMPT_WINDOW_MINUTES . ' minutes'
+             . ($type === 'account' ? " (last one from {$ip})" : '');
+        log_activity($pdo, null, 'LOGIN_LOCKOUT', "{$what} until {$until} after {$why}.");
+        notify_role($pdo, 'admin', "{$what} until {$until} after {$why}. It unlocks by itself, or you can unlock it "
+            . ($type === 'account' ? 'in Manage Faculty & Accounts' : 'in Security Alerts') . '.');
+        if (!$new_lock || $lock['seconds_left'] > $new_lock['seconds_left']) { $new_lock = $lock; }
+    }
+    return $new_lock;
+}
+
+/** Admin unlock: end the lock on an email / IP now; its earlier failures stop counting. Returns whether one was active. */
+function clear_login_lock(PDO $pdo, string $type, string $key, int $admin_id): bool {
+    $stmt = $pdo->prepare(
+        "UPDATE login_lockouts SET cleared_at = NOW(), cleared_by = ?
+         WHERE lock_type = ? AND lock_key = ? AND cleared_at IS NULL AND locked_until > NOW()"
+    );
+    $stmt->execute([$admin_id, $type, $key]);
+    if ($stmt->rowCount() === 0) { return false; }
+    log_my_activity($pdo, 'LOGIN_UNLOCK', ($type === 'account' ? "Unlocked login for {$key}" : "Unlocked logins from IP address {$key}") . ' before the lock expired.');
+    return true;
+}
+
+/** Locks in force now: rows of login_lockouts plus seconds_left, latest first. */
+function active_login_locks(PDO $pdo): array {
+    return $pdo->query(
+        "SELECT id, lock_type, lock_key, failed_count, locked_at, locked_until, TIMESTAMPDIFF(SECOND, NOW(), locked_until) AS seconds_left
+         FROM login_lockouts WHERE cleared_at IS NULL AND locked_until > NOW() ORDER BY locked_at DESC"
+    )->fetchAll();
 }
 
 function flag_suspicious_login(PDO $pdo, int $user_id, string $full_name, string $ip): void {
@@ -989,6 +1104,8 @@ function activity_actions(): array {
         'DOCUMENT_RESTORE'   => 'Document Restored',
         'PASSWORD_CHANGE'    => 'Password Changed',
         'PASSWORD_RESET'     => 'Password Reset',
+        'LOGIN_LOCKOUT'      => 'Login Locked',
+        'LOGIN_UNLOCK'       => 'Login Unlocked',
     ];
 }
 

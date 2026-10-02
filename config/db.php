@@ -45,3 +45,10 @@ try {
     if (defined('APP_DEBUG') && APP_DEBUG) { die('Database connection failed: ' . htmlspecialchars($e->getMessage())); }
     throw new RuntimeException('Database connection failed');   // shown as a plain "Something went wrong" page
 }
+
+// MySQL's NOW() / CURDATE() and TIMESTAMP columns in Philippine time, the
+// same as PHP (config.php), whatever time zone the database server uses
+// (a hosted one is often UTC).
+// A fixed offset, since the Philippines has no daylight saving time and
+// named zones need MySQL's time zone tables loaded.
+$pdo->exec("SET time_zone = '+08:00'");
