@@ -21,6 +21,7 @@ function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
         <li class="nav-item"><a class="nav-link <?= nav_active('manage_faculty.php',$here) ?>" href="<?= BASE_URL ?>/admin/manage_faculty.php"><i class="fa-solid fa-users-gear"></i> Manage Faculty</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('view_records.php',$here) ?>" href="<?= BASE_URL ?>/admin/view_records.php"><i class="fa-solid fa-folder"></i> Faculty Records</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('search_documents.php',$here) ?>" href="<?= BASE_URL ?>/admin/search_documents.php"><i class="fa-solid fa-magnifying-glass"></i> Search Documents</a></li>
+        <li class="nav-item"><a class="nav-link <?= nav_active('archived_documents.php',$here) ?>" href="<?= BASE_URL ?>/admin/archived_documents.php"><i class="fa-solid fa-box-archive"></i> Archived Documents</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('analytics.php',$here) ?>" href="<?= BASE_URL ?>/admin/analytics.php"><i class="fa-solid fa-chart-column"></i> Data Analytics</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('reports.php',$here) ?>" href="<?= BASE_URL ?>/admin/reports.php"><i class="fa-solid fa-file-lines"></i> Reports</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('classification_review.php',$here) ?>" href="<?= BASE_URL ?>/admin/classification_review.php">

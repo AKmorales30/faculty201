@@ -12,7 +12,8 @@ require_once __DIR__ . '/../config/db.php';
  */
 function run_pending_migrations(PDO $pdo): void {
     $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
-                   'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql'];
+                   'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
+                   'migration_document_removal.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
@@ -95,6 +96,19 @@ function status_badge(string $status): array {
         'rejected'         => ['Rejected', 'bg-danger'],
     ];
     return $map[$status] ?? [$status, 'bg-secondary'];
+}
+
+/**
+ * status_badge() for an upload-log row that also has document_status
+ * (documents.status): an upload whose document was later deleted or
+ * archived says so instead of "Uploaded to 201 File".
+ */
+function upload_status_badge(array $row): array {
+    return match ($row['document_status'] ?? 'active') {
+        'deleted'  => ['Deleted', 'bg-secondary'],
+        'archived' => [current_user()['role'] === 'admin' ? 'Archived' : 'Archived by Admin', 'bg-light text-dark border'],
+        default    => status_badge($row['status']),
+    };
 }
 
 // ---------------------------------------------------------------------
@@ -222,7 +236,111 @@ function store_document_file(PDO $pdo, int $document_id, string $abs_path, strin
  * download or change anyone else's files.
  */
 function can_access_document(array $user, array $document): bool {
-    return (int)$document['faculty_id'] === (int)$user['user_id'] || $user['role'] === 'admin';
+    if ($user['role'] === 'admin') {
+        return true;   // including archived / deleted documents, to review or restore them
+    }
+    return (int)$document['faculty_id'] === (int)$user['user_id'] && ($document['status'] ?? 'active') === 'active';
+}
+
+// ---------------------------------------------------------------------
+// Deleting / archiving documents (soft delete -- rows are never removed).
+// documents.status: 'active' everywhere; 'archived' and 'deleted' only on
+// the Admin's Archived Documents page. A faculty member may delete their
+// own document within FACULTY_DELETE_WINDOW_HOURS of uploading it; the
+// Admin may archive, delete or restore any document. Done through
+// document_action.php (POST + CSRF token).
+// ---------------------------------------------------------------------
+
+/** Reasons offered when deleting / archiving a document. */
+function document_removal_reasons(): array {
+    return ['Wrong file', 'Duplicate', 'Outdated', 'Other'];
+}
+
+/**
+ * SQL for the seconds left in the owner's delete window of documents row
+ * $alias (0 or negative once it has closed). Worked out by the database,
+ * comparing filed_at with NOW() on the same clock, so it's right whatever
+ * time zone the database server runs in; deadlines are then shown in
+ * Asia/Manila (delete_deadline_label()).
+ */
+function delete_window_sql(string $alias = 'd'): string {
+    return "TIMESTAMPDIFF(SECOND, NOW(), {$alias}.filed_at + INTERVAL " . (int)FACULTY_DELETE_WINDOW_HOURS . " HOUR)";
+}
+
+/**
+ * Whether $user may delete $document themselves: it's theirs, still active,
+ * and inside the delete window. $document needs delete_seconds_left
+ * (selected with delete_window_sql()). The Admin uses the admin actions instead.
+ */
+function faculty_can_delete(array $user, array $document): bool {
+    return $user['role'] !== 'admin'
+        && (int)$document['faculty_id'] === (int)$user['user_id']
+        && ($document['status'] ?? '') === 'active'
+        && (int)($document['delete_seconds_left'] ?? 0) > 0;
+}
+
+/** "Oct 3, 2026, 9:15 AM" (Asia/Manila) -- when the delete window closes. */
+function delete_deadline_label(int $seconds_left): string {
+    return date('M j, Y, g:i A', time() + $seconds_left);
+}
+
+/** Where a deleted document's local file copy is kept: uploads/12/TOR/x.pdf -> uploads/_deleted/12/TOR/x.pdf */
+function deleted_file_path(string $file_path): string {
+    return str_starts_with($file_path, 'uploads/_deleted/') ? $file_path : 'uploads/_deleted/' . preg_replace('#^uploads/#', '', $file_path);
+}
+
+/** The reverse of deleted_file_path(), for a restore. */
+function restored_file_path(string $file_path): string {
+    return str_starts_with($file_path, 'uploads/_deleted/') ? 'uploads/' . substr($file_path, strlen('uploads/_deleted/')) : $file_path;
+}
+
+/**
+ * Move a document's local file copy (paths relative to ROOT_PATH) and
+ * return the path to store. A copy that's not on disk (the server's disk
+ * was wiped -- the database copy in document_files is what's served) just
+ * gets the new path; one that can't be moved keeps its old path.
+ */
+function move_document_file(string $from, string $to): string {
+    $src = ROOT_PATH . '/' . $from;
+    if ($from === $to || !is_file($src)) {
+        return $to;
+    }
+    $dir = dirname(ROOT_PATH . '/' . $to);
+    if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+    return @rename($src, ROOT_PATH . '/' . $to) ? $to : $from;
+}
+
+/**
+ * Archive, delete or restore one document. $doc is its documents row;
+ * $action 'archive' (active only), 'delete' (active or archived) or
+ * 'restore' (archived or deleted -> active). Deleting moves the local
+ * file into uploads/_deleted/; restoring moves it back. Returns false if
+ * the action doesn't apply to the document's current status.
+ */
+function change_document_status(PDO $pdo, array $doc, string $action, int $actor_id, ?string $reason): bool {
+    $status = $doc['status'];
+    if ($action === 'archive' && $status === 'active') {
+        $pdo->prepare("UPDATE documents SET status = 'archived', archived_at = NOW(), archived_by = ?, archive_reason = ? WHERE document_id = ?")
+            ->execute([$actor_id, $reason, $doc['document_id']]);
+        return true;
+    }
+    if ($action === 'delete' && in_array($status, ['active', 'archived'], true)) {
+        $path = move_document_file($doc['file_path'], deleted_file_path($doc['file_path']));
+        $pdo->prepare("UPDATE documents SET status = 'deleted', file_path = ?, deleted_at = NOW(), deleted_by = ?, delete_reason = ? WHERE document_id = ?")
+            ->execute([$path, $actor_id, $reason, $doc['document_id']]);
+        return true;
+    }
+    if ($action === 'restore' && in_array($status, ['archived', 'deleted'], true)) {
+        $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
+        $pdo->prepare(
+            "UPDATE documents SET status = 'active', file_path = ?,
+                    archived_at = NULL, archived_by = NULL, archive_reason = NULL,
+                    deleted_at = NULL, deleted_by = NULL, delete_reason = NULL
+             WHERE document_id = ?"
+        )->execute([$path, $doc['document_id']]);
+        return true;
+    }
+    return false;
 }
 
 /** URL that serves a 201-file document through the access check (document.php). */
@@ -318,7 +436,7 @@ function confidence_label($score): string {
 /** Low-confidence uploads the Admin hasn't reviewed yet (sidebar badge). */
 function unreviewed_low_confidence_count(PDO $pdo): int {
     try {
-        return (int)$pdo->query("SELECT COUNT(*) FROM documents WHERE is_low_confidence = 1 AND reviewed_at IS NULL")->fetchColumn();
+        return (int)$pdo->query("SELECT COUNT(*) FROM documents WHERE is_low_confidence = 1 AND reviewed_at IS NULL AND status = 'active'")->fetchColumn();
     } catch (PDOException $e) {
         return 0;   // migration not applied yet
     }
@@ -365,7 +483,7 @@ function faculty_201_checklist(PDO $pdo, int $faculty_id, ?string $employment_ty
     $sem_label = semester_options()[$period['semester']] . ', AY ' . $period['academic_year'];
 
     $has = function (string $type, ?array $sem = null) use ($pdo, $faculty_id): bool {
-        $sql = "SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ?";
+        $sql = "SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND status = 'active'";
         $params = [$faculty_id, $type];
         if ($sem) { $sql .= " AND academic_year = ? AND semester = ?"; array_push($params, $sem['academic_year'], $sem['semester']); }
         $stmt = $pdo->prepare($sql);
@@ -545,7 +663,7 @@ function categories_for_faculty(?string $employment_type): array {
 function faculty_document_counts(PDO $pdo, int $faculty_id): array {
     $counts = array_fill_keys(array_keys(document_categories()), 0);
     $stmt = $pdo->prepare(
-        "SELECT document_type, COUNT(*) c FROM documents WHERE faculty_id = ? GROUP BY document_type"
+        "SELECT document_type, COUNT(*) c FROM documents WHERE faculty_id = ? AND status = 'active' GROUP BY document_type"
     );
     $stmt->execute([$faculty_id]);
     foreach ($stmt->fetchAll() as $row) {
@@ -564,6 +682,7 @@ function documents_expiring_soon(PDO $pdo, int $days = 60): array {
         "SELECT d.*, u.full_name FROM documents d
          JOIN users u ON u.user_id = d.faculty_id
          WHERE d.expiration_date IS NOT NULL
+           AND d.status = 'active'
            AND d.expiration_date >= CURDATE()
            AND d.expiration_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
          ORDER BY d.expiration_date ASC"
@@ -656,10 +775,11 @@ function expiring_documents(PDO $pdo, ?int $faculty_id = null, int $days = 60): 
             JOIN users u ON u.user_id = d.faculty_id
             WHERE d.expiration_date IS NOT NULL
               AND d.expiration_date <= ?
+              AND d.status = 'active'
               AND u.is_active = 1
               AND NOT EXISTS (
                   SELECT 1 FROM documents n
-                  WHERE n.faculty_id = d.faculty_id AND n.document_type = d.document_type
+                  WHERE n.status = 'active' AND n.faculty_id = d.faculty_id AND n.document_type = d.document_type
                     AND n.document_subtype <=> d.document_subtype AND n.academic_year <=> d.academic_year
                     AND n.semester <=> d.semester AND n.period_year <=> d.period_year
                     AND n.document_id > d.document_id AND n.expiration_date > d.expiration_date
@@ -864,6 +984,9 @@ function activity_actions(): array {
         'ACCOUNT_DEACTIVATE' => 'Account Deactivated',
         'ACCOUNT_ACTIVATE'   => 'Account Activated',
         'CATEGORY_CORRECT'   => 'Category Corrected',
+        'DOCUMENT_DELETE'    => 'Document Deleted',
+        'DOCUMENT_ARCHIVE'   => 'Document Archived',
+        'DOCUMENT_RESTORE'   => 'Document Restored',
     ];
 }
 

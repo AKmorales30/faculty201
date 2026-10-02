@@ -53,7 +53,7 @@ $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype,
                $status_sql AS expiration_status
         FROM documents d
         JOIN users u ON u.user_id = d.faculty_id
-        WHERE 1=1";
+        WHERE d.status = 'active'";
 $params = [];
 
 if ($from !== '') {

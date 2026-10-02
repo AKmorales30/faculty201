@@ -15,12 +15,12 @@ $card_admin = true;
 $total_faculty = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND is_active=1")->fetchColumn();
 $full_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='full_time' AND is_active=1")->fetchColumn();
 $part_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='part_time' AND is_active=1")->fetchColumn();
-$month_count   = $pdo->query("SELECT COUNT(*) FROM documents WHERE filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")->fetchColumn();
-$filed_count   = $pdo->query("SELECT COUNT(*) FROM documents")->fetchColumn();
+$month_count   = $pdo->query("SELECT COUNT(*) FROM documents WHERE status='active' AND filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")->fetchColumn();
+$filed_count   = $pdo->query("SELECT COUNT(*) FROM documents WHERE status='active'")->fetchColumn();
 $alert_count   = unresolved_security_alert_count($pdo);
 
 $recent = $pdo->query(
-    "SELECT sr.request_id, sr.document_type_hint, sr.status, sr.submitted_at, u.full_name, d.document_subtype
+    "SELECT sr.request_id, sr.document_type_hint, sr.status, sr.submitted_at, u.full_name, d.document_subtype, d.status AS document_status
      FROM submission_requests sr
      JOIN users u ON u.user_id = sr.faculty_id
      LEFT JOIN documents d ON d.request_id = sr.request_id
@@ -85,7 +85,7 @@ include __DIR__ . '/../includes/header.php';
         <?php if (!$recent): ?>
           <tr><td colspan="4" class="text-center text-muted py-4">No uploads yet.</td></tr>
         <?php endif; ?>
-        <?php foreach ($recent as $r): [$label, $badge] = status_badge($r['status']); ?>
+        <?php foreach ($recent as $r): [$label, $badge] = upload_status_badge($r); ?>
         <tr>
           <td><?= h($r['full_name']) ?></td>
           <td><?= h(document_type_label($r['document_type_hint'], $r['document_subtype'])) ?></td>

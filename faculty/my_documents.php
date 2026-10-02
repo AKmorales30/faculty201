@@ -20,7 +20,8 @@ include __DIR__ . '/../includes/header.php';
     <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand btn-sm"><i class="fa-solid fa-file-arrow-up"></i> Upload</a>
   </div>
 </div>
-<p class="text-muted mb-4">Your filed documents, organized by category. The latest version of each is shown first; older versions are kept as history.</p>
+<p class="text-muted mb-4">Your filed documents, organized by category. The latest version of each is shown first; older versions are kept as history.
+  Uploaded the wrong file or a duplicate? You can delete it yourself within <?= (int)FACULTY_DELETE_WINDOW_HOURS ?> hours of uploading; after that, contact the Admin.</p>
 
 <?php include __DIR__ . '/../includes/document_browser.php'; ?>
 

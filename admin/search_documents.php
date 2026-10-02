@@ -14,7 +14,7 @@ if (!array_key_exists($type, $categories)) { $type = ''; }
 $sql = "SELECT d.*, u.full_name, u.employment_type
         FROM documents d
         JOIN users u ON u.user_id = d.faculty_id
-        WHERE 1=1";
+        WHERE d.status = 'active'";
 $params = [];
 
 if ($q !== '') {
@@ -42,6 +42,7 @@ if ($q !== '' || $type !== '' || $expiring_only) {   // a search was run, not ju
 }
 
 include __DIR__ . '/../includes/header.php';
+include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delete buttons + confirmation dialog
 ?>
 
 <h3 class="fw-bold mb-1">Search Documents</h3>
@@ -100,7 +101,12 @@ include __DIR__ . '/../includes/header.php';
             <?php else: ?><span class="text-muted">—</span><?php endif; ?>
           </td>
           <td><?= date('M j, Y', strtotime($d['filed_at'])) ?></td>
-          <td><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i></a></td>
+          <td>
+            <div class="d-flex flex-wrap gap-1">
+              <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" title="View"><i class="fa-solid fa-eye"></i></a>
+              <?= document_action_buttons($d, current_user()) ?>
+            </div>
+          </td>
         </tr>
         <?php endforeach; ?>
       </tbody>

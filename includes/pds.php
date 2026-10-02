@@ -634,7 +634,7 @@ function pds_status(PDO $pdo, int $faculty_id): array {
     $stmt->execute([$faculty_id]);
     $updated = $stmt->fetchColumn() ?: null;
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND (period_year = ? OR YEAR(filed_at) = ?)");
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' AND (period_year = ? OR YEAR(filed_at) = ?)");
     $stmt->execute([$faculty_id, $year, $year]);
     $uploaded_this_year = (int)$stmt->fetchColumn() > 0;
 

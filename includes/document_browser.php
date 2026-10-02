@@ -23,8 +23,10 @@ $active_sub = $_GET['sub'] ?? '';
 if ($active_type === '' || !isset($all_categories[$active_type]['subtypes'][$active_sub])) { $active_sub = ''; }
 $q = trim($_GET['q'] ?? '');
 
-$stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ?");
-$stmt->execute([$faculty['user_id']]);
+// Active documents only -- archived / deleted ones are on the Admin's Archived Documents page
+$stmt = $pdo->prepare("SELECT d.*, " . delete_window_sql('d') . " AS delete_seconds_left, ? AS full_name
+                       FROM documents d WHERE d.faculty_id = ? AND d.status = 'active'");
+$stmt->execute([$faculty['full_name'], $faculty['user_id']]);
 $all_docs = $stmt->fetchAll();
 $latest_ids = latest_document_ids($all_docs);
 
@@ -52,6 +54,7 @@ foreach ($all_docs as $d) {
         $sub_counts[$d['document_subtype'] ?? ''] = ($sub_counts[$d['document_subtype'] ?? ''] ?? 0) + 1;
     }
 }
+include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + confirmation dialog
 ?>
 
 <div class="row g-3 mb-4">
@@ -146,7 +149,12 @@ foreach ($all_docs as $d) {
             <?php endif; ?>
           </td>
           <td class="text-nowrap"><?= date('M j, Y', strtotime($d['filed_at'])) ?></td>
-          <td><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"><i class="fa-solid fa-eye"></i> View</a></td>
+          <td>
+            <div class="d-flex flex-wrap gap-1 align-items-start">
+              <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"><i class="fa-solid fa-eye"></i> View</a>
+              <?= document_action_buttons($d, current_user()) ?>
+            </div>
+          </td>
         </tr>
         <?php endforeach; ?>
       </tbody>

@@ -20,7 +20,7 @@ $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
 $stmt->execute([$me['user_id']]);
 $self = $stmt->fetch();
 
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ?");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND status = 'active'");
 $stmt->execute([$me['user_id']]);
 $my_docs = (int)$stmt->fetchColumn();
 $unread = unread_notification_count($pdo, $me['user_id']);

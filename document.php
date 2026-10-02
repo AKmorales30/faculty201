@@ -4,7 +4,8 @@
  * uploads/ are blocked by the web server, so this is the only way to open
  * a filed document.
  *
- * Allowed: the document's owner, or the Admin (can_access_document()).
+ * Allowed: the document's owner while it's active, or the Admin -- also
+ * archived / deleted ones, to review them (can_access_document()).
  * The file is read from the database (document_files).
  * Program Chairs and Deans can open only their own documents -- never a
  * faculty member's.
@@ -15,7 +16,7 @@ require_login();
 
 $me = current_user();
 $stmt = $pdo->prepare(
-    "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, u.full_name
+    "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.status, u.full_name
      FROM documents d JOIN users u ON u.user_id = d.faculty_id WHERE d.document_id = ?"
 );
 $stmt->execute([(int)($_GET['id'] ?? 0)]);
@@ -28,7 +29,8 @@ if (!$doc || !can_access_document($me, $doc)) {
 
 log_my_activity($pdo, 'VIEW_DOCUMENT', "Viewed document #{$doc['document_id']} \"" . basename($doc['file_path']) . '" ('
     . document_type_label($doc['document_type'], $doc['document_subtype'])
-    . ((int)$doc['faculty_id'] === (int)$me['user_id'] ? ', own 201 file' : ', 201 file of ' . $doc['full_name']) . ').');
+    . ((int)$doc['faculty_id'] === (int)$me['user_id'] ? ', own 201 file' : ', 201 file of ' . $doc['full_name'])
+    . ($doc['status'] !== 'active' ? ', ' . $doc['status'] : '') . ').');
 
 // Served from the database (document_files); the server's disk is wiped on
 // every redeploy. A file that only exists on disk (uploaded before files

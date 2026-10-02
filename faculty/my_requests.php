@@ -8,7 +8,7 @@ $me = current_user();
 $categories = document_categories();
 
 $stmt = $pdo->prepare(
-    "SELECT sr.*, d.document_id, d.file_path, d.document_subtype FROM submission_requests sr
+    "SELECT sr.*, d.document_id, d.file_path, d.document_subtype, d.status AS document_status FROM submission_requests sr
      LEFT JOIN documents d ON d.request_id = sr.request_id
      WHERE sr.faculty_id=? ORDER BY sr.submitted_at DESC"
 );
@@ -35,7 +35,7 @@ include __DIR__ . '/../includes/header.php';
         <?php if (!$requests): ?>
           <tr><td colspan="4" class="text-center text-muted py-4">You haven't uploaded any documents yet.</td></tr>
         <?php endif; ?>
-        <?php foreach ($requests as $r): [$label, $badge] = status_badge($r['status']); ?>
+        <?php foreach ($requests as $r): [$label, $badge] = upload_status_badge($r); ?>
         <tr>
           <td><?= h(document_type_label($r['document_type_hint'], $r['document_subtype'])) ?></td>
           <td>
@@ -46,7 +46,7 @@ include __DIR__ . '/../includes/header.php';
           </td>
           <td><?= date('M j, Y g:ia', strtotime($r['submitted_at'])) ?></td>
           <td class="text-nowrap">
-            <?php if ($r['file_path']): ?>
+            <?php if ($r['file_path'] && $r['document_status'] === 'active'): ?>
               <a href="<?= h(document_url((int)$r['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i> View</a>
             <?php endif; ?>
           </td>

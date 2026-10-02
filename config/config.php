@@ -54,6 +54,11 @@ define('DOCUMENT_TYPE_KEYWORDS', [
 // upload is listed for the Admin in Classification Review.
 define('CONFIDENCE_THRESHOLD', 0.60);
 
+// How long after uploading a faculty member can still delete the document
+// themselves (a wrong file or a duplicate). After that only the Admin can
+// archive or delete it. Hours; the check is in document_action.php.
+define('FACULTY_DELETE_WINDOW_HOURS', 24);
+
 // Subtype hints, tried once the main category is known. The first
 // subtype with the most hits wins; if none match, the category's
 // fallback subtype (see document_categories()) is used.

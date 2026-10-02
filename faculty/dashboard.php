@@ -13,16 +13,16 @@ run_daily_expiration_check($pdo);
 $expiring = expiring_documents($pdo, (int)$me['user_id']);
 $card_admin = false;
 
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id=? AND filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id=? AND status='active' AND filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
 $stmt->execute([$me['user_id']]);
 $this_month = $stmt->fetchColumn();
 
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id=?");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id=? AND status='active'");
 $stmt->execute([$me['user_id']]);
 $filed = $stmt->fetchColumn();
 
 $stmt = $pdo->prepare(
-    "SELECT sr.*, d.document_subtype FROM submission_requests sr
+    "SELECT sr.*, d.document_subtype, d.status AS document_status FROM submission_requests sr
      LEFT JOIN documents d ON d.request_id = sr.request_id
      WHERE sr.faculty_id=? ORDER BY sr.submitted_at DESC LIMIT 5"
 );
@@ -100,7 +100,7 @@ include __DIR__ . '/../includes/header.php';
             <?php if (!$recent): ?>
               <tr><td colspan="3" class="text-center text-muted py-4">You haven't uploaded any documents yet.</td></tr>
             <?php endif; ?>
-            <?php foreach ($recent as $r): [$label,$badge] = status_badge($r['status']); ?>
+            <?php foreach ($recent as $r): [$label,$badge] = upload_status_badge($r); ?>
             <tr>
               <td><?= h(document_type_label($r['document_type_hint'], $r['document_subtype'])) ?></td>
               <td><span class="badge <?= $badge ?>"><?= h($label) ?></span></td>

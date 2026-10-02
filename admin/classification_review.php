@@ -36,7 +36,7 @@ if (($_POST['action'] ?? '') === 'review') {
     $stmt = $pdo->prepare(
         "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, u.employment_type
          FROM documents d JOIN users u ON u.user_id = d.faculty_id
-         WHERE d.document_id = ? AND d.is_low_confidence = 1"
+         WHERE d.document_id = ? AND d.is_low_confidence = 1 AND d.status = 'active'"
     );
     $stmt->execute([(int)($_POST['document_id'] ?? 0)]);
     $doc = $stmt->fetch();
@@ -93,7 +93,7 @@ $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype,
         FROM documents d
         JOIN users u ON u.user_id = d.faculty_id
         LEFT JOIN users r ON r.user_id = d.reviewed_by
-        WHERE d.is_low_confidence = 1";
+        WHERE d.is_low_confidence = 1 AND d.status = 'active'";
 $params = [];
 
 if ($from !== '') {

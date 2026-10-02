@@ -6,7 +6,7 @@ require_role('admin');
 $page_title = 'Data Analytics';
 
 // Documents filed by category
-$by_type = $pdo->query("SELECT document_type, COUNT(*) c FROM documents GROUP BY document_type")->fetchAll(PDO::FETCH_KEY_PAIR);
+$by_type = $pdo->query("SELECT document_type, COUNT(*) c FROM documents WHERE status = 'active' GROUP BY document_type")->fetchAll(PDO::FETCH_KEY_PAIR);
 $by_type = array_merge(array_fill_keys(array_keys(document_categories()), 0), $by_type);
 $type_labels = array_map(fn($k) => document_categories()[$k]['short'] ?? $k, array_keys($by_type));
 
@@ -14,6 +14,7 @@ $type_labels = array_map(fn($k) => document_categories()[$k]['short'] ?? $k, arr
 $top_uploaders = $pdo->query(
     "SELECT u.full_name, COUNT(*) c FROM documents d
      JOIN users u ON u.user_id = d.faculty_id
+     WHERE d.status = 'active'
      GROUP BY d.faculty_id, u.full_name ORDER BY c DESC LIMIT 8"
 )->fetchAll(PDO::FETCH_KEY_PAIR);
 

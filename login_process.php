@@ -87,7 +87,7 @@ try {
 }
 
 session_regenerate_id(true);   // new session id on login (prevents session fixation)
-unset($_SESSION['login_email']);
+unset($_SESSION['login_email'], $_SESSION['csrf_token']);   // new CSRF token for the new session too
 
 // Store only what's needed in session — never the password hash
 $_SESSION['user'] = [

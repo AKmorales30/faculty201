@@ -36,11 +36,11 @@ if (!$pds['exists'] && empty($data['email'])) { $data['email'] = $me['email']; }
 $status = pds_status($pdo, $me['user_id']);
 $snapshots = pds_snapshots($pdo, $me['user_id']);
 
-$stmt = $pdo->prepare("SELECT document_id, file_path, period_year, filed_at FROM documents WHERE faculty_id = ? ORDER BY filed_at DESC");
+$stmt = $pdo->prepare("SELECT document_id, file_path, period_year, filed_at FROM documents WHERE faculty_id = ? AND status = 'active' ORDER BY filed_at DESC");
 $stmt->execute([$me['user_id']]);
 $doc_rows = $stmt->fetchAll();
 $doc_paths = array_column($doc_rows, 'file_path', 'document_id');
-$stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ? AND document_type = 'PDS' ORDER BY COALESCE(period_year, YEAR(filed_at)) DESC, filed_at DESC");
+$stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' ORDER BY COALESCE(period_year, YEAR(filed_at)) DESC, filed_at DESC");
 $stmt->execute([$me['user_id']]);
 $pds_files = $stmt->fetchAll();
 
