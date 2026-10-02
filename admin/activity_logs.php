@@ -223,27 +223,10 @@ include __DIR__ . '/../includes/header.php';
   </div>
 </div>
 
-<?php if ($pages > 1):
-  $page_url = fn(int $p): string => 'activity_logs.php?' . http_build_query($filter_query + ($tab === 'logins' ? ['tab' => 'logins'] : []) + ['page' => $p]);
-  $first = max(1, $page - 2);
-  $last = min($pages, $page + 2); ?>
-<nav class="mt-3" aria-label="Log pages">
-  <ul class="pagination pagination-sm flex-wrap justify-content-center">
-    <li class="page-item <?= $page === 1 ? 'disabled' : '' ?>"><a class="page-link" href="<?= h($page_url($page - 1)) ?>">&laquo; Newer</a></li>
-    <?php if ($first > 1): ?>
-      <li class="page-item"><a class="page-link" href="<?= h($page_url(1)) ?>">1</a></li>
-      <?php if ($first > 2): ?><li class="page-item disabled"><span class="page-link">&hellip;</span></li><?php endif; ?>
-    <?php endif; ?>
-    <?php for ($p = $first; $p <= $last; $p++): ?>
-      <li class="page-item <?= $p === $page ? 'active' : '' ?>"><a class="page-link" href="<?= h($page_url($p)) ?>"><?= $p ?></a></li>
-    <?php endfor; ?>
-    <?php if ($last < $pages): ?>
-      <?php if ($last < $pages - 1): ?><li class="page-item disabled"><span class="page-link">&hellip;</span></li><?php endif; ?>
-      <li class="page-item"><a class="page-link" href="<?= h($page_url($pages)) ?>"><?= $pages ?></a></li>
-    <?php endif; ?>
-    <li class="page-item <?= $page === $pages ? 'disabled' : '' ?>"><a class="page-link" href="<?= h($page_url($page + 1)) ?>">Older &raquo;</a></li>
-  </ul>
-</nav>
-<?php endif; ?>
+<?php
+$page_url = fn(int $p): string => 'activity_logs.php?' . http_build_query($filter_query + ($tab === 'logins' ? ['tab' => 'logins'] : []) + ['page' => $p]);
+$pagination_labels = ['&laquo; Newer', 'Older &raquo;'];
+include __DIR__ . '/../includes/pagination.php';
+?>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

@@ -1,0 +1,23 @@
+-- =====================================================================
+-- Migration: index for the advanced Search Documents filters
+--
+-- admin/search_documents.php always filters on documents.status =
+-- 'active', can add an upload-date range on filed_at, and sorts by
+-- filed_at. One index on (status, filed_at) serves all three, so the
+-- search and its "newest / oldest first" paging don't scan and sort the
+-- whole documents table as it grows.
+--
+-- Not indexed, on purpose:
+--   users.program / users.employment_type -- users is a small table (one
+--     row per account) and is joined by its primary key; an index there
+--     wouldn't be used. (idx_users_program already covers role/college/program.)
+--   the keyword search -- LIKE '%word%' can't use an ordinary index.
+--
+-- Applied automatically by run_pending_migrations() in
+-- includes/functions.php (recorded in schema_migrations), which skips
+-- "already exists" errors so a partly-applied run can simply be retried.
+-- To run it by hand instead: select the database first, then run this
+-- file once.
+-- =====================================================================
+
+CREATE INDEX idx_documents_status_filed ON documents(status, filed_at);

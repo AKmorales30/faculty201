@@ -13,7 +13,8 @@ require_once __DIR__ . '/../config/db.php';
 function run_pending_migrations(PDO $pdo): void {
     $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
-                   'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql'];
+                   'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
+                   'migration_search_indexes.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
