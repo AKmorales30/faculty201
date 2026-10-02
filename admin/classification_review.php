@@ -72,6 +72,10 @@ if (($_POST['action'] ?? '') === 'review') {
             (int)($cat['frequency'] === 'yearly'),
             current_user()['user_id'], $doc['document_id'],
         ]);
+        if ($changed) {
+            log_my_activity($pdo, 'CATEGORY_CORRECT', "Corrected the category of document #{$doc['document_id']} \"" . basename($doc['file_path']) . '" from '
+                . document_type_label($doc['document_type'], $doc['document_subtype']) . ' to ' . document_type_label($new_type, $new_sub) . '.');
+        }
         $_SESSION['flash_success'] = $changed
             ? 'Category corrected to ' . document_type_label($new_type, $new_sub) . ' and marked as reviewed.'
             : 'Marked as reviewed.';

@@ -103,10 +103,23 @@ if ($status !== '')    { $applied[] = 'Expiration status: ' . $status_options[$s
 $filter_query = array_filter(['from' => $from, 'to' => $to, 'category' => $category,
                               'faculty' => $faculty_id ?: '', 'status' => $status], fn($v) => $v !== '');
 
+// Activity log: on-screen (Generate pressed), printed / saved as PDF, or exported to CSV
+$log_report = function (string $format) use ($pdo, $applied, $documents) {
+    log_my_activity($pdo, 'GENERATE_REPORT', "Documents report ({$format}) -- " . ($applied ? implode('; ', $applied) : 'no filters')
+        . ' (' . count($documents) . ' document' . (count($documents) === 1 ? '' : 's') . ').');
+};
+// Printing happens in the browser; the page posts here when the print dialog opens
+if (($_POST['action'] ?? '') === 'log_print') {
+    $log_report('printed / saved as PDF');
+    http_response_code(204);
+    exit;
+}
+
 // ---------------------------------------------------------------------
 // CSV export: the currently filtered list, same columns as the table
 // ---------------------------------------------------------------------
 if (($_GET['export'] ?? '') === 'csv') {
+    $log_report('exported to CSV');
     // A cell starting with = + - @ would run as a formula in Excel
     $cell = fn(string $v): string => preg_match('/^[=+\-@\t\r]/', $v) ? "'" . $v : $v;
 
@@ -128,6 +141,9 @@ if (($_GET['export'] ?? '') === 'csv') {
     }
     fclose($out);
     exit;
+}
+if (isset($_GET['from'])) {   // the filter form was submitted (opening the page alone isn't logged)
+    $log_report('on screen');
 }
 
 include __DIR__ . '/../includes/header.php';
@@ -273,5 +289,21 @@ include __DIR__ . '/../includes/header.php';
     </table>
   </div>
 </div>
+
+<script>
+// Activity log: record that the report was printed / saved as PDF (button or Ctrl+P), once per page view
+(function () {
+  var logged = false;
+  window.addEventListener('beforeprint', function () {
+    if (logged) return;
+    logged = true;
+    var body = new FormData();
+    body.append('action', 'log_print');
+    var url = 'reports.php?' + <?= json_encode(http_build_query($filter_query)) ?>;
+    if (navigator.sendBeacon) { navigator.sendBeacon(url, body); }
+    else { fetch(url, { method: 'POST', body: body, credentials: 'same-origin', keepalive: true }); }
+  });
+})();
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

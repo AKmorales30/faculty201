@@ -35,6 +35,12 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $documents = $stmt->fetchAll();
 
+if ($q !== '' || $type !== '' || $expiring_only) {   // a search was run, not just the page opened
+    log_my_activity($pdo, 'SEARCH', 'Search Documents -- ' . describe_filters([
+        'Keywords' => $q, 'Type' => $type !== '' ? $categories[$type]['label'] : '', 'Expiring only' => $expiring_only,
+    ]) . ' (' . count($documents) . ' result' . (count($documents) === 1 ? '' : 's') . ').');
+}
+
 include __DIR__ . '/../includes/header.php';
 ?>
 

@@ -34,6 +34,12 @@ $documents = array_filter($all_docs, function ($d) use ($active_type, $active_su
     if ($q !== '' && stripos(($d['ocr_extracted_text'] ?? '') . ' ' . $d['file_path'], $q) === false) { return false; }
     return true;
 });
+if ($q !== '') {
+    log_my_activity($pdo, 'SEARCH', '201 file of ' . $faculty['full_name'] . ' -- ' . describe_filters([
+        'Keywords' => $q,
+        'Folder'   => $active_type !== '' ? document_type_label($active_type, $active_sub ?: null) : '',
+    ]) . ' (' . count($documents) . ' result' . (count($documents) === 1 ? '' : 's') . ').');
+}
 if ($active_type !== '') {
     usort($documents, 'compare_documents_latest_first');
 } else {

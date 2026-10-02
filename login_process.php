@@ -79,6 +79,7 @@ try {
     // the session is established.
     record_login_attempt($pdo, $email, (int)$user['user_id'], true, $ip);
     flag_suspicious_login($pdo, (int)$user['user_id'], $user['full_name'], $ip);
+    log_activity($pdo, (int)$user['user_id'], 'LOGIN', 'Signed in through the ' . ($portal_key === 'faculty' ? 'Faculty' : 'Admin') . ' login page.', $user['role']);
 } catch (Throwable $e) {
     // Database or other server problem: log the details, show the user a plain message
     error_log('Login failed for ' . $email . ': ' . $e->getMessage());

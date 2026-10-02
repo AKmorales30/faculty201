@@ -12,7 +12,7 @@ require_once __DIR__ . '/../config/db.php';
  */
 function run_pending_migrations(PDO $pdo): void {
     $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
-                   'migration_classification_confidence.sql'];
+                   'migration_classification_confidence.sql', 'migration_activity_logs.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
@@ -657,6 +657,72 @@ function flag_suspicious_login(PDO $pdo, int $user_id, string $full_name, string
         )->execute([$user_id, $reason, $ip]);
         notify_role($pdo, 'admin', "Suspicious login flagged for {$full_name}: {$reason}");
     }
+}
+
+// ---------------------------------------------------------------------
+// Activity logs (Objective 3c, section 3.5.4, Fig. 4 "View Activity /
+// Login Logs"). One row per user action, shown read-only to the Admin in
+// admin/activity_logs.php. Login attempts themselves stay in login_attempts.
+// ---------------------------------------------------------------------
+
+/** Action codes stored in activity_logs.action => label shown to the Admin. */
+function activity_actions(): array {
+    return [
+        'LOGIN'              => 'Login',
+        'LOGOUT'             => 'Logout',
+        'UPLOAD'             => 'Upload Document',
+        'VIEW_DOCUMENT'      => 'View Document',
+        'SEARCH'             => 'Search',
+        'GENERATE_REPORT'    => 'Generate Report',
+        'PDS_UPDATE'         => 'PDS Update',
+        'ACCOUNT_CREATE'     => 'Account Created',
+        'ACCOUNT_UPDATE'     => 'Account Updated',
+        'ACCOUNT_DEACTIVATE' => 'Account Deactivated',
+        'ACCOUNT_ACTIVATE'   => 'Account Activated',
+        'CATEGORY_CORRECT'   => 'Category Corrected',
+    ];
+}
+
+/**
+ * Record one action in activity_logs, with the user's role, IP address,
+ * browser and time filled in automatically. $user_id is null when nobody
+ * is signed in; $role defaults to the signed-in user's role (pass it when
+ * logging for a user who isn't in the session yet, e.g. at login).
+ * Never throws: a logging problem must not break the action being logged.
+ */
+function log_activity(PDO $pdo, ?int $user_id, string $action, string $details = '', ?string $role = null): void {
+    try {
+        if ($role === null && $user_id !== null) {
+            $me = current_user();
+            $role = ($me && (int)$me['user_id'] === $user_id) ? $me['role'] : null;
+        }
+        $pdo->prepare(
+            "INSERT INTO activity_logs (user_id, user_role, action, details, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)"
+        )->execute([
+            $user_id, $role, $action, $details !== '' ? $details : null,
+            $_SERVER['REMOTE_ADDR'] ?? null,   // same source as login_attempts.ip_address
+            isset($_SERVER['HTTP_USER_AGENT']) ? mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255) : null,
+        ]);
+    } catch (Throwable $e) {
+        error_log('Activity log failed (' . $action . '): ' . $e->getMessage());
+    }
+}
+
+/** log_activity() for the signed-in user. */
+function log_my_activity(PDO $pdo, string $action, string $details = ''): void {
+    $me = current_user();
+    log_activity($pdo, $me ? (int)$me['user_id'] : null, $action, $details, $me['role'] ?? null);
+}
+
+/** "Category: TOR; Uploaded from: 2026-09-01" -- the non-empty filters, for SEARCH / GENERATE_REPORT details. */
+function describe_filters(array $filters): string {
+    $parts = [];
+    foreach ($filters as $label => $value) {
+        if ($value !== '' && $value !== null && $value !== false) {
+            $parts[] = $label . ': ' . ($value === true ? 'yes' : $value);
+        }
+    }
+    return $parts ? implode('; ', $parts) : 'no filters';
 }
 
 function unresolved_security_alert_count(PDO $pdo): int {

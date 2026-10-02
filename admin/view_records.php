@@ -18,6 +18,10 @@ $faculty = array_values(array_filter($everyone, function ($f) use ($terms) {
     foreach ($terms as $t) { if (!str_contains($name, $t)) { return false; } }
     return true;
 }));
+if ($q !== '') {
+    log_my_activity($pdo, 'SEARCH', 'Faculty Records -- ' . describe_filters(['Name' => $q])
+        . ' (' . count($faculty) . ' match' . (count($faculty) === 1 ? '' : 'es') . ').');
+}
 
 // Sections, in this order. Faculty without an employment type still get listed.
 $sections = [

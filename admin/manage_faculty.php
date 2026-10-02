@@ -27,6 +27,18 @@ function account_assignment(string $role, array $in) {
     return [$emp, $program, PROGRAMS[$program]['college']];
 }
 
+/** "account #12 Juan Dela Cruz (faculty, juan@um.edu.ph)" -- which account an activity-log entry is about. */
+function account_log_name(array $u): string {
+    return "account #{$u['user_id']} {$u['full_name']} (" . str_replace('_', ' ', $u['role']) . ", {$u['email']})";
+}
+
+/** users row for an activity-log entry, or null. */
+function account_for_log(PDO $pdo, int $user_id): ?array {
+    $stmt = $pdo->prepare("SELECT user_id, full_name, role, email, is_active FROM users WHERE user_id = ?");
+    $stmt->execute([$user_id]);
+    return $stmt->fetch() ?: null;
+}
+
 // ---------------------------------------------------------------------
 // Set program / college (and employment type for Chairs / Deans) of an
 // existing account
@@ -45,6 +57,9 @@ if ($action === 'assign') {
             [$emp, $program, $college] = $result;
             $pdo->prepare("UPDATE users SET employment_type = ?, program = ?, college = ? WHERE user_id = ?")
                 ->execute([$emp, $program, $college, $target['user_id']]);
+            log_my_activity($pdo, 'ACCOUNT_UPDATE', 'Updated ' . account_log_name($target) . ' -- ' . describe_filters([
+                'Employment type' => employment_type_label($emp), 'Program' => PROGRAMS[$program]['label'] ?? '', 'College' => COLLEGES[$college] ?? '',
+            ]) . '.');
             $_SESSION['flash_success'] = "Updated {$target['full_name']}.";
         }
     }
@@ -86,8 +101,12 @@ if ($action === 'create') {
                 $role === 'faculty' ? 'active' : null,
                 $role === 'faculty' ? date('Y-m-d') : null,
             ]);
+            $new_id = (int)$pdo->lastInsertId();
+            log_my_activity($pdo, 'ACCOUNT_CREATE', 'Created ' . account_log_name(['user_id' => $new_id, 'full_name' => $full_name, 'role' => $role, 'email' => $email])
+                . ($role === 'admin' ? '' : ' -- ' . describe_filters([
+                    'Employment type' => employment_type_label($emp_type), 'Program' => PROGRAMS[$program]['label'] ?? '', 'College' => COLLEGES[$college] ?? '',
+                ])) . '.');
             if ($role === 'faculty') {
-                $new_id = (int)$pdo->lastInsertId();
                 $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, 'engaged', CURDATE(), 'Account created by Admin')")
                     ->execute([$new_id]);
             }
@@ -105,6 +124,11 @@ if ($action === 'toggle_active') {
     $uid = (int)($_POST['user_id'] ?? 0);
     if ($uid !== (int)$me['user_id']) {
         $pdo->prepare("UPDATE users SET is_active = 1 - is_active WHERE user_id = ?")->execute([$uid]);
+        $target = account_for_log($pdo, $uid);
+        if ($target) {
+            log_my_activity($pdo, $target['is_active'] ? 'ACCOUNT_ACTIVATE' : 'ACCOUNT_DEACTIVATE',
+                ($target['is_active'] ? 'Activated ' : 'Deactivated ') . account_log_name($target) . '.');
+        }
         $_SESSION['flash_success'] = 'Account status updated.';
     } else {
         $_SESSION['flash_error'] = 'You cannot deactivate your own account.';
@@ -123,6 +147,11 @@ if ($action === 'pause' || $action === 'resume') {
     $pdo->prepare("UPDATE users SET employment_status = ? WHERE user_id = ? AND role = 'faculty'")->execute([$new_status, $uid]);
     $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, ?, CURDATE(), ?)")
         ->execute([$uid, $action === 'pause' ? 'paused' : 'resumed', $_POST['remarks'] ?? null]);
+    $target = account_for_log($pdo, $uid);
+    if ($target) {
+        log_my_activity($pdo, 'ACCOUNT_UPDATE', ($action === 'pause' ? 'Paused' : 'Resumed') . ' employment of ' . account_log_name($target)
+            . (trim($_POST['remarks'] ?? '') !== '' ? ' -- Remarks: ' . trim($_POST['remarks']) : '') . '.');
+    }
     $_SESSION['flash_success'] = $action === 'pause' ? 'Faculty employment paused.' : 'Faculty employment resumed.';
     header('Location: ' . BASE_URL . '/admin/manage_faculty.php');
     exit;

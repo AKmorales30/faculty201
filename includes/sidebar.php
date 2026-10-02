@@ -27,6 +27,7 @@ function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
           <i class="fa-solid fa-robot"></i> Classification Review
           <?php $lc = unreviewed_low_confidence_count($pdo); if ($lc): ?><span class="badge bg-warning rounded-pill ms-1"><?= $lc ?></span><?php endif; ?>
         </a></li>
+        <li class="nav-item"><a class="nav-link <?= nav_active('activity_logs.php',$here) ?>" href="<?= BASE_URL ?>/admin/activity_logs.php"><i class="fa-solid fa-clock-rotate-left"></i> Activity Logs</a></li>
         <li class="nav-item"><a class="nav-link <?= nav_active('security_alerts.php',$here) ?>" href="<?= BASE_URL ?>/admin/security_alerts.php">
           <i class="fa-solid fa-shield-halved"></i> Security Alerts
           <?php $sa = unresolved_security_alert_count($pdo); if ($sa): ?><span class="badge bg-danger rounded-pill ms-1"><?= $sa ?></span><?php endif; ?>

@@ -14,7 +14,10 @@ require_once __DIR__ . '/includes/functions.php';
 require_login();
 
 $me = current_user();
-$stmt = $pdo->prepare("SELECT document_id, faculty_id, file_path FROM documents WHERE document_id = ?");
+$stmt = $pdo->prepare(
+    "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, u.full_name
+     FROM documents d JOIN users u ON u.user_id = d.faculty_id WHERE d.document_id = ?"
+);
 $stmt->execute([(int)($_GET['id'] ?? 0)]);
 $doc = $stmt->fetch();
 
@@ -22,6 +25,10 @@ if (!$doc || !can_access_document($me, $doc)) {
     http_response_code(403);
     exit('You do not have access to this document.');
 }
+
+log_my_activity($pdo, 'VIEW_DOCUMENT', "Viewed document #{$doc['document_id']} \"" . basename($doc['file_path']) . '" ('
+    . document_type_label($doc['document_type'], $doc['document_subtype'])
+    . ((int)$doc['faculty_id'] === (int)$me['user_id'] ? ', own 201 file' : ', 201 file of ' . $doc['full_name']) . ').');
 
 // Served from the database (document_files); the server's disk is wiped on
 // every redeploy. A file that only exists on disk (uploaded before files

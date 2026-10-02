@@ -109,6 +109,8 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         exit;
     }
     [$request_id, $document_id] = $stored;
+    log_my_activity($pdo, 'UPLOAD', "Uploaded document #{$document_id} \"{$scan['original_name']}\" as " . document_type_label($type, $subtype)
+        . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '') . '.');
     discard_files(pending_extra_files($scan));   // the original photo isn't kept -- the cleaned-up PDF is the record
 
     // Relevant information -> PDS
@@ -117,12 +119,16 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     if ($type === 'Certificate' && in_array($subtype, ['Seminar', 'Training'], true) && !empty($_POST['add_to_pds'])) {
         $page = pds_add_training($pdo, $me['user_id'], (array)($_POST['ld'] ?? []), $document_id);
         if ($page !== null) {
+            log_my_activity($pdo, 'PDS_UPDATE', "Added a Learning and Development entry ({$page}) to their PDS from uploaded document #{$document_id}.");
             $extra_lines[] = 'PDS Section VI (Learning and Development) was updated with this ' . strtolower($subtype) . '.';
             $pds_note = " It was also added to Section VI (Learning and Development) of your PDS ({$page}).";
         }
     }
     if ($type === 'PDS') {
         $filled = pds_import_upload($pdo, $me['user_id'], $scan['result']['pds_fields'] ?? [], $document_id);
+        if ($filled) {
+            log_my_activity($pdo, 'PDS_UPDATE', "Filled {$filled} empty PDS field" . ($filled === 1 ? '' : 's') . " from uploaded PDS document #{$document_id}.");
+        }
         $pds_note = $filled
             ? " {$filled} empty field" . ($filled === 1 ? ' was' : 's were') . ' filled in on your digital PDS from this file -- please review it.'
             : ' Please review your digital PDS and update it if anything changed.';

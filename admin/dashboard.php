@@ -28,7 +28,10 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
   <h3 class="fw-bold mb-0">Welcome, <?= h(current_user()['full_name']) ?></h3>
-  <a href="<?= BASE_URL ?>/admin/reports.php" class="btn btn-brand"><i class="fa-solid fa-file-lines"></i> Generate Report</a>
+  <div class="d-flex flex-wrap gap-2">
+    <a href="<?= BASE_URL ?>/admin/activity_logs.php" class="btn btn-outline-brand"><i class="fa-solid fa-clock-rotate-left"></i> View Activity / Login Logs</a>
+    <a href="<?= BASE_URL ?>/admin/reports.php" class="btn btn-brand"><i class="fa-solid fa-file-lines"></i> Generate Report</a>
+  </div>
 </div>
 
 <div class="row g-3 mb-4">

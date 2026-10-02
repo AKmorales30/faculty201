@@ -44,6 +44,10 @@ body { background-color: #f4f6f9; color: var(--c-charcoal); }
 .badge.bg-warning   { background-color: var(--c-gold) !important; color: var(--c-charcoal) !important; }
 .badge.bg-secondary { background-color: var(--c-charcoal) !important; }
 
+/* Pagination (Activity Logs) in the palette */
+.pagination .page-link { color: var(--c-navy); }
+.pagination .page-item.active .page-link { background-color: var(--c-navy); border-color: var(--c-navy); color: #fff; }
+
 /* =====================================================================
    LANDING PAGE (public entry point, styled after udmwebsite.udm.edu.ph)
    ===================================================================== */

@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         exit;
     }
     pds_save($pdo, $me['user_id'], (array)($_POST['data'] ?? []), (array)($_POST['ld'] ?? []));
+    log_my_activity($pdo, 'PDS_UPDATE', 'Edited and saved their digital PDS (previous version kept in the version history).');
     $_SESSION['flash_success'] = 'Your PDS has been saved. The previous version was kept in the version history.';
     header('Location: ' . BASE_URL . '/faculty/pds.php');
     exit;
