@@ -7,6 +7,10 @@ $page_title = 'Admin Dashboard';
 
 // Anything left waiting under the old approval workflow gets filed now.
 file_outstanding_requests($pdo);
+// Expiration alerts, at most once a day system-wide (before the header, so the bell counts them)
+run_daily_expiration_check($pdo);
+$expiring = expiring_documents($pdo);
+$card_admin = true;
 
 $total_faculty = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND is_active=1")->fetchColumn();
 $full_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='full_time' AND is_active=1")->fetchColumn();
@@ -67,6 +71,8 @@ include __DIR__ . '/../includes/header.php';
   <div><strong><?= (int)$alert_count ?></strong> security alert<?= $alert_count === 1 ? '' : 's' ?> need<?= $alert_count === 1 ? 's' : '' ?> your review.</div>
 </a>
 <?php endif; ?>
+
+<?php include __DIR__ . '/../includes/expiring_documents_card.php'; ?>
 
 <div class="card stat-card">
   <div class="card-header bg-white fw-semibold">Recent Faculty Uploads</div>

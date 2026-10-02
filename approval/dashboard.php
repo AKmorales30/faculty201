@@ -8,6 +8,10 @@ $me = current_user();
 
 // Anything left waiting under the old approval workflow gets filed now.
 file_outstanding_requests($pdo);
+// Expiration alerts, at most once a day system-wide (before the header, so the bell counts them)
+run_daily_expiration_check($pdo);
+$expiring = expiring_documents($pdo, (int)$me['user_id']);
+$card_admin = false;
 
 // Program Chairs and Deans keep their own 201 file like faculty do. They are
 // notified when faculty in their program / college upload, but can't open
@@ -65,6 +69,8 @@ include __DIR__ . '/../includes/header.php';
     </div>
   </div>
 </div>
+
+<?php include __DIR__ . '/../includes/expiring_documents_card.php'; ?>
 
 <div class="card stat-card">
   <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">

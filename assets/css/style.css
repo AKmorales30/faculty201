@@ -43,6 +43,8 @@ body { background-color: #f4f6f9; color: var(--c-charcoal); }
 .badge.bg-success   { background-color: var(--c-teal) !important; }
 .badge.bg-warning   { background-color: var(--c-gold) !important; color: var(--c-charcoal) !important; }
 .badge.bg-secondary { background-color: var(--c-charcoal) !important; }
+/* Expiration: orange = within 7 days (red = expired, yellow/gold = within 30) */
+.badge.bg-expiry-soon { background-color: #e8590c; color: #fff; }
 
 /* Pagination (Activity Logs) in the palette */
 .pagination .page-link { color: var(--c-navy); }

@@ -8,6 +8,10 @@ $me = current_user();
 
 // Anything left waiting under the old approval workflow gets filed now.
 file_outstanding_requests($pdo);
+// Expiration alerts, at most once a day system-wide (before the header, so the bell counts them)
+run_daily_expiration_check($pdo);
+$expiring = expiring_documents($pdo, (int)$me['user_id']);
+$card_admin = false;
 
 $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id=? AND filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
 $stmt->execute([$me['user_id']]);
@@ -56,6 +60,8 @@ include __DIR__ . '/../includes/header.php';
     </div>
   </div>
 </div>
+
+<?php include __DIR__ . '/../includes/expiring_documents_card.php'; ?>
 
 <div class="row g-3">
   <div class="col-lg-5">

@@ -1,0 +1,2 @@
+# Scheduled jobs run from the command line only, never over the web.
+Require all denied

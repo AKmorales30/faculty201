@@ -12,7 +12,7 @@ require_once __DIR__ . '/../config/db.php';
  */
 function run_pending_migrations(PDO $pdo): void {
     $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
-                   'migration_classification_confidence.sql', 'migration_activity_logs.sql'];
+                   'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
@@ -570,6 +570,190 @@ function documents_expiring_soon(PDO $pdo, int $days = 60): array {
     );
     $stmt->execute([$days]);
     return $stmt->fetchAll();
+}
+
+// ---------------------------------------------------------------------
+// Expiration alerts (Objective 3a, section 1.5, Fig. 2). The owner of a
+// document and every Admin are notified (existing notifications table)
+// at 60, 30 and 7 days before it expires and on the day it expires --
+// each milestone once per document and expiration date, recorded in
+// expiration_alerts_sent. A missed milestone isn't sent late: only the
+// one the document is in now goes out (first checked 5 days before ->
+// the 7-day alert only). All dates are Asia/Manila (config.php), worked
+// out in PHP rather than with the database server's CURDATE().
+// ---------------------------------------------------------------------
+
+/** Alert milestones, most urgent first: milestone => days before expiration (0 = the day itself or later). */
+function expiration_milestones(): array {
+    return ['expired' => 0, '7' => 7, '30' => 30, '60' => 60];
+}
+
+/** Whole days from today until $date (Y-m-d); 0 on the day, negative once passed. */
+function days_until(string $date): int {
+    return (int)(new DateTimeImmutable('today'))->diff(new DateTimeImmutable($date))->format('%r%a');
+}
+
+/** The milestone a document with $days_left is in now, or null when it's more than 60 days away. */
+function expiration_milestone(int $days_left): ?string {
+    foreach (expiration_milestones() as $milestone => $days) {
+        if ($days_left <= $days) { return $milestone; }
+    }
+    return null;
+}
+
+/** "Expired" / "Expires today" / "5 days left", and the badge class for the card colors. */
+function expiration_badge(int $days_left): array {
+    if ($days_left < 0)   { return ['Expired', 'bg-danger']; }
+    if ($days_left === 0) { return ['Expires today', 'bg-danger']; }
+    $label = $days_left . ' day' . ($days_left === 1 ? '' : 's') . ' left';
+    if ($days_left <= 7)  { return [$label, 'bg-expiry-soon']; }
+    if ($days_left <= 30) { return [$label, 'bg-warning']; }
+    return [$label, 'bg-light text-dark border'];
+}
+
+/** Non-overlapping status buckets for counts / filters: key => [label, badge class]. */
+function expiration_buckets(): array {
+    return [
+        'expired' => ['Expired', 'bg-danger'],
+        '7'       => ['Within 7 days', 'bg-expiry-soon'],
+        '30'      => ['8-30 days', 'bg-warning'],
+        '60'      => ['31-60 days', 'bg-light text-dark border'],
+    ];
+}
+
+/** Count of expiring_documents() rows per bucket (the bucket keys are the alert milestones). */
+function expiration_bucket_counts(array $rows): array {
+    $counts = array_fill_keys(array_keys(expiration_buckets()), 0);
+    foreach ($rows as $r) {
+        $b = expiration_milestone($r['days_left']);
+        if ($b !== null) { $counts[$b]++; }
+    }
+    return $counts;
+}
+
+/**
+ * Readable name of a filed document from its stored file name, which
+ * safe_filename() prefixed with the upload time and suffixed with a
+ * random tag: "20261002_101500_My_Cert_a1b2c3.pdf" -> "My Cert.pdf".
+ */
+function document_display_name(string $file_path): string {
+    $name = preg_replace(['/^\d{8}_\d{6}_/', '/_[0-9a-f]{6}(_scan)?$/'], '', pathinfo($file_path, PATHINFO_FILENAME));
+    $name = trim(str_replace('_', ' ', $name));
+    $ext = pathinfo($file_path, PATHINFO_EXTENSION);
+    return ($name !== '' ? $name : 'document') . ($ext !== '' ? '.' . $ext : '');
+}
+
+/**
+ * Documents that are expired or expire within $days days, soonest first,
+ * each with days_left. Leaves out documents of deactivated accounts and
+ * versions that were replaced: a newer upload in the same folder and
+ * period with a later expiration date (re-uploads are new rows, the old
+ * one stays as history). $faculty_id limits it to one person's 201 file.
+ */
+function expiring_documents(PDO $pdo, ?int $faculty_id = null, int $days = 60): array {
+    $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.expiration_date, u.full_name
+            FROM documents d
+            JOIN users u ON u.user_id = d.faculty_id
+            WHERE d.expiration_date IS NOT NULL
+              AND d.expiration_date <= ?
+              AND u.is_active = 1
+              AND NOT EXISTS (
+                  SELECT 1 FROM documents n
+                  WHERE n.faculty_id = d.faculty_id AND n.document_type = d.document_type
+                    AND n.document_subtype <=> d.document_subtype AND n.academic_year <=> d.academic_year
+                    AND n.semester <=> d.semester AND n.period_year <=> d.period_year
+                    AND n.document_id > d.document_id AND n.expiration_date > d.expiration_date
+              )";
+    $params = [(new DateTimeImmutable('today'))->modify("+{$days} days")->format('Y-m-d')];
+    if ($faculty_id !== null) {
+        $sql .= " AND d.faculty_id = ?";
+        $params[] = $faculty_id;
+    }
+    $stmt = $pdo->prepare($sql . " ORDER BY d.expiration_date ASC, u.full_name ASC, d.document_id ASC");
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
+    foreach ($rows as &$row) {
+        $row['days_left'] = days_until($row['expiration_date']);
+    }
+    return $rows;
+}
+
+/** [message to the owner, message to the Admins] for an expiring_documents() row. */
+function expiration_alert_messages(array $doc): array {
+    $name = document_display_name($doc['file_path']) . ' (' . document_type_label($doc['document_type'], $doc['document_subtype']) . ')';
+    $date = date('F j, Y', strtotime($doc['expiration_date']));
+    $n = $doc['days_left'];
+    if ($n < 0) {
+        $when = "expired on {$date}";
+    } elseif ($n === 0) {
+        $when = "expires today, {$date}";
+    } else {
+        $when = "will expire in {$n} day" . ($n === 1 ? '' : 's') . " on {$date}";
+    }
+    return [
+        "Your {$name} {$when}." . ($n <= 0 ? ' Please upload an updated copy.' : ''),
+        "{$doc['full_name']}'s {$name} {$when}.",
+    ];
+}
+
+/**
+ * Send every expiration alert that is due: for each expired / expiring
+ * document, the milestone it is in now, unless already sent for this
+ * expiration date. The expiration_alerts_sent row is written first
+ * (INSERT IGNORE on the unique key), so two runs at once can't both send
+ * it; it's rolled back if the notifications fail, to be retried.
+ * @return array{documents: int, alerts: int}
+ */
+function check_expiration_alerts(PDO $pdo): array {
+    $documents = expiring_documents($pdo);
+    $sent = 0;
+    $claim = $pdo->prepare("INSERT IGNORE INTO expiration_alerts_sent (document_id, milestone, expiration_date) VALUES (?, ?, ?)");
+    foreach ($documents as $doc) {
+        $milestone = expiration_milestone($doc['days_left']);
+        if ($milestone === null) { continue; }
+        try {
+            $pdo->beginTransaction();
+            $claim->execute([$doc['document_id'], $milestone, $doc['expiration_date']]);
+            if ($claim->rowCount() === 1) {
+                [$to_owner, $to_admin] = expiration_alert_messages($doc);
+                notify($pdo, (int)$doc['faculty_id'], $to_owner);
+                notify_role($pdo, 'admin', $to_admin);
+                $sent++;
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) { $pdo->rollBack(); }
+            error_log("Expiration alert for document {$doc['document_id']} failed: " . $e->getMessage());
+        }
+    }
+    return ['documents' => count($documents), 'alerts' => $sent];
+}
+
+/**
+ * check_expiration_alerts() at most once a day system-wide (called on
+ * dashboard load): the first call of the day records today's date in
+ * system_settings and runs the check; later calls return null at once.
+ * $force runs it anyway (cron/expiration_check.php). Never throws.
+ */
+function run_daily_expiration_check(PDO $pdo, bool $force = false): ?array {
+    try {
+        // Affects 0 rows when today is already recorded
+        $stmt = $pdo->prepare(
+            "INSERT INTO system_settings (setting_key, setting_value) VALUES ('expiration_check_last_run', ?)
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+        );
+        $stmt->execute([date('Y-m-d')]);
+        if ($stmt->rowCount() === 0 && !$force) {
+            return null;
+        }
+        return check_expiration_alerts($pdo);
+    } catch (Throwable $e) {
+        error_log('Expiration check failed: ' . $e->getMessage());
+        try {   // let the next page load try again
+            $pdo->prepare("UPDATE system_settings SET setting_value = NULL WHERE setting_key = 'expiration_check_last_run'")->execute();
+        } catch (Throwable $ignored) {}
+        return null;
+    }
 }
 
 /**
