@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/pds.php';
+require_once __DIR__ . '/../includes/pds_import.php';
 require_once __DIR__ . '/../ocr/OcrProcessor.php';
 require_once __DIR__ . '/../ocr/DocScanner.php';
 require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Deans keep their own 201 file too
@@ -123,6 +124,16 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     [$request_id, $document_id] = $stored;
     log_my_activity($pdo, 'UPLOAD', "Uploaded document #{$document_id} \"{$scan['original_name']}\" as " . document_type_label($type, $subtype)
         . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '') . '.');
+    // A PDS: read what it holds now (the cleaned-up page of a photo reads best), for the review page
+    $pds_import = null;
+    if ($type === 'PDS') {
+        $stmt = $pdo->prepare("SELECT file_path FROM documents WHERE document_id = ?");
+        $stmt->execute([$document_id]);
+        $source = !empty($scan['page_image']) && is_file(ROOT_PATH . '/' . $scan['page_image'])
+            ? ROOT_PATH . '/' . $scan['page_image'] : ROOT_PATH . '/' . $stmt->fetchColumn();
+        $pds_import = pds_import_extract_file($source, $scan['result']['text'] ?? null);
+        $_SESSION['pds_import'][$document_id] = ['ex' => $pds_import, 'nonce' => bin2hex(random_bytes(12))];
+    }
     discard_files(pending_extra_files($scan));   // the original photo isn't kept -- the cleaned-up PDF is the record
 
     // Relevant information -> PDS
@@ -139,14 +150,10 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
             $pds_note = " It was also added to Section VI (Learning and Development) of your PDS ({$page}).";
         }
     }
-    if ($type === 'PDS') {
-        $filled = pds_import_upload($pdo, $me['user_id'], $scan['result']['pds_fields'] ?? [], $document_id);
-        if ($filled) {
-            log_my_activity($pdo, 'PDS_UPDATE', "Filled {$filled} empty PDS field" . ($filled === 1 ? '' : 's') . " from uploaded PDS document #{$document_id}.");
-        }
-        $pds_note = $filled
-            ? " {$filled} empty field" . ($filled === 1 ? ' was' : 's were') . ' filled in on your digital PDS from this file -- please review it.'
-            : ' Please review your digital PDS and update it if anything changed.';
+    if ($pds_import !== null) {
+        $pds_note = $pds_import['sections']
+            ? ' Review what was read from it below -- nothing goes into your digital PDS until you confirm.'
+            : ' No PDS details could be read from it automatically, so please update your digital PDS by hand.';
     }
 
     $stmt = $pdo->prepare("SELECT user_id, role, full_name, employment_type, program, college FROM users WHERE user_id = ?");
@@ -160,7 +167,12 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $_SESSION['flash_success'] = 'Your ' . document_type_label($type, $subtype) . ' has been uploaded to your 201 file.'
         . ($archived ? ' It is more than ' . ARCHIVE_AFTER_YEARS . ' years old, so it was filed directly in your archive (My Archive).' : '')
         . $pds_note . ($me['role'] === 'faculty' ? ' Your Program Chair and Dean have been notified.' : '');
-    header('Location: ' . BASE_URL . ($archived ? '/archive.php' : ($type === 'PDS' ? '/faculty/pds.php' : '/faculty/my_documents.php?type=' . urlencode($type))));
+    header('Location: ' . BASE_URL . match (true) {
+        !empty($pds_import['sections']) => '/faculty/pds_import.php?document=' . $document_id,
+        $archived                       => '/archive.php',
+        $type === 'PDS'                 => '/faculty/pds.php',
+        default                         => '/faculty/my_documents.php?type=' . urlencode($type),
+    });
     exit;
 }
 
@@ -229,8 +241,9 @@ if ($action === 'scan') {
     // Check the file's real type; browsers report it inconsistently (image/jpg, image/pjpeg, '')
     $mime = function_exists('finfo_open') ? (finfo_file(finfo_open(FILEINFO_MIME_TYPE), $file['tmp_name']) ?: '') : $file['type'];
 
-    if (!in_array($ext, ALLOWED_EXTENSIONS, true) || !in_array($mime, ALLOWED_MIME_TYPES, true)) {
-        $_SESSION['flash_error'] = 'Unsupported file type. Allowed: JPG, PNG, WEBP, PDF.';
+    $is_xlsx = $ext === 'xlsx' && in_array($mime, XLSX_MIME_TYPES, true) && xlsx_read_sheets($file['tmp_name']) !== null;   // must open as a workbook
+    if (!$is_xlsx && (!in_array($ext, ALLOWED_EXTENSIONS, true) || !in_array($mime, ALLOWED_MIME_TYPES, true))) {
+        $_SESSION['flash_error'] = 'Unsupported file type. Allowed: JPG, PNG, WEBP, PDF, and Excel (.xlsx) for the PDS soft copy.';
         header('Location: ' . BASE_URL . '/faculty/submit_document.php');
         exit;
     }
@@ -307,10 +320,11 @@ include __DIR__ . '/../includes/header.php';
             <button type="button" class="btn btn-outline-brand flex-fill" id="photoBtn"><i class="fa-solid fa-camera"></i> Take Photo</button>
           </div>
           <!-- Only one of these carries name="scan_file" at a time: whichever was used last -->
-          <input type="file" name="scan_file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.pdf" class="d-none">
+          <input type="file" name="scan_file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx" class="d-none">
           <input type="file" id="cameraInput" accept="image/*" capture="environment" class="d-none">
           <div class="small mt-2" id="chosenFile"><span class="text-muted">No file selected.</span></div>
-          <div class="form-text">JPG, PNG, WEBP, or PDF -- max <?= MAX_UPLOAD_BYTES / 1024 / 1024 ?>MB. Photos of paper documents are cropped and straightened automatically and saved as PDF; the document type is detected in the next step.</div>
+          <div class="form-text">JPG, PNG, WEBP, or PDF -- max <?= MAX_UPLOAD_BYTES / 1024 / 1024 ?>MB. Photos of paper documents are cropped and straightened automatically and saved as PDF; the document type is detected in the next step.
+            For your PDS, the official Excel soft copy (.xlsx) is read most accurately; a PDF or scan of all or some of its pages works too.</div>
         </div>
 
         <button type="submit" class="btn btn-brand w-100" id="scanBtn" disabled>
@@ -637,8 +651,8 @@ include __DIR__ . '/../includes/header.php';
         </div>
 
         <div class="alert alert-light border small type-field" data-types="PDS">
-          <i class="fa-solid fa-id-card text-brand"></i> This file will be kept as your original PDS record for the year. Any details the system can read from it are copied into the empty fields of your
-          <a href="<?= BASE_URL ?>/faculty/pds.php">digital PDS</a> -- nothing you've already entered is overwritten.
+          <i class="fa-solid fa-id-card text-brand"></i> This file will be kept as your original PDS record for the year. Next, you'll see what was read from it -- all pages or only some --
+          next to your <a href="<?= BASE_URL ?>/faculty/pds.php">digital PDS</a>, and choose what to add. Nothing is overwritten without your OK.
         </div>
 
         <div class="mb-3">

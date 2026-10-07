@@ -201,7 +201,8 @@ function mark_notification_read(PDO $pdo, int $user_id, int $notification_id): v
 
 /** MIME type served for a stored document, from its file extension. */
 function document_mime_type(string $file_path): string {
-    $types = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
+    $types = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp',
+              'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
     return $types[strtolower(pathinfo($file_path, PATHINFO_EXTENSION))] ?? 'application/octet-stream';
 }
 
@@ -1288,6 +1289,7 @@ function activity_actions(): array {
         'SEARCH'             => 'Search',
         'GENERATE_REPORT'    => 'Generate Report',
         'PDS_UPDATE'         => 'PDS Update',
+        'PDS_IMPORT'         => 'PDS Imported from File',
         'ACCOUNT_CREATE'     => 'Account Created',
         'ACCOUNT_UPDATE'     => 'Account Updated',
         'ACCOUNT_DEACTIVATE' => 'Account Deactivated',

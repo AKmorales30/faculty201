@@ -42,10 +42,20 @@ $status = pds_status($pdo, $me['user_id']);
 $snapshots = pds_snapshots($pdo, $me['user_id']);
 
 // Archived documents too: an L&D entry keeps its link to a certificate that moved to the archive
-$stmt = $pdo->prepare("SELECT document_id, file_path, period_year, filed_at FROM documents WHERE faculty_id = ? AND status IN ('active', 'archived') ORDER BY filed_at DESC");
+$stmt = $pdo->prepare("SELECT document_id, document_type, file_path, period_year, filed_at FROM documents WHERE faculty_id = ? AND status IN ('active', 'archived') ORDER BY filed_at DESC");
 $stmt->execute([$me['user_id']]);
 $doc_rows = $stmt->fetchAll();
 $doc_paths = array_column($doc_rows, 'file_path', 'document_id');
+$doc_types = array_column($doc_rows, 'document_type', 'document_id');
+
+/** Badge linking an entry to the uploaded document it came from (a certificate, or an imported PDS file). */
+function pds_source_badge(?int $document_id, array $doc_types): string {
+    if (!$document_id || !isset($doc_types[$document_id])) { return ''; }
+    $pds = $doc_types[$document_id] === 'PDS';
+    return '<a href="' . h(document_url($document_id)) . '" target="_blank" class="badge bg-info text-decoration-none" title="'
+         . ($pds ? 'Imported from uploaded PDS' : 'Added automatically from an uploaded certificate') . '"><i class="fa-solid '
+         . ($pds ? 'fa-file-import' : 'fa-certificate') . '"></i></a>';
+}
 $stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' ORDER BY COALESCE(period_year, YEAR(filed_at)) DESC, filed_at DESC");
 $stmt->execute([$me['user_id']]);
 $pds_files = $stmt->fetchAll();
@@ -117,7 +127,8 @@ include __DIR__ . '/../includes/header.php';
     <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-file-arrow-up"></i> Upload PDS / Certificate</a>
   </div>
 </div>
-<p class="text-muted mb-3">CS Form No. 212. Edit any part below and save. Seminar and training certificates you upload are added to Section VI (Learning and Development) automatically.
+<p class="text-muted mb-3">CS Form No. 212. Edit any part below and save. Seminar and training certificates you upload are added to Section VI (Learning and Development) automatically,
+  and an uploaded PDS file (the Excel soft copy, a PDF, or scans of some pages) can be imported -- you review what was read before it's added.
   Fields marked <span class="text-danger">*</span> are required -- tick <b>N/A</b> where it doesn't apply to you. Complete each part to move on to the next.</p>
 
 <?php if ($status['current']): ?>
@@ -167,9 +178,7 @@ include __DIR__ . '/../includes/header.php';
                   <td class="text-nowrap">
                     <input type="hidden" name="ld[<?= $i ?>][ld_id]" value="<?= (int)$row['ld_id'] ?>">
                     <input type="hidden" name="ld[<?= $i ?>][_delete]" value="" class="ld-delete">
-                    <?php if ($row['source_document_id'] && isset($doc_paths[$row['source_document_id']])): ?>
-                      <a href="<?= h(document_url((int)$row['source_document_id'])) ?>" target="_blank" class="badge bg-info text-decoration-none" title="Added automatically from an uploaded certificate"><i class="fa-solid fa-certificate"></i></a>
-                    <?php endif; ?>
+                    <?= pds_source_badge($row['source_document_id'] ? (int)$row['source_document_id'] : null, $doc_types) ?>
                     <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-1 remove-ld" title="Remove"><i class="fa-solid fa-trash"></i></button>
                   </td>
                 </tr>
@@ -234,7 +243,10 @@ include __DIR__ . '/../includes/header.php';
                     <?php foreach ($table['columns'] as $ckey => $cdef): ?>
                       <td><?= pds_control("data[$tkey][$i][$ckey]", $cdef, $row[$ckey] ?? '', '', "$tkey.$ckey") ?></td>
                     <?php endforeach; ?>
-                    <td><button type="button" class="btn btn-sm btn-link text-danger p-0 remove-row" title="Remove"><i class="fa-solid fa-trash"></i></button></td>
+                    <td class="text-nowrap">
+                      <?php if (!empty($row['_source'])): ?><input type="hidden" name="data[<?= h($tkey) ?>][<?= $i ?>][_source]" value="<?= (int)$row['_source'] ?>"><?= pds_source_badge((int)$row['_source'], $doc_types) ?><?php endif; ?>
+                      <button type="button" class="btn btn-sm btn-link text-danger p-0 remove-row" title="Remove"><i class="fa-solid fa-trash"></i></button>
+                    </td>
                   </tr>
                   <?php endforeach; ?>
                 </tbody>
@@ -272,11 +284,15 @@ include __DIR__ . '/../includes/header.php';
       <div class="list-group list-group-flush">
         <?php if (!$pds_files): ?><div class="list-group-item small text-muted">No PDS file uploaded yet.</div><?php endif; ?>
         <?php foreach ($pds_files as $i => $f): ?>
-          <a href="<?= h(document_url((int)$f['document_id'])) ?>" target="_blank" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center small">
-            <span><i class="fa-solid fa-file text-brand"></i> PDS <?= h((string)($f['period_year'] ?: date('Y', strtotime($f['filed_at'])))) ?>
-              <?= $i === 0 ? '<span class="badge bg-success ms-1">Latest</span>' : '' ?></span>
-            <span class="text-muted">uploaded <?= date('M j, Y', strtotime($f['filed_at'])) ?></span>
-          </a>
+          <div class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2 small">
+            <a href="<?= h(document_url((int)$f['document_id'])) ?>" target="_blank" class="text-decoration-none">
+              <i class="fa-solid fa-file text-brand"></i> PDS <?= h((string)($f['period_year'] ?: date('Y', strtotime($f['filed_at'])))) ?>
+              <?= $i === 0 ? '<span class="badge bg-success ms-1">Latest</span>' : '' ?>
+              <span class="text-muted ms-1">uploaded <?= date('M j, Y', strtotime($f['filed_at'])) ?></span>
+            </a>
+            <a href="<?= BASE_URL ?>/faculty/pds_import.php?document=<?= (int)$f['document_id'] ?>" class="btn btn-sm btn-outline-brand py-0" title="Read this file and choose what to add to your digital PDS">
+              <i class="fa-solid fa-file-import"></i> Import into my PDS</a>
+          </div>
         <?php endforeach; ?>
       </div>
     </div>

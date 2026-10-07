@@ -56,7 +56,6 @@ class OcrProcessor
             'confidence_note'  => $confidenceNote,
             'period'           => self::extractPeriod($text),
             'training'         => self::extractTraining($text),
-            'pds_fields'       => $detectedType === 'PDS' ? self::extractPdsFields($text) : [],
         ];
     }
 
@@ -66,6 +65,13 @@ class OcrProcessor
             return '';
         }
         $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+
+        // The official PDS workbook: its cell text (exact, no OCR needed)
+        if ($ext === 'xlsx') {
+            require_once __DIR__ . '/../includes/pds_import.php';
+            $sheets = xlsx_read_sheets($filePath);
+            return $sheets ? trim(xlsx_to_text($sheets)) : '';
+        }
 
         if ($ext === 'pdf') {
             if (self::binaryExists('pdftotext')) {
@@ -99,10 +105,51 @@ class OcrProcessor
         return '';
     }
 
-    private static function runTesseract(string $imagePath): string
+    /**
+     * Text of every page, for the PDS import (includes/pds_import.php): a
+     * PDF's text layer, or OCR of each page (up to $maxPages) when it's a
+     * scan; OCR of an image. OCR keeps wide gaps between words
+     * (preserve_interword_spaces), so the form's columns can be told apart.
+     * @return array{text: string, ocr: bool}
+     */
+    public static function extractAllText(string $filePath, int $maxPages): array
+    {
+        if (!is_file($filePath)) {
+            return ['text' => '', 'ocr' => false];
+        }
+        $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+        $layout = '--psm 6 -c preserve_interword_spaces=1';
+        if ($ext === 'pdf') {
+            if (self::binaryExists('pdftotext')) {
+                $out = @shell_exec('pdftotext -layout -l ' . (int)$maxPages . ' ' . escapeshellarg($filePath) . ' - 2>/dev/null');
+                if (is_string($out) && trim($out) !== '') {
+                    return ['text' => $out, 'ocr' => false];
+                }
+            }
+            if (!self::binaryExists('pdftoppm') || !self::binaryExists(TESSERACT_BINARY_PATH)) {
+                return ['text' => '', 'ocr' => true];
+            }
+            $tmpBase = sys_get_temp_dir() . '/pds_' . bin2hex(random_bytes(4));
+            @shell_exec('pdftoppm -jpeg -r 250 -f 1 -l ' . (int)$maxPages . ' ' . escapeshellarg($filePath) . ' ' . escapeshellarg($tmpBase) . ' 2>/dev/null');
+            $pages = glob($tmpBase . '-*.jpg') ?: [];
+            natsort($pages);
+            $text = [];
+            foreach ($pages as $page) {
+                $text[] = self::runTesseract($page, $layout);
+                @unlink($page);
+            }
+            return ['text' => implode("\n\f\n", $text), 'ocr' => true];
+        }
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true) && self::binaryExists(TESSERACT_BINARY_PATH)) {
+            return ['text' => self::runTesseract($filePath, $layout), 'ocr' => true];
+        }
+        return ['text' => '', 'ocr' => true];
+    }
+
+    private static function runTesseract(string $imagePath, string $args = ''): string
     {
         $prepared = self::prepareImage($imagePath);
-        $out = self::tesseract($prepared ?? $imagePath, '');
+        $out = self::tesseract($prepared ?? $imagePath, $args);
         if ($prepared !== null) {
             @unlink($prepared);
         }
@@ -470,49 +517,6 @@ class OcrProcessor
             return self::cleanValue($m[1]);
         }
         return null;
-    }
-
-    /**
-     * Best-effort read of Part I fields from an uploaded PDS. A PDS is a
-     * dense form, so OCR text is often out of order -- anything not read
-     * cleanly is simply left for the faculty member to fill in.
-     * @return array<string,string> keys match pds_schema() field keys
-     */
-    public static function extractPdsFields(string $text): array
-    {
-        $patterns = [
-            'surname'           => '/\bSURNAME\s*[:]?\s+([A-ZÑ][A-ZÑa-zñ .\'-]{1,60}?)(?=\s{2,}|\s+(?:FIRST|NAME)\b|\R|$)/u',
-            'first_name'        => '/\bFIRST\s+NAME\s*[:]?\s+([A-ZÑ][A-ZÑa-zñ .\'-]{1,60}?)(?=\s{2,}|\s+(?:NAME\s+EXT|MIDDLE)\b|\R|$)/u',
-            'middle_name'       => '/\bMIDDLE\s+NAME\s*[:]?\s+([A-ZÑ][A-ZÑa-zñ .\'-]{1,60}?)(?=\s{2,}|\R|$)/u',
-            'date_of_birth'     => '/\bDATE\s+OF\s+BIRTH[^0-9\n]{0,30}(\d{1,2}\/\d{1,2}\/\d{4})/i',
-            'place_of_birth'    => '/\bPLACE\s+OF\s+BIRTH\s*[:]?\s+([^\n]{3,80}?)(?=\s{2,}|\R|$)/i',
-            'height'            => '/\bHEIGHT\s*\(?m?\)?\s*[:]?\s*(\d(?:\.\d{1,2})?)\b/i',
-            'weight'            => '/\bWEIGHT\s*\(?kg\)?\s*[:]?\s*(\d{2,3}(?:\.\d)?)\b/i',
-            'blood_type'        => '/\bBLOOD\s+TYPE\s*[:]?\s*((?:AB|A|B|O)\s?[+-]?)(?![A-Za-z])/i',
-            'gsis_id'           => '/\bGSIS\s+ID\s+NO\.?\s*[:]?\s*([0-9][0-9 -]{4,20}[0-9])/i',
-            'pagibig_id'        => '/\bPAG-?IBIG\s+ID\s+NO\.?\s*[:]?\s*([0-9][0-9 -]{4,20}[0-9])/i',
-            'philhealth_no'     => '/\bPHILHEALTH\s+NO\.?\s*[:]?\s*([0-9][0-9 -]{4,20}[0-9])/i',
-            'sss_no'            => '/\bSSS\s+NO\.?\s*[:]?\s*([0-9][0-9 -]{4,20}[0-9])/i',
-            'tin_no'            => '/\bTIN\s+NO\.?\s*[:]?\s*([0-9][0-9 -]{4,20}[0-9])/i',
-            'agency_employee_no'=> '/\bAGENCY\s+EMPLOYEE\s+NO\.?\s*[:]?\s*([A-Z0-9][A-Z0-9 -]{2,20})/i',
-            'mobile_no'         => '/\bMOBILE\s+NO\.?\s*[:]?\s*(\+?[0-9][0-9 -]{8,15}[0-9])/i',
-            'telephone_no'      => '/\bTELEPHONE\s+NO\.?\s*[:]?\s*(\(?[0-9][0-9() -]{5,15}[0-9])/i',
-            'email'             => '/\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i',
-        ];
-        $fields = [];
-        foreach ($patterns as $key => $re) {
-            if (preg_match($re, $text, $m)) {
-                $val = trim(preg_replace('/\s+/', ' ', $m[1]));
-                if ($key === 'date_of_birth') {
-                    [$mo, $d, $y] = array_map('intval', explode('/', $val));
-                    $val = checkdate($mo, $d, $y) ? sprintf('%04d-%02d-%02d', $y, $mo, $d) : '';
-                }
-                if ($val !== '' && !in_array(strtoupper($val), ['N/A', 'NA', 'NONE'], true)) {
-                    $fields[$key] = $val;
-                }
-            }
-        }
-        return $fields;
     }
 
     private static function matchName(string $text, string $facultyFullName): ?string

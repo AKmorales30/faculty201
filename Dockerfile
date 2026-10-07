@@ -3,7 +3,8 @@
 # pdftoppm, for PDF scans), imagemagick (straightens / cleans up phone
 # photos before OCR) and Python + OpenCV (document crop / perspective
 # fix). The gd and exif extensions crop / resize profile pictures
-# (square_jpeg() in includes/profile.php). This is what a normal XAMPP install gives you "for free" locally
+# (square_jpeg() in includes/profile.php); zip reads the Excel PDS soft
+# copy (xlsx_read_sheets() in includes/pds_import.php). This is what a normal XAMPP install gives you "for free" locally
 # (except OpenCV) -- on Render, we have to install it ourselves.
 FROM php:8.2-apache
 
@@ -19,7 +20,7 @@ RUN apt-get update && apt-get install -y \
         libjpeg62-turbo-dev \
         unzip \
     && docker-php-ext-configure gd --with-jpeg \
-    && docker-php-ext-install pdo pdo_mysql gd exif \
+    && docker-php-ext-install pdo pdo_mysql gd exif zip \
     && a2enmod rewrite \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 

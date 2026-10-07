@@ -162,6 +162,9 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
           <td>
             <div class="d-flex flex-wrap gap-1 align-items-start">
               <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"><i class="fa-solid fa-eye"></i> View</a>
+              <?php if ($d['document_type'] === 'PDS' && (current_user()['role'] === 'admin' || (int)$d['faculty_id'] === (int)current_user()['user_id'])): ?>
+                <a href="<?= BASE_URL ?>/faculty/pds_import.php?document=<?= (int)$d['document_id'] ?>" class="btn btn-sm btn-outline-brand text-nowrap" title="Read this PDS file and choose what to add to the digital PDS"><i class="fa-solid fa-file-import"></i> Import to PDS</a>
+              <?php endif; ?>
               <?php if (can_edit_document_details(current_user(), $d)): ?>
                 <a href="<?= BASE_URL ?>/document_details.php?id=<?= (int)$d['document_id'] ?>&amp;return=<?= h(urlencode($doc_action_return)) ?>" class="btn btn-sm btn-outline-brand text-nowrap" title="Edit details (title, dates, organizer...)"><i class="fa-solid fa-pen-to-square"></i> Details</a>
               <?php endif; ?>

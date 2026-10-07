@@ -7,7 +7,9 @@
  * Section VI (Learning and Development) lives in its own table,
  * pds_learning_development, because rows are added automatically from
  * uploaded seminar / training certificates and each row remembers the
- * certificate it came from.
+ * certificate it came from. Rows imported from an uploaded PDS file
+ * (includes/pds_import.php) remember it too: source_document_id for
+ * Section VI, a "_source" document id on the other tables' rows.
  *
  * Whenever the PDS is changed, the previous version is copied into
  * pds_snapshots first, so saving never loses earlier information.
@@ -484,7 +486,11 @@ function pds_clean_input(array $input): array {
                 foreach ($table['columns'] as $ckey => $cdef) {
                     $r[$ckey] = $value("$tkey.$ckey", $row[$ckey] ?? '');
                 }
-                if (implode('', $r) !== '') { $rows[] = $r; }
+                if (implode('', $r) !== '') {
+                    // Imported from an uploaded PDS (faculty/pds_import.php): keep the link to the document
+                    if (isset($row['_source']) && ctype_digit((string)$row['_source'])) { $r['_source'] = (int)$row['_source']; }
+                    $rows[] = $r;
+                }
             }
             if (!empty($table['max'])) { $rows = array_slice($rows, 0, $table['max']); }
             $clean[$tkey] = $rows;
@@ -580,28 +586,6 @@ function pds_add_training(PDO $pdo, int $faculty_id, array $entry, int $document
     pds_touch($pdo, $faculty_id);
     $count = count(pds_ld_rows($pdo, $faculty_id));
     return pds_ld_sheet_label(count(pds_part7_pages(array_fill(0, $count, []))));
-}
-
-/**
- * Fill empty fields of the digital PDS from an uploaded PDS file.
- * Fields the faculty member already filled in are never overwritten.
- * Returns the number of fields filled.
- */
-function pds_import_upload(PDO $pdo, int $faculty_id, array $fields, int $document_id): int {
-    $current = pds_load($pdo, $faculty_id);
-    $data = $current['data'];
-    $filled = 0;
-    foreach ($fields as $key => $value) {
-        if (trim((string)($data[$key] ?? '')) === '' && trim((string)$value) !== '') {
-            $data[$key] = mb_substr((string)$value, 0, 500);
-            $filled++;
-        }
-    }
-    if ($filled > 0) {
-        pds_snapshot($pdo, $faculty_id, 'Before import from uploaded PDS');
-    }
-    pds_write_data($pdo, $faculty_id, $data, $document_id);
-    return $filled;
 }
 
 /**

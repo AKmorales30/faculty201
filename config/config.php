@@ -20,6 +20,15 @@ define('UPLOADS_PATH', ROOT_PATH . '/uploads');         // final filed repositor
 // Allowed scan file types
 define('ALLOWED_MIME_TYPES', ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
 define('ALLOWED_EXTENSIONS', ['jpg', 'jpeg', 'png', 'webp', 'pdf']);
+// Excel workbooks (.xlsx) are accepted too -- meant for the official PDS
+// soft copy, read cell by cell. Checked separately in submit_document.php:
+// the type a server reports for .xlsx varies (zip / octet-stream), so the
+// file must open as a workbook instead.
+define('XLSX_MIME_TYPES', ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip', 'application/octet-stream']);
+
+// PDS import (faculty/pds_import.php): how many pages of a PDF / scan are
+// read. A full PDS is 4 pages plus any continuation sheets.
+define('PDS_IMPORT_MAX_PAGES', 8);
 define('MAX_UPLOAD_BYTES', 10 * 1024 * 1024); // 10MB
 
 // Keyword hints used by the OCR classifier (OcrProcessor.php) to
@@ -29,7 +38,11 @@ define('MAX_UPLOAD_BYTES', 10 * 1024 * 1024); // 10MB
 // document_categories() in includes/functions.php.
 define('DOCUMENT_TYPE_KEYWORDS', [
     'PDS'         => ['personal data sheet', 'cs form no. 212', 'cs form 212', 'pds', 'family background', 'civil service eligibility',
-                      'voluntary work', 'learning and development', 'name extension', 'residential address'],
+                      'voluntary work', 'learning and development', 'name extension', 'residential address',
+                      // so a single page of the PDS is recognized too (e.g. only the L&D page, full of "seminar" / "training")
+                      'personal information', 'educational background', 'work experience', 'inclusive dates of attendance',
+                      'training programs attended', 'special skills and hobbies', 'non-academic distinctions', 'membership in association',
+                      'name of school', 'position title', 'status of appointment', 'place of examination', 'date of birth'],
     'Certificate' => ['certificate', 'certificate of completion', 'certificate of attendance', 'certificate of participation',
                       'certificate of appreciation', 'certificate of recognition', 'seminar', 'webinar', 'training', 'workshop',
                       'participant', 'awarded to', 'is hereby given', 'has attended', 'has participated'],
