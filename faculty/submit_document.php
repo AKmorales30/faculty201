@@ -52,6 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$_POST && !$_FILES && (int)($_SERV
     header('Location: ' . BASE_URL . '/faculty/submit_document.php');
     exit;
 }
+// Every step (scan, re-crop, confirm, cancel) is a POST with the CSRF token
+if ($action !== '' && !csrf_valid()) {
+    $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
+    header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+    exit;
+}
 
 // ---------------------------------------------------------------------
 // Step 2a: faculty confirmed the previewed scan -> file it immediately,
@@ -76,10 +82,16 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $subtype = $_POST['document_subtype'] ?? '';
     $subtype = isset($cat['subtypes'][$subtype]) ? $subtype : ($cat['default_subtype'] ?? null);
 
+    // Seminar / training details (certificates) or the date issued (anything else), as reviewed on the preview
+    $details = document_details_clean((array)($_POST['details'] ?? []));
+    if ($type !== 'Certificate') {
+        $details = array_merge(array_fill_keys(document_detail_columns(), null), ['date_issued' => $details['date_issued']]);
+    }
     $meta = [
         'subtype'        => $subtype,
         'expiration'     => ($_POST['expiration_date'] ?? '') ?: null,
         'classification' => $check,   // stored with the document: score, the system's guess, low-confidence flag
+        'details'        => $details,
     ];
     if ($cat['frequency'] === 'semester') {
         $ay  = $_POST['academic_year'] ?? '';
@@ -117,7 +129,10 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $extra_lines = [];
     $pds_note = '';
     if ($type === 'Certificate' && in_array($subtype, ['Seminar', 'Training'], true) && !empty($_POST['add_to_pds'])) {
-        $page = pds_add_training($pdo, $me['user_id'], (array)($_POST['ld'] ?? []), $document_id);
+        $page = pds_add_training($pdo, $me['user_id'], [
+            'title' => $details['title'], 'date_from' => $details['date_start'], 'date_to' => $details['date_end'],
+            'hours' => $details['hours'], 'ld_type' => $_POST['ld_type'] ?? '', 'conducted_by' => $details['conducted_by'],
+        ], $document_id);
         if ($page !== null) {
             log_my_activity($pdo, 'PDS_UPDATE', "Added a Learning and Development entry ({$page}) to their PDS from uploaded document #{$document_id}.");
             $extra_lines[] = 'PDS Section VI (Learning and Development) was updated with this ' . strtolower($subtype) . '.';
@@ -138,10 +153,14 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $stmt->execute([$me['user_id']]);
     notify_new_upload($pdo, $stmt->fetch(), $type, $subtype, $request_id, $extra_lines, $reupload);
 
+    // A document already more than ARCHIVE_AFTER_YEARS old goes straight to the archive
+    $archived = auto_archive_old_documents($pdo, $me, $document_id)['archived'] > 0;
+
     unset($_SESSION['pending_scan']);
     $_SESSION['flash_success'] = 'Your ' . document_type_label($type, $subtype) . ' has been uploaded to your 201 file.'
+        . ($archived ? ' It is more than ' . ARCHIVE_AFTER_YEARS . ' years old, so it was filed directly in your archive (My Archive).' : '')
         . $pds_note . ($me['role'] === 'faculty' ? ' Your Program Chair and Dean have been notified.' : '');
-    header('Location: ' . BASE_URL . ($type === 'PDS' ? '/faculty/pds.php' : '/faculty/my_documents.php?type=' . urlencode($type)));
+    header('Location: ' . BASE_URL . ($archived ? '/archive.php' : ($type === 'PDS' ? '/faculty/pds.php' : '/faculty/my_documents.php?type=' . urlencode($type))));
     exit;
 }
 
@@ -273,6 +292,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <div class="card-body">
       <form action="submit_document.php" method="POST" enctype="multipart/form-data" id="scanForm">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="scan">
 
         <div class="mb-3">
@@ -450,6 +470,7 @@ include __DIR__ . '/../includes/header.php';
             <svg id="cropSvg"><polygon id="cropPoly"></polygon></svg>
           </div>
           <form method="POST" action="submit_document.php" id="cropForm" class="d-flex gap-2 flex-wrap mt-2">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="recrop">
             <input type="hidden" name="corners" id="cornersInput">
             <button type="submit" class="btn btn-brand btn-sm"><i class="fa-solid fa-crop-simple"></i> Apply crop</button>
@@ -519,6 +540,7 @@ include __DIR__ . '/../includes/header.php';
       </div>
 
       <form action="submit_document.php" method="POST" id="uploadForm">
+        <?= csrf_field() ?>
 
         <div class="row g-3 mb-3">
           <div class="col-md-6">
@@ -578,45 +600,40 @@ include __DIR__ . '/../includes/header.php';
           </div>
         </div>
 
-        <!-- Seminar / training certificate -> PDS Section VI (L&D) -->
-        <div class="card border mb-3 type-field" data-types="Certificate" data-subtypes="Seminar Training" id="pdsBlock">
-          <div class="card-header bg-light small fw-semibold d-flex align-items-center gap-2">
-            <input type="checkbox" class="form-check-input m-0" name="add_to_pds" value="1" id="addToPds" checked disabled>
-            <label for="addToPds" class="mb-0">Add to my PDS -- Section VI: Learning and Development (L&amp;D)</label>
-          </div>
+        <!-- Certificate: seminar / training details (Seminar & Training Report), optionally added to PDS Section VI (L&D) -->
+        <div class="card border mb-3 type-field" data-types="Certificate">
+          <div class="card-header bg-light small fw-semibold"><i class="fa-solid fa-chalkboard-user text-brand"></i> Seminar / Training Details</div>
           <div class="card-body">
-            <p class="small text-muted mb-3">Extracted from the certificate -- check and correct these before saving.</p>
-            <div class="row g-2">
-              <div class="col-12">
-                <label class="form-label small">Title of Training / Seminar</label>
-                <input type="text" name="ld[title]" class="form-control form-control-sm" value="<?= h($training['title'] ?? '') ?>" maxlength="255" disabled>
-              </div>
-              <div class="col-md-3 col-6">
-                <label class="form-label small">From</label>
-                <input type="date" name="ld[date_from]" class="form-control form-control-sm" value="<?= h($training['date_from'] ?? '') ?>" disabled>
-              </div>
-              <div class="col-md-3 col-6">
-                <label class="form-label small">To</label>
-                <input type="date" name="ld[date_to]" class="form-control form-control-sm" value="<?= h($training['date_to'] ?? '') ?>" disabled>
-              </div>
-              <div class="col-md-3 col-6">
-                <label class="form-label small">Number of Hours</label>
-                <input type="number" step="0.5" min="0" name="ld[hours]" class="form-control form-control-sm" value="<?= h($training['hours'] ?? '') ?>" disabled>
-              </div>
-              <div class="col-md-3 col-6">
-                <label class="form-label small">Type of L&amp;D</label>
-                <select name="ld[ld_type]" class="form-select form-select-sm" disabled>
+            <p class="small text-muted mb-3">Read from the certificate -- please check and correct these before uploading. Leave a field blank if it isn't on the certificate.</p>
+            <?php
+            $values = ['title' => $training['title'] ?? null, 'date_start' => $training['date_from'] ?? null, 'date_end' => $training['date_to'] ?? null,
+                       'venue' => $training['venue'] ?? null, 'conducted_by' => $training['conducted_by'] ?? null, 'hours' => $training['hours'] ?? null,
+                       'training_type' => $training['training_type'] ?? (in_array($suggested_sub, TRAINING_TYPES, true) ? $suggested_sub : null),
+                       'training_level' => $training['training_level'] ?? null];
+            $prefix = 'details'; $detail_groups = ['training' => true]; $detail_attr = 'disabled';
+            include __DIR__ . '/../includes/document_details_fields.php';
+            ?>
+            <div class="border rounded p-2 mt-3 type-field" data-types="Certificate" data-subtypes="Seminar Training" id="pdsBlock">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <input type="checkbox" class="form-check-input m-0" name="add_to_pds" value="1" id="addToPds" checked disabled>
+                <label for="addToPds" class="small fw-semibold mb-0">Also add to my PDS -- Section VI: Learning and Development (L&amp;D)</label>
+                <label for="ldType" class="small ms-md-auto mb-0">Type of L&amp;D</label>
+                <select name="ld_type" id="ldType" class="form-select form-select-sm w-auto" disabled>
                   <?php foreach ($ld_types as $t): ?>
                     <option <?= ($training['ld_type'] ?? 'Technical') === $t ? 'selected' : '' ?>><?= h($t) ?></option>
                   <?php endforeach; ?>
                 </select>
               </div>
-              <div class="col-12">
-                <label class="form-label small">Conducted / Sponsored By</label>
-                <input type="text" name="ld[conducted_by]" class="form-control form-control-sm" value="<?= h($training['conducted_by'] ?? '') ?>" maxlength="255" disabled>
-              </div>
+              <div class="form-text">Uses the title, dates, hours and organizer above.</div>
             </div>
           </div>
+        </div>
+
+        <!-- Any other document: its own date, for the auto-archive -->
+        <div class="type-field mb-3" data-types="<?= h(implode(' ', array_diff(array_keys($categories), ['Certificate']))) ?>">
+          <?php $values = []; $detail_groups = ['issued' => true]; $detail_attr = 'disabled';
+          include __DIR__ . '/../includes/document_details_fields.php'; ?>
+          <div class="form-text">The date printed on the document. Leave blank if there is none -- the upload date is used.</div>
         </div>
 
         <div class="alert alert-light border small type-field" data-types="PDS">

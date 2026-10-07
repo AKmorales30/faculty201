@@ -269,9 +269,12 @@ class OcrProcessor
     }
 
     /**
-     * Details of a seminar / training certificate for PDS Section VI (L&D).
+     * Details of a seminar / training certificate, for the document's
+     * details (Seminar & Training Report) and PDS Section VI (L&D).
      * Every value is a best guess the faculty member reviews before saving.
-     * @return array{title: ?string, date_from: ?string, date_to: ?string, hours: ?string, ld_type: string, conducted_by: ?string}
+     * Also used on already-stored OCR text (document_details.php).
+     * @return array{title: ?string, date_from: ?string, date_to: ?string, hours: ?string, ld_type: string, conducted_by: ?string,
+     *               venue: ?string, training_type: ?string, training_level: ?string}
      */
     public static function extractTraining(string $text): array
     {
@@ -279,13 +282,88 @@ class OcrProcessor
         [$from, $to] = self::extractDateRange($flat);
 
         return [
-            'title'        => self::extractTrainingTitle($text, $flat),
-            'date_from'    => $from,
-            'date_to'      => $to,
-            'hours'        => self::extractHours($flat),
-            'ld_type'      => self::extractLdType($flat),
-            'conducted_by' => self::extractOrganizer($text),
+            'title'          => self::extractTrainingTitle($text, $flat),
+            'date_from'      => $from,
+            'date_to'        => $to,
+            'hours'          => self::extractHours($flat),
+            'ld_type'        => self::extractLdType($flat),
+            'conducted_by'   => self::extractOrganizer($text) ?? self::knownOrganizer($flat),
+            'venue'          => self::extractVenue($text, $flat),
+            'training_type'  => self::extractTrainingType($flat),
+            'training_level' => self::extractTrainingLevel($flat),
         ];
+    }
+
+    /**
+     * Where it was held: "held at <venue>", "Venue: <venue>", or an online
+     * platform ("via Zoom" -> "Online (Zoom)").
+     */
+    private static function extractVenue(string $text, string $flat): ?string
+    {
+        if (preg_match('/\b(?:venue|location|place)\s*:\s*([^\n]{3,150})/i', $text, $m)) {
+            return self::cleanValue($m[1], 255);
+        }
+        $M = self::MONTH;
+        if (preg_match("/\\b(?:held|conducted|given|done)\\s+(?:at|in)\\s+(?:the\\s+)?(.{3,150}?)(?=\\s+(?:on|from|last|this|via|with|by|in\\s+partnership)\\b|\\s+$M\\s+\\d|[.;\\n]|$)/i", $flat, $m)) {
+            return self::cleanValue($m[1], 255);
+        }
+        if (preg_match('/\b(?:via|through|on)\s+(zoom|google\s+meet|microsoft\s+teams|ms\s+teams|facebook\s+live|webex|youtube(?:\s+live)?)\b/i', $flat, $m)) {
+            return 'Online (' . ucwords(strtolower(preg_replace('/\s+/', ' ', $m[1]))) . ')';
+        }
+        // "... on 5 August 2023 at CCS Laboratory 3": a capitalized place right after a date (case-sensitive on purpose)
+        if (preg_match('/\b(?:19|20)\d{2},?\s+(?:at|in)\s+(?:the\s+)?([A-Z][^.;\n]{2,120}?)(?=\s+(?:on|from|by|with|via)\b|[.;\n]|$)/', $flat, $m)) {
+            return self::cleanValue($m[1], 255);
+        }
+        return null;
+    }
+
+    /** Seminar, Training, Workshop, Webinar, ... (TRAINING_TYPES), most specific word first. */
+    private static function extractTrainingType(string $flat): ?string
+    {
+        $words = ['Webinar' => 'webinar', 'Workshop' => 'workshop', 'Conference' => 'conference|convention|summit', 'Symposium' => 'symposium',
+                  'Forum' => 'forum', 'Training' => 'training|bootcamp|course', 'Seminar' => 'seminar|lecture'];
+        foreach ($words as $type => $re) {
+            if (in_array($type, TRAINING_TYPES, true) && preg_match('/\b(?:' . $re . ')s?\b/i', $flat)) {
+                return $type;
+            }
+        }
+        return null;
+    }
+
+    /** Local / Regional / National / International when the certificate says so. */
+    private static function extractTrainingLevel(string $flat): ?string
+    {
+        foreach (['International' => 'international', 'National' => 'national|nationwide', 'Regional' => 'regional', 'Local' => 'local|in-house|institutional'] as $level => $re) {
+            if (in_array($level, TRAINING_LEVELS, true) && preg_match('/\b(?:' . $re . ')\b/i', $flat)) {
+                return $level;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Organizer named on the certificate without "conducted by": a known
+     * agency or school. External agencies are tried first, since a seminar
+     * they ran may still mention the university that hosted it.
+     */
+    private static function knownOrganizer(string $flat): ?string
+    {
+        $known = [
+            'DICT'  => 'department of information and communications technology|\bDICT\b',
+            'CHED'  => 'commission on higher education|\bCHED\b',
+            'TESDA' => 'technical education and skills development authority|\bTESDA\b',
+            'DOST'  => 'department of science and technology|\bDOST\b',
+            'DepEd' => 'department of education|\bDepEd\b',
+            'CSC'   => 'civil service commission',
+            'PSITE' => 'philippine society of information technology educators|\bPSITE\b',
+            'UDM'   => 'universidad de manila|\bUDM\b',
+        ];
+        foreach ($known as $name => $re) {
+            if (preg_match('/' . $re . '/i', $flat)) {
+                return $name;
+            }
+        }
+        return null;
     }
 
     private static function cleanValue(?string $s, int $max = 200): ?string

@@ -24,6 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         exit;
     }
     pds_save($pdo, $me['user_id'], (array)($_POST['data'] ?? []), (array)($_POST['ld'] ?? []));
+    // The profile's contact number follows the PDS Mobile No. (profile_save_contact() copies the other way)
+    $mobile = trim((string)($_POST['data']['mobile_no'] ?? ''));
+    if ($mobile !== '' && !pds_is_na_text($mobile)) {
+        $pdo->prepare("UPDATE users SET contact_number = ? WHERE user_id = ?")->execute([mb_substr($mobile, 0, 30), $me['user_id']]);
+    }
     log_my_activity($pdo, 'PDS_UPDATE', 'Edited and saved their digital PDS (previous version kept in the version history).');
     $_SESSION['flash_success'] = 'Your PDS has been saved. The previous version was kept in the version history.';
     header('Location: ' . BASE_URL . '/faculty/pds.php');
@@ -36,7 +41,8 @@ if (!$pds['exists'] && empty($data['email'])) { $data['email'] = $me['email']; }
 $status = pds_status($pdo, $me['user_id']);
 $snapshots = pds_snapshots($pdo, $me['user_id']);
 
-$stmt = $pdo->prepare("SELECT document_id, file_path, period_year, filed_at FROM documents WHERE faculty_id = ? AND status = 'active' ORDER BY filed_at DESC");
+// Archived documents too: an L&D entry keeps its link to a certificate that moved to the archive
+$stmt = $pdo->prepare("SELECT document_id, file_path, period_year, filed_at FROM documents WHERE faculty_id = ? AND status IN ('active', 'archived') ORDER BY filed_at DESC");
 $stmt->execute([$me['user_id']]);
 $doc_rows = $stmt->fetchAll();
 $doc_paths = array_column($doc_rows, 'file_path', 'document_id');

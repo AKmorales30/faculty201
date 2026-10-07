@@ -183,7 +183,7 @@ include __DIR__ . '/../includes/header.php';
         <?php foreach ($rows as $r): ?>
         <tr>
           <td class="text-nowrap small"><?= h($when($r['created_at'])) ?></td>
-          <td><?= h($r['full_name'] ?? '—') ?></td>
+          <td><?= h($r['full_name'] ?? ($r['user_role'] === 'system' ? 'System (scheduled)' : '—')) ?></td>
           <td class="text-nowrap"><?= h($role_label($r['user_role'])) ?></td>
           <td class="text-nowrap"><span class="badge bg-light text-dark border"><?= h($actions[$r['action']] ?? $r['action']) ?></span></td>
           <td class="small text-break"><?= h($r['details'] ?? '') ?></td>

@@ -119,6 +119,7 @@ $_SESSION['user'] = [
     'role'      => $user['role'],
     'full_name' => $user['full_name'],
     'email'     => $user['email'],
+    'profile_picture' => $user['profile_picture'] ?? null,   // header picture; updated when it's changed on My Profile
     // Temporary password from the Admin: require_login() allows only Change Password until it's replaced
     'must_change_password' => !empty($user['must_change_password']),
 ];

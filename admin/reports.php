@@ -161,7 +161,8 @@ include __DIR__ . '/../includes/header.php';
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4 no-print">
   <div>
     <h3 class="fw-bold mb-1">Reports</h3>
-    <p class="text-muted mb-0">Generate a report of filed 201-file documents, then print it, save it as PDF or export it to CSV.</p>
+    <p class="text-muted mb-0">Generate a report of filed 201-file documents, then print it, save it as PDF or export it to CSV.
+      For each seminar and training with its title, dates, venue and organizer, use the <a href="<?= BASE_URL ?>/training_report.php">Seminar &amp; Training Report</a>.</p>
   </div>
   <div class="d-flex gap-2">
     <button type="button" class="btn btn-outline-brand" onclick="window.print()"><i class="fa-solid fa-print"></i> Print / Save as PDF</button>

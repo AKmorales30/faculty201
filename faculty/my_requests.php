@@ -46,7 +46,7 @@ include __DIR__ . '/../includes/header.php';
           </td>
           <td><?= date('M j, Y g:ia', strtotime($r['submitted_at'])) ?></td>
           <td class="text-nowrap">
-            <?php if ($r['file_path'] && $r['document_status'] === 'active'): ?>
+            <?php if ($r['file_path'] && in_array($r['document_status'], ['active', 'archived'], true)): ?>
               <a href="<?= h(document_url((int)$r['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i> View</a>
             <?php endif; ?>
           </td>

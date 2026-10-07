@@ -14,7 +14,7 @@ function run_pending_migrations(PDO $pdo): void {
     $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
                    'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
-                   'migration_search_indexes.sql'];
+                   'migration_search_indexes.sql', 'migration_profile_reports_archive.sql'];
     try {
         try {
             $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
@@ -107,7 +107,7 @@ function status_badge(string $status): array {
 function upload_status_badge(array $row): array {
     return match ($row['document_status'] ?? 'active') {
         'deleted'  => ['Deleted', 'bg-secondary'],
-        'archived' => [current_user()['role'] === 'admin' ? 'Archived' : 'Archived by Admin', 'bg-light text-dark border'],
+        'archived' => ['Archived', 'bg-light text-dark border'],
         default    => status_badge($row['status']),
     };
 }
@@ -232,15 +232,16 @@ function store_document_file(PDO $pdo, int $document_id, string $abs_path, strin
 }
 
 /**
- * Who may open a 201-file document: its owner, or the Admin. Program
- * Chairs and Deans only receive upload notifications -- they can't view,
- * download or change anyone else's files.
+ * Who may open a 201-file document: its owner (active, or archived -- My
+ * Archive is view / download only), or the Admin. Program Chairs and Deans
+ * can see faculty profiles, archive lists and report details, but can't
+ * view, download or change anyone else's files.
  */
 function can_access_document(array $user, array $document): bool {
     if ($user['role'] === 'admin') {
         return true;   // including archived / deleted documents, to review or restore them
     }
-    return (int)$document['faculty_id'] === (int)$user['user_id'] && ($document['status'] ?? 'active') === 'active';
+    return (int)$document['faculty_id'] === (int)$user['user_id'] && in_array($document['status'] ?? 'active', ['active', 'archived'], true);
 }
 
 // ---------------------------------------------------------------------
@@ -315,8 +316,10 @@ function move_document_file(string $from, string $to): string {
  * Archive, delete or restore one document. $doc is its documents row;
  * $action 'archive' (active only), 'delete' (active or archived) or
  * 'restore' (archived or deleted -> active). Deleting moves the local
- * file into uploads/_deleted/; restoring moves it back. Returns false if
- * the action doesn't apply to the document's current status.
+ * file into uploads/_deleted/; restoring moves it back. A restored
+ * document that is still older than ARCHIVE_AFTER_YEARS is marked
+ * archive_exempt, so the auto-archive doesn't take it straight back.
+ * Returns false if the action doesn't apply to the document's current status.
  */
 function change_document_status(PDO $pdo, array $doc, string $action, int $actor_id, ?string $reason): bool {
     $status = $doc['status'];
@@ -334,11 +337,12 @@ function change_document_status(PDO $pdo, array $doc, string $action, int $actor
     if ($action === 'restore' && in_array($status, ['archived', 'deleted'], true)) {
         $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
         $pdo->prepare(
-            "UPDATE documents SET status = 'active', file_path = ?,
-                    archived_at = NULL, archived_by = NULL, archive_reason = NULL,
-                    deleted_at = NULL, deleted_by = NULL, delete_reason = NULL
-             WHERE document_id = ?"
-        )->execute([$path, $doc['document_id']]);
+            "UPDATE documents d SET d.status = 'active', d.file_path = ?,
+                    d.archived_at = NULL, d.archived_by = NULL, d.archive_reason = NULL,
+                    d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
+                    d.archive_exempt = IF(" . document_date_sql('d') . " < ?, 1, 0)
+             WHERE d.document_id = ?"
+        )->execute([$path, archive_cutoff_date(), $doc['document_id']]);
         return true;
     }
     return false;
@@ -354,7 +358,8 @@ function document_url(int $document_id): string {
  * repository, log it in submission_requests as 'uploaded' and insert the
  * documents row. $ocr is the OcrProcessor::process() result from the
  * preview step; $meta holds subtype / academic_year / semester /
- * period_year / expiration. The caller notifies the Chair / Dean
+ * period_year / expiration, and details (document_details_clean()) --
+ * the seminar / training details and date issued. The caller notifies the Chair / Dean
  * (notify_new_upload) once any PDS update has been applied.
  * Returns [request_id, document_id], or null if the file could not be stored.
  */
@@ -374,14 +379,17 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
         $request_id = (int)$pdo->lastInsertId();
 
         $check = $meta['classification'] ?? null;   // classification_check() result
+        $details = $meta['details'] ?? document_details_clean([]);
         $pdo->prepare(
             "INSERT INTO documents (request_id, faculty_id, document_type, document_subtype, academic_year, semester, period_year,
+                                    title, date_start, date_end, venue, conducted_by, training_type, training_level, hours, date_issued,
                                     file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note,
                                     confidence_score, predicted_category, chosen_category, is_low_confidence)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )->execute([
             $request_id, $faculty['user_id'], $document_type, $subtype,
             $meta['academic_year'] ?? null, $meta['semester'] ?? null, $meta['period_year'] ?? null,
+            ...array_values($details),
             $filePath, $meta['expiration'] ?? null,
             $ocr['text'] ?? null, $ocr['matched_name'] ?? null,
             isset($ocr['confidence_note']) ? mb_substr($ocr['confidence_note'], 0, 255) : null,
@@ -483,8 +491,9 @@ function faculty_201_checklist(PDO $pdo, int $faculty_id, ?string $employment_ty
     if ($period['semester'] === 3) { $period['semester'] = 2; }
     $sem_label = semester_options()[$period['semester']] . ', AY ' . $period['academic_year'];
 
-    $has = function (string $type, ?array $sem = null) use ($pdo, $faculty_id): bool {
-        $sql = "SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND status = 'active'";
+    // $archived: an auto-archived (old) copy still counts as "on file" -- for degrees and transcripts
+    $has = function (string $type, ?array $sem = null, bool $archived = false) use ($pdo, $faculty_id): bool {
+        $sql = "SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND status IN ('active'" . ($archived ? ", 'archived'" : '') . ")";
         $params = [$faculty_id, $type];
         if ($sem) { $sql .= " AND academic_year = ? AND semester = ?"; array_push($params, $sem['academic_year'], $sem['semester']); }
         $stmt = $pdo->prepare($sql);
@@ -502,8 +511,8 @@ function faculty_201_checklist(PDO $pdo, int $faculty_id, ?string $employment_ty
         $items[] = ['label' => 'Contract of Service on file', 'done' => $has('Contract'), 'type' => 'Contract'];
         $items[] = ['label' => 'Affidavit of Undertaking on file', 'done' => $has('Affidavit'), 'type' => 'Affidavit'];
     }
-    $items[] = ['label' => 'Diploma on file (per educational attainment)', 'done' => $has('Diploma'), 'type' => 'Diploma'];
-    $items[] = ['label' => 'Transcript of Records on file', 'done' => $has('TOR'), 'type' => 'TOR'];
+    $items[] = ['label' => 'Diploma on file (per educational attainment)', 'done' => $has('Diploma', null, true), 'type' => 'Diploma'];
+    $items[] = ['label' => 'Transcript of Records on file', 'done' => $has('TOR', null, true), 'type' => 'TOR'];
     return $items;
 }
 
@@ -851,30 +860,214 @@ function check_expiration_alerts(PDO $pdo): array {
 }
 
 /**
- * check_expiration_alerts() at most once a day system-wide (called on
- * dashboard load): the first call of the day records today's date in
- * system_settings and runs the check; later calls return null at once.
- * $force runs it anyway (cron/expiration_check.php). Never throws.
+ * Run $job at most once a day system-wide (dashboard load): the first call
+ * of the day records today's date under $key in system_settings and runs
+ * it; later calls return null at once. $force runs it anyway (the cron
+ * scripts). If the job fails, the date is cleared so the next page load
+ * tries again. Never throws.
  */
-function run_daily_expiration_check(PDO $pdo, bool $force = false): ?array {
+function run_once_a_day(PDO $pdo, string $key, callable $job, bool $force = false): ?array {
     try {
         // Affects 0 rows when today is already recorded
         $stmt = $pdo->prepare(
-            "INSERT INTO system_settings (setting_key, setting_value) VALUES ('expiration_check_last_run', ?)
+            "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
         );
-        $stmt->execute([date('Y-m-d')]);
+        $stmt->execute([$key, date('Y-m-d')]);
         if ($stmt->rowCount() === 0 && !$force) {
             return null;
         }
-        return check_expiration_alerts($pdo);
+        return $job($pdo);
     } catch (Throwable $e) {
-        error_log('Expiration check failed: ' . $e->getMessage());
+        error_log("Daily job {$key} failed: " . $e->getMessage());
         try {   // let the next page load try again
-            $pdo->prepare("UPDATE system_settings SET setting_value = NULL WHERE setting_key = 'expiration_check_last_run'")->execute();
+            $pdo->prepare("UPDATE system_settings SET setting_value = NULL WHERE setting_key = ?")->execute([$key]);
         } catch (Throwable $ignored) {}
         return null;
     }
+}
+
+/** check_expiration_alerts() at most once a day (run_once_a_day()). $force: cron/expiration_check.php. */
+function run_daily_expiration_check(PDO $pdo, bool $force = false): ?array {
+    return run_once_a_day($pdo, 'expiration_check_last_run', 'check_expiration_alerts', $force);
+}
+
+// ---------------------------------------------------------------------
+// Auto-archive. A document more than ARCHIVE_AFTER_YEARS old (by its own
+// date, see document_date_sql()) moves to its owner's archive: status
+// 'archived', archived_by NULL, archive_reason auto_archive_reason(). The
+// file and record are kept; the owner sees it in My Archive, the Admin can
+// restore it (which sets archive_exempt when it's still old). Archived
+// documents are left out of active lists, searches, dashboards, expiration
+// alerts and analytics, which all filter on status = 'active'.
+// Runs at most once a day (run_daily_auto_archive(), dashboards and
+// cron/auto_archive.php) and for one document right after it is uploaded
+// or its dates are changed.
+// ---------------------------------------------------------------------
+
+/**
+ * SQL for the date a documents row $alias is "from": the seminar / training
+ * end date, else its start date, else the date issued, else the upload date.
+ */
+function document_date_sql(string $alias = 'd'): string {
+    return "COALESCE({$alias}.date_end, {$alias}.date_start, {$alias}.date_issued, DATE({$alias}.filed_at))";
+}
+
+/** Documents dated before this day (Y-m-d, Asia/Manila) are more than ARCHIVE_AFTER_YEARS old. */
+function archive_cutoff_date(): string {
+    return (new DateTimeImmutable('today'))->modify('-' . (int)ARCHIVE_AFTER_YEARS . ' years')->format('Y-m-d');
+}
+
+function auto_archive_reason(): string {
+    return 'Auto: older than ' . (int)ARCHIVE_AFTER_YEARS . ' years';
+}
+
+/**
+ * Archive every active document older than ARCHIVE_AFTER_YEARS (or just
+ * $document_id). $actor is the user whose action triggered it (an upload,
+ * an edit), or null for the daily run, which is logged as "system". One
+ * activity-log entry per run; each owner is notified, except when the
+ * owner's own action archived it (they see it on screen instead).
+ * @return array{archived: int, document_ids: int[]}
+ */
+function auto_archive_old_documents(PDO $pdo, ?array $actor = null, ?int $document_id = null): array {
+    $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title, " . document_date_sql('d') . " AS doc_date
+            FROM documents d
+            WHERE d.status = 'active' AND d.archive_exempt = 0 AND " . document_date_sql('d') . " < ?";
+    $params = [archive_cutoff_date()];
+    if (ARCHIVE_EXEMPT_CATEGORIES) {
+        $sql .= " AND d.document_type NOT IN (" . implode(',', array_fill(0, count(ARCHIVE_EXEMPT_CATEGORIES), '?')) . ")";
+        array_push($params, ...ARCHIVE_EXEMPT_CATEGORIES);
+    }
+    if ($document_id !== null) {
+        $sql .= " AND d.document_id = ?";
+        $params[] = $document_id;
+    }
+    $stmt = $pdo->prepare($sql . " ORDER BY d.faculty_id, d.document_id");
+    $stmt->execute($params);
+    $docs = $stmt->fetchAll();
+    if (!$docs) {
+        return ['archived' => 0, 'document_ids' => []];
+    }
+
+    $archive = $pdo->prepare(
+        "UPDATE documents SET status = 'archived', archived_at = NOW(), archived_by = NULL, archive_reason = ?
+         WHERE document_id = ? AND status = 'active' AND archive_exempt = 0"
+    );
+    $done = [];
+    foreach ($docs as $d) {
+        $archive->execute([auto_archive_reason(), $d['document_id']]);
+        if ($archive->rowCount() === 1) { $done[] = $d; }   // not already taken by a run at the same moment
+    }
+    if (!$done) {
+        return ['archived' => 0, 'document_ids' => []];
+    }
+
+    $ids = array_map(fn($d) => (int)$d['document_id'], $done);
+    $details = 'Auto-archived ' . count($done) . ' document' . (count($done) === 1 ? '' : 's')
+             . ' dated before ' . date('M j, Y', strtotime(archive_cutoff_date())) . ' (older than ' . (int)ARCHIVE_AFTER_YEARS . ' years): '
+             . implode(', ', array_map(fn($d) => "#{$d['document_id']}", $done)) . '.';
+    if ($actor) {
+        log_activity($pdo, (int)$actor['user_id'], 'DOCUMENT_AUTO_ARCHIVE', $details, $actor['role']);
+    } else {
+        log_activity($pdo, null, 'DOCUMENT_AUTO_ARCHIVE', $details, 'system');
+    }
+
+    $by_owner = [];
+    foreach ($done as $d) { $by_owner[(int)$d['faculty_id']][] = $d; }
+    foreach ($by_owner as $owner_id => $owned) {
+        if ($actor && (int)$actor['user_id'] === $owner_id) { continue; }
+        $names = array_map(fn($d) => document_title($d), array_slice($owned, 0, 5));
+        notify($pdo, $owner_id, count($owned) . ' document' . (count($owned) === 1 ? ' was' : 's were') . ' moved to your archive because '
+            . (count($owned) === 1 ? 'it is' : 'they are') . ' more than ' . (int)ARCHIVE_AFTER_YEARS . ' years old: '
+            . implode('; ', $names) . (count($owned) > 5 ? '; and ' . (count($owned) - 5) . ' more' : '')
+            . '. You can still view and download them in My Archive.');
+    }
+    return ['archived' => count($done), 'document_ids' => $ids];
+}
+
+/** auto_archive_old_documents() at most once a day (run_once_a_day()). $force: cron/auto_archive.php. */
+function run_daily_auto_archive(PDO $pdo, bool $force = false): ?array {
+    return run_once_a_day($pdo, 'auto_archive_last_run', fn(PDO $pdo) => auto_archive_old_documents($pdo), $force);
+}
+
+/** The dashboards' once-a-day jobs: archive old documents first, so they get no expiration alerts. */
+function run_daily_jobs(PDO $pdo): void {
+    run_daily_auto_archive($pdo);
+    run_daily_expiration_check($pdo);
+}
+
+// ---------------------------------------------------------------------
+// Seminar / training details of a document (title, dates, venue,
+// conducted by, type, level, hours) and its date issued. Pre-filled from
+// the OCR text at upload (OcrProcessor::extractTraining()), reviewed by the
+// faculty member, editable later in document_details.php, and listed in
+// the Seminar & Training Report.
+// ---------------------------------------------------------------------
+
+/** Detail columns of documents, in the order document_details_clean() returns them. */
+function document_detail_columns(): array {
+    return ['title', 'date_start', 'date_end', 'venue', 'conducted_by', 'training_type', 'training_level', 'hours', 'date_issued'];
+}
+
+/**
+ * Sanitize submitted details: lengths cut to the column sizes, dates must
+ * be real Y-m-d dates (an end date before the start is swapped), type and
+ * level must be listed in TRAINING_TYPES / TRAINING_LEVELS, hours a number
+ * from 0.5 to 9999. Anything invalid becomes NULL ("Not specified").
+ * @return array<string, mixed> keyed and ordered as document_detail_columns()
+ */
+function document_details_clean(array $in): array {
+    $text = function ($v, int $max): ?string {
+        $v = trim(preg_replace('/\s+/', ' ', (string)$v));
+        return $v === '' ? null : mb_substr($v, 0, $max);
+    };
+    $date = function ($v): ?string {
+        $v = trim((string)$v);
+        return preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $v, $m) && checkdate((int)$m[2], (int)$m[3], (int)$m[1]) && (int)$m[1] >= 1950 ? $v : null;
+    };
+    $start = $date($in['date_start'] ?? '');
+    $end = $date($in['date_end'] ?? '');
+    if ($start === null && $end !== null) { [$start, $end] = [$end, null]; }
+    if ($start !== null && $end !== null && $end < $start) { [$start, $end] = [$end, $start]; }
+    $hours = trim((string)($in['hours'] ?? ''));
+    return [
+        'title'          => $text($in['title'] ?? '', 255),
+        'date_start'     => $start,
+        'date_end'       => $end ?? $start,
+        'venue'          => $text($in['venue'] ?? '', 255),
+        'conducted_by'   => $text($in['conducted_by'] ?? '', 255),
+        'training_type'  => in_array($in['training_type'] ?? '', TRAINING_TYPES, true) ? $in['training_type'] : null,
+        'training_level' => in_array($in['training_level'] ?? '', TRAINING_LEVELS, true) ? $in['training_level'] : null,
+        'hours'          => is_numeric($hours) && (float)$hours >= 0.5 && (float)$hours <= 9999 ? round((float)$hours, 1) : null,
+        'date_issued'    => $date($in['date_issued'] ?? ''),
+    ];
+}
+
+/** "Sept 15-17, 2026" / "Sept 30 - Oct 2, 2026" / "Dec 30, 2025 - Jan 2, 2026" / "Not specified". */
+function document_date_range_label(?string $start, ?string $end): string {
+    if (!$start) { return 'Not specified'; }
+    $fmt = fn(string $d, string $f) => str_replace('Sep ', 'Sept ', date($f, strtotime($d)));
+    if (!$end || $end === $start) { return $fmt($start, 'M j, Y'); }
+    if (substr($start, 0, 7) === substr($end, 0, 7)) { return $fmt($start, 'M j') . '-' . date('j, Y', strtotime($end)); }
+    if (substr($start, 0, 4) === substr($end, 0, 4)) { return $fmt($start, 'M j') . ' - ' . $fmt($end, 'M j, Y'); }
+    return $fmt($start, 'M j, Y') . ' - ' . $fmt($end, 'M j, Y');
+}
+
+/** A document's title if one was recorded, else its readable file name. */
+function document_title(array $doc): string {
+    return trim((string)($doc['title'] ?? '')) !== '' ? $doc['title'] : document_display_name($doc['file_path']);
+}
+
+/** "Seminar · National" from training_type / training_level, or '' when neither is set. */
+function training_type_label(array $doc): string {
+    return implode(' · ', array_filter([$doc['training_type'] ?? null, $doc['training_level'] ?? null]));
+}
+
+/** Whether $user may edit a document's details: its owner while it's active, or the Admin. */
+function can_edit_document_details(array $user, array $doc): bool {
+    return $user['role'] === 'admin'
+        || ((int)$doc['faculty_id'] === (int)$user['user_id'] && ($doc['status'] ?? '') === 'active');
 }
 
 /**
@@ -1103,6 +1296,11 @@ function activity_actions(): array {
         'DOCUMENT_DELETE'    => 'Document Deleted',
         'DOCUMENT_ARCHIVE'   => 'Document Archived',
         'DOCUMENT_RESTORE'   => 'Document Restored',
+        'DOCUMENT_AUTO_ARCHIVE' => 'Documents Auto-Archived',
+        'DOCUMENT_DETAILS'   => 'Document Details Updated',
+        'PROFILE_UPDATE'     => 'Profile Updated',
+        'PROFILE_PICTURE'    => 'Profile Picture Changed',
+        'RANK_LIST_UPDATE'   => 'Academic Rank List Updated',
         'PASSWORD_CHANGE'    => 'Password Changed',
         'PASSWORD_RESET'     => 'Password Reset',
         'LOGIN_LOCKOUT'      => 'Login Locked',
@@ -1155,3 +1353,5 @@ function describe_filters(array $filters): string {
 function unresolved_security_alert_count(PDO $pdo): int {
     return (int)$pdo->query("SELECT COUNT(*) FROM security_alerts WHERE is_reviewed = 0")->fetchColumn();
 }
+
+require_once __DIR__ . '/profile.php';   // profiles: access scope, pictures, profile details

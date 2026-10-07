@@ -6,10 +6,10 @@
  *     delete -- their own active document, within FACULTY_DELETE_WINDOW_HOURS
  *               of uploading it; the reason is optional
  *   Admin:
- *     archive -- hide an active document from everyone but the Admin
+ *     archive -- move an active document to its owner's archive
  *     delete  -- remove an active or archived document
  *     restore -- bring an archived or deleted document back
- *     A reason is required to archive or delete, and the owner is notified.
+ *     A reason is required for each, and the owner is notified.
  *
  * Every check is made here, whatever buttons the page showed. Rows are
  * never removed (see change_document_status()), and each action is
@@ -24,7 +24,7 @@ $is_admin = $me['role'] === 'admin';
 
 // Back to the page the form was on -- only a page inside the app
 $return = (string)($_POST['return'] ?? '');
-if (!preg_match('#^(admin|faculty|approval)/[a-z_]+\.php(\?[A-Za-z0-9_.%=&\-\[\]+]*)?$#', $return)) {
+if (!preg_match('#^((admin|faculty|approval)/)?[a-z_]+\.php(\?[A-Za-z0-9_.%=&\-\[\]+]*)?$#', $return)) {
     $return = $is_admin ? 'admin/archived_documents.php' : 'faculty/my_documents.php';
 }
 $back = function (string $key, string $message) use ($return) {
@@ -76,9 +76,15 @@ if ($note !== '') { $reason = $reason !== '' ? "{$reason} -- {$note}" : $note; }
 if ($is_admin && $action !== 'restore' && $reason === '') {
     $back('flash_error', 'Please give a reason for ' . ($action === 'archive' ? 'archiving' : 'deleting') . ' the document.');
 }
+if ($is_admin && $action === 'restore') {
+    $reason = $note;   // restoring takes a written reason, not one from the removal list
+    if ($reason === '') { $back('flash_error', 'Please give a reason for restoring the document.'); }
+}
+// Tells a manual archive apart from the automatic one ("Auto: older than 5 years") in the archive lists
+$stored_reason = $action === 'archive' && $is_admin ? 'Manual by Admin: ' . $reason : $reason;
 
 $name = document_display_name($doc['file_path']) . ' (' . document_type_label($doc['document_type'], $doc['document_subtype']) . ')';
-if (!change_document_status($pdo, $doc, $action, (int)$me['user_id'], $reason !== '' ? $reason : null)) {
+if (!change_document_status($pdo, $doc, $action, (int)$me['user_id'], $stored_reason !== '' ? $stored_reason : null)) {
     $back('flash_error', "That can't be done: the document is currently {$doc['status']}.");
 }
 
@@ -93,9 +99,9 @@ log_my_activity($pdo, 'DOCUMENT_' . strtoupper($action),
 // The owner hears about anything the Admin does to their document
 if ($is_admin && (int)$doc['faculty_id'] !== (int)$me['user_id']) {
     $message = match ($action) {
-        'archive' => "The Admin archived your {$name}; it no longer appears in your 201 file. Reason: {$reason}.",
+        'archive' => "The Admin moved your {$name} to your archive; it no longer appears in your active 201 file, but you can still view it in My Archive. Reason: {$reason}.",
         'delete'  => "The Admin deleted your {$name} from your 201 file. Reason: {$reason}. Contact the Admin if this was a mistake.",
-        'restore' => "The Admin restored your {$name} to your 201 file.",
+        'restore' => "The Admin restored your {$name} to your 201 file. Reason: {$reason}.",
     };
     notify($pdo, (int)$doc['faculty_id'], $message);
 }

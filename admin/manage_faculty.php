@@ -7,6 +7,13 @@ $page_title = 'Manage Faculty & Accounts';
 $me = current_user();
 $action = $_POST['action'] ?? '';
 
+// Every action is a POST with the CSRF token (create / reset / unlock also say so in their own messages)
+if (in_array($action, ['assign', 'toggle_active', 'pause', 'resume', 'profile_details'], true) && !csrf_valid()) {
+    $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
+    header('Location: ' . BASE_URL . '/admin/manage_faculty.php');
+    exit;
+}
+
 /**
  * Program / college / employment type an account of this role should have.
  * Faculty and Program Chairs belong to a program (the college follows from
@@ -64,6 +71,65 @@ if ($action === 'assign') {
         }
     }
     header('Location: ' . BASE_URL . '/admin/manage_faculty.php' . (isset($_GET['role']) ? '?role=' . urlencode($_GET['role']) : ''));
+    exit;
+}
+
+// ---------------------------------------------------------------------
+// Profile details only the Admin sets: employment type (the position of a
+// faculty member: full-time / part-time), academic rank, date hired and
+// employee ID. Shown read-only on the account's own profile.
+// ---------------------------------------------------------------------
+if ($action === 'profile_details') {
+    $target = user_row($pdo, (int)($_POST['user_id'] ?? 0));
+    $back = BASE_URL . '/admin/manage_faculty.php' . (isset($_GET['role']) ? '?role=' . urlencode($_GET['role']) : '');
+    if (!$target) {
+        $_SESSION['flash_error'] = 'That account could not be found.';
+        header('Location: ' . $back);
+        exit;
+    }
+    $emp = $_POST['employment_type'] ?? '';
+    $emp = $target['role'] === 'admin' ? null : (in_array($emp, ['full_time', 'part_time'], true) ? $emp : null);
+    $rank = trim((string)($_POST['academic_rank'] ?? ''));
+    $hired = trim((string)($_POST['date_engaged'] ?? ''));
+    $hired_dt = DateTime::createFromFormat('!Y-m-d', $hired);
+    $employee_id = mb_substr(trim(preg_replace('/\s+/', ' ', (string)($_POST['employee_id'] ?? ''))), 0, 30);
+
+    $error = null;
+    if ($target['role'] === 'faculty' && $emp === null) {
+        $error = 'Please select an employment type for a faculty account.';
+    } elseif ($rank !== '' && !in_array($rank, academic_rank_options($pdo, $target['academic_rank']), true)) {
+        $error = 'Please choose an academic rank from the list.';
+    } elseif ($hired !== '' && (!$hired_dt || $hired_dt->format('Y-m-d') !== $hired || $hired > date('Y-m-d', strtotime('+1 year')))) {
+        $error = 'Please enter a valid date hired.';
+    } elseif ($employee_id !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9 -]*$/', $employee_id)) {
+        $error = 'The employee ID may only contain letters, digits, spaces and hyphens.';
+    }
+    if ($error !== null) {
+        $_SESSION['flash_error'] = $error;
+        header('Location: ' . $back);
+        exit;
+    }
+
+    $new = ['employment_type' => $emp, 'academic_rank' => $rank !== '' ? $rank : null,
+            'date_engaged' => $hired !== '' ? $hired : null, 'employee_id' => $employee_id !== '' ? $employee_id : null];
+    $labels = ['employment_type' => 'Employment type', 'academic_rank' => 'Academic rank', 'date_engaged' => 'Date hired', 'employee_id' => 'Employee ID'];
+    $changes = [];
+    foreach ($new as $col => $value) {
+        if ((string)$target[$col] !== (string)$value) {
+            $show = fn($v) => $v === null || $v === '' ? '(none)' : ($col === 'employment_type' ? employment_type_label($v) : $v);
+            $changes[$labels[$col]] = $show($target[$col]) . ' -> ' . $show($value);
+        }
+    }
+    if ($changes) {
+        $pdo->prepare("UPDATE users SET employment_type = ?, academic_rank = ?, date_engaged = ?, employee_id = ? WHERE user_id = ?")
+            ->execute([...array_values($new), $target['user_id']]);
+        log_my_activity($pdo, 'ACCOUNT_UPDATE', 'Updated the profile details of ' . account_log_name($target) . ' -- ' . describe_filters($changes) . '.');
+        notify($pdo, (int)$target['user_id'], 'The Admin updated your profile: ' . implode('; ', array_map(fn($k, $v) => "{$k}: " . explode(' -> ', $v)[1], array_keys($changes), $changes)) . '.');
+        $_SESSION['flash_success'] = "Updated the profile details of {$target['full_name']}.";
+    } else {
+        $_SESSION['flash_success'] = 'Nothing was changed.';
+    }
+    header('Location: ' . $back);
     exit;
 }
 
@@ -235,7 +301,10 @@ foreach (active_login_locks($pdo) as $lock) {
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-4">Manage Faculty &amp; Accounts</h3>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+  <h3 class="fw-bold mb-0">Manage Faculty &amp; Accounts</h3>
+  <a href="<?= BASE_URL ?>/admin/academic_ranks.php" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-list-ol"></i> Academic Ranks</a>
+</div>
 
 <?php if (!empty($_SESSION['temp_password_notice'])):
   // Temporary password from the last create / reset: shown this once, then removed from the session
@@ -346,8 +415,14 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
             <?php foreach ($users as $u): ?>
             <tr>
               <td>
-                <?= h($u['full_name']) ?>
-                <div class="text-muted small"><?= h($u['email']) ?></div>
+                <div class="d-flex align-items-center gap-2">
+                  <?= user_avatar($u, 32) ?>
+                  <div class="min-w-0">
+                    <a href="<?= BASE_URL ?>/profile.php?id=<?= (int)$u['user_id'] ?>" class="text-body"><?= h($u['full_name']) ?></a>
+                    <div class="text-muted small"><?= h($u['email']) ?></div>
+                    <?php if ($u['academic_rank']): ?><div class="text-muted small"><?= h($u['academic_rank']) ?></div><?php endif; ?>
+                  </div>
+                </div>
               </td>
               <td class="text-capitalize">
                 <?= h(str_replace('_',' ',$u['role'])) ?>
@@ -358,6 +433,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
               <td>
                 <?php if ($u['role'] !== 'admin'): ?>
                 <form method="POST" action="?<?= $role_filter !== '' ? 'role=' . h($role_filter) : '' ?>" class="d-flex gap-1 align-items-center">
+                  <?= csrf_field() ?>
                   <input type="hidden" name="action" value="assign">
                   <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
                   <?php if ($u['role'] === 'dean'): ?>
@@ -414,6 +490,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
               <td class="text-nowrap">
                 <?php if ($u['role'] === 'faculty'): ?>
                   <form method="POST" class="d-inline">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="action" value="<?= $u['employment_status'] === 'active' ? 'pause' : 'resume' ?>">
                     <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
                     <button class="btn btn-sm btn-outline-brand" title="<?= $u['employment_status'] === 'active' ? 'Pause employment' : 'Resume employment' ?>">
@@ -421,6 +498,12 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                     </button>
                   </form>
                 <?php endif; ?>
+                <button type="button" class="btn btn-sm btn-outline-brand" title="Edit profile details (employment type, rank, date hired, employee ID)"
+                        data-bs-toggle="modal" data-bs-target="#detailsModal" data-edit-id="<?= (int)$u['user_id'] ?>"
+                        data-name="<?= h($u['full_name']) ?>" data-role="<?= h($u['role']) ?>" data-emp="<?= h((string)$u['employment_type']) ?>"
+                        data-rank="<?= h((string)$u['academic_rank']) ?>" data-hired="<?= h((string)$u['date_engaged']) ?>" data-empid="<?= h((string)$u['employee_id']) ?>">
+                  <i class="fa-solid fa-user-pen"></i>
+                </button>
                 <button type="button" class="btn btn-sm btn-outline-brand" title="Reset password"
                         data-bs-toggle="modal" data-bs-target="#resetPasswordModal"
                         data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-email="<?= h($u['email']) ?>"
@@ -428,6 +511,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   <i class="fa-solid fa-key"></i>
                 </button>
                 <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure?');">
+                  <?= csrf_field() ?>
                   <input type="hidden" name="action" value="toggle_active">
                   <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
                   <button class="btn btn-sm btn-outline-danger" <?= (int)$u['user_id'] === (int)$me['user_id'] ? 'disabled' : '' ?>>
@@ -441,6 +525,56 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
         </table>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Profile details only the Admin sets -->
+<div class="modal fade" id="detailsModal" tabindex="-1" aria-labelledby="detailsTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="POST" action="?<?= $role_filter !== '' ? 'role=' . h($role_filter) : '' ?>" class="modal-content">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="profile_details">
+      <input type="hidden" name="user_id" id="detailsUserId">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detailsTitle">Edit Profile Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="fw-semibold mb-3" id="detailsUserName"></p>
+        <div class="mb-2" id="detailsEmpWrap">
+          <label for="detailsEmp" class="form-label small fw-semibold">Employment Type</label>
+          <select name="employment_type" id="detailsEmp" class="form-select form-select-sm">
+            <option value="">-- Not set --</option>
+            <option value="full_time">Full-Time</option>
+            <option value="part_time">Part-Time</option>
+          </select>
+          <div class="form-text">For faculty this is their position (Full-time / Part-time Faculty).</div>
+        </div>
+        <div class="mb-2">
+          <label for="detailsRank" class="form-label small fw-semibold">Academic Rank</label>
+          <select name="academic_rank" id="detailsRank" class="form-select form-select-sm">
+            <option value="">-- Not set --</option>
+            <?php foreach (academic_rank_options($pdo) as $rank): ?><option><?= h($rank) ?></option><?php endforeach; ?>
+          </select>
+          <div class="form-text"><a href="<?= BASE_URL ?>/admin/academic_ranks.php">Add a rank to this list</a></div>
+        </div>
+        <div class="row g-2">
+          <div class="col-6">
+            <label for="detailsHired" class="form-label small fw-semibold">Date Hired</label>
+            <input type="date" name="date_engaged" id="detailsHired" class="form-control form-control-sm">
+          </div>
+          <div class="col-6">
+            <label for="detailsEmpId" class="form-label small fw-semibold">Employee ID</label>
+            <input type="text" name="employee_id" id="detailsEmpId" class="form-control form-control-sm" maxlength="30">
+          </div>
+        </div>
+        <p class="small text-muted mt-3 mb-0">Program / college are set in the table; employment status with pause / resume. The account holder is notified of changes.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-brand"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -491,6 +625,28 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
   document.querySelectorAll('.pw-generate').forEach(function (btn) {
     btn.addEventListener('click', function () { document.getElementById(btn.dataset.target).value = generatePassword(12); });
   });
+  var detailsModal = document.getElementById('detailsModal');
+  detailsModal.addEventListener('show.bs.modal', function (e) {
+    var b = e.relatedTarget, rank = document.getElementById('detailsRank');
+    document.getElementById('detailsUserId').value = b.dataset.editId;
+    document.getElementById('detailsUserName').textContent = b.dataset.name;
+    document.getElementById('detailsEmpWrap').hidden = b.dataset.role === 'admin';
+    document.getElementById('detailsEmp').value = b.dataset.emp;
+    if (b.dataset.rank && !Array.prototype.some.call(rank.options, function (o) { return o.value === b.dataset.rank; })) {
+      rank.add(new Option(b.dataset.rank + ' (hidden)', b.dataset.rank));   // a rank no longer offered stays selectable for its holder
+    }
+    rank.value = b.dataset.rank;
+    document.getElementById('detailsHired').value = b.dataset.hired;
+    document.getElementById('detailsEmpId').value = b.dataset.empid;
+  });
+  // "Edit in Manage Faculty" on a profile links here with ?edit=ID (Bootstrap loads in the footer, hence DOMContentLoaded)
+  var editBtn = document.querySelector('[data-edit-id="' + parseInt(new URLSearchParams(location.search).get('edit'), 10) + '"]');
+  if (editBtn) {
+    window.addEventListener('DOMContentLoaded', function () {
+      editBtn.scrollIntoView({ block: 'center' });
+      bootstrap.Modal.getOrCreateInstance(detailsModal).show(editBtn);
+    });
+  }
   document.getElementById('resetPasswordModal').addEventListener('show.bs.modal', function (e) {
     var b = e.relatedTarget;
     document.getElementById('resetUserId').value = b.dataset.id;

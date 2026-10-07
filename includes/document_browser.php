@@ -23,7 +23,7 @@ $active_sub = $_GET['sub'] ?? '';
 if ($active_type === '' || !isset($all_categories[$active_type]['subtypes'][$active_sub])) { $active_sub = ''; }
 $q = trim($_GET['q'] ?? '');
 
-// Active documents only -- archived / deleted ones are on the Admin's Archived Documents page
+// Active documents only -- archived ones are in the faculty member's archive (archive.php), deleted ones on the Admin's Archived Documents page
 $stmt = $pdo->prepare("SELECT d.*, " . delete_window_sql('d') . " AS delete_seconds_left, ? AS full_name
                        FROM documents d WHERE d.faculty_id = ? AND d.status = 'active'");
 $stmt->execute([$faculty['full_name'], $faculty['user_id']]);
@@ -33,7 +33,7 @@ $latest_ids = latest_document_ids($all_docs);
 $documents = array_filter($all_docs, function ($d) use ($active_type, $active_sub, $q) {
     if ($active_type !== '' && $d['document_type'] !== $active_type) { return false; }
     if ($active_sub !== '' && $d['document_subtype'] !== $active_sub) { return false; }
-    if ($q !== '' && stripos(($d['ocr_extracted_text'] ?? '') . ' ' . $d['file_path'], $q) === false) { return false; }
+    if ($q !== '' && stripos(($d['ocr_extracted_text'] ?? '') . ' ' . $d['file_path'] . ' ' . $d['title'] . ' ' . $d['conducted_by'] . ' ' . $d['venue'], $q) === false) { return false; }
     return true;
 });
 if ($q !== '') {
@@ -130,7 +130,17 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
             </div>
           </td>
           <td class="small"><?= h(document_period_label($d)) ?: '<span class="text-muted">—</span>' ?></td>
-          <td class="small text-break"><?= h(basename($d['file_path'])) ?></td>
+          <td class="small text-break">
+            <?php if (trim((string)$d['title']) !== ''): ?>
+              <div class="fw-semibold"><?= h($d['title']) ?></div>
+              <?php if ($d['document_type'] === 'Certificate'): ?>
+                <div class="text-muted"><?= h(implode(' · ', array_filter([$d['date_start'] ? document_date_range_label($d['date_start'], $d['date_end']) : null, $d['conducted_by'], training_type_label($d)]))) ?></div>
+              <?php endif; ?>
+            <?php elseif ($d['document_type'] === 'Certificate'): ?>
+              <div class="text-muted fst-italic">Seminar / training details not specified</div>
+            <?php endif; ?>
+            <div class="<?= trim((string)$d['title']) !== '' || $d['document_type'] === 'Certificate' ? 'text-muted' : '' ?>"><?= h(basename($d['file_path'])) ?></div>
+          </td>
           <td>
             <?php if ($d['ocr_matched_name']): ?>
               <span class="badge bg-success"><i class="fa-solid fa-check"></i> <?= h($d['ocr_matched_name']) ?></span>
@@ -152,6 +162,9 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
           <td>
             <div class="d-flex flex-wrap gap-1 align-items-start">
               <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"><i class="fa-solid fa-eye"></i> View</a>
+              <?php if (can_edit_document_details(current_user(), $d)): ?>
+                <a href="<?= BASE_URL ?>/document_details.php?id=<?= (int)$d['document_id'] ?>&amp;return=<?= h(urlencode($doc_action_return)) ?>" class="btn btn-sm btn-outline-brand text-nowrap" title="Edit details (title, dates, organizer...)"><i class="fa-solid fa-pen-to-square"></i> Details</a>
+              <?php endif; ?>
               <?= document_action_buttons($d, current_user()) ?>
             </div>
           </td>

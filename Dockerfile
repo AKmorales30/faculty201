@@ -2,7 +2,8 @@
 # working: tesseract-ocr (image OCR), poppler-utils (pdftotext /
 # pdftoppm, for PDF scans), imagemagick (straightens / cleans up phone
 # photos before OCR) and Python + OpenCV (document crop / perspective
-# fix). This is what a normal XAMPP install gives you "for free" locally
+# fix). The gd and exif extensions crop / resize profile pictures
+# (square_jpeg() in includes/profile.php). This is what a normal XAMPP install gives you "for free" locally
 # (except OpenCV) -- on Render, we have to install it ourselves.
 FROM php:8.2-apache
 
@@ -14,8 +15,11 @@ RUN apt-get update && apt-get install -y \
         python3-venv \
         libglib2.0-0 \
         libzip-dev \
+        libpng-dev \
+        libjpeg62-turbo-dev \
         unzip \
-    && docker-php-ext-install pdo pdo_mysql \
+    && docker-php-ext-configure gd --with-jpeg \
+    && docker-php-ext-install pdo pdo_mysql gd exif \
     && a2enmod rewrite \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 

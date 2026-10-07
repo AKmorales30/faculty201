@@ -7,8 +7,9 @@ $page_title = 'Admin Dashboard';
 
 // Anything left waiting under the old approval workflow gets filed now.
 file_outstanding_requests($pdo);
-// Expiration alerts, at most once a day system-wide (before the header, so the bell counts them)
-run_daily_expiration_check($pdo);
+// Auto-archive of old documents, then expiration alerts -- each at most once a
+// day system-wide (before the header, so the bell counts them)
+run_daily_jobs($pdo);
 $expiring = expiring_documents($pdo);
 $card_admin = true;
 

@@ -26,15 +26,20 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
   <div class="d-flex align-items-center gap-3">
-    <div class="portal-icon portal-icon-navy"><i class="fa-solid fa-user"></i></div>
+    <?= user_avatar($faculty, 56) ?>
     <div>
       <h4 class="fw-bold mb-0"><?= h($faculty['full_name']) ?></h4>
       <div class="text-muted small text-capitalize"><?= h($faculty['role'] === 'faculty' ? str_replace('_', ' ', (string)$faculty['employment_type']) . ' Faculty' : str_replace('_', ' ', $faculty['role'])) ?> · <span class="text-lowercase"><?= h($faculty['email']) ?></span></div>
     </div>
   </div>
-  <a href="<?= BASE_URL ?>/faculty/pds_print.php?faculty_id=<?= $faculty_id ?>" target="_blank" class="btn btn-outline-brand btn-sm">
-    <i class="fa-solid fa-id-card"></i> View Digital PDS
-  </a>
+  <div class="d-flex flex-wrap gap-2">
+    <a href="<?= BASE_URL ?>/profile.php?id=<?= $faculty_id ?>" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-circle-user"></i> Profile</a>
+    <?php $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND status = 'archived'"); $stmt->execute([$faculty_id]); ?>
+    <a href="<?= BASE_URL ?>/archive.php?id=<?= $faculty_id ?>" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-box-archive"></i> Archive (<?= (int)$stmt->fetchColumn() ?>)</a>
+    <a href="<?= BASE_URL ?>/faculty/pds_print.php?faculty_id=<?= $faculty_id ?>" target="_blank" class="btn btn-outline-brand btn-sm">
+      <i class="fa-solid fa-id-card"></i> View Digital PDS
+    </a>
+  </div>
 </div>
 
 <?php include __DIR__ . '/../includes/document_browser.php'; ?>

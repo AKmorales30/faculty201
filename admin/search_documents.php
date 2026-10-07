@@ -32,6 +32,7 @@ $valid_date = function (string $d): string {
 $q             = trim($_GET['q'] ?? '');
 $type          = $_GET['type'] ?? '';
 $expiring_only = isset($_GET['expiring_only']);
+$include_archived = isset($_GET['include_archived']);
 $from          = $valid_date(trim($_GET['from'] ?? ''));
 $to            = $valid_date(trim($_GET['to'] ?? ''));
 $program       = $_GET['program'] ?? '';
@@ -51,11 +52,12 @@ $use_dates = $date_error === null;
 // ---------------------------------------------------------------------
 // WHERE clause: fixed SQL fragments with ? placeholders; every value is bound
 // ---------------------------------------------------------------------
-$where = ["d.status = 'active'"];
+$where = [$include_archived ? "d.status IN ('active', 'archived')" : "d.status = 'active'"];
 $params = [];
 if ($q !== '') {
-    $where[] = "(u.full_name LIKE ? OR d.ocr_extracted_text LIKE ? OR d.ocr_matched_name LIKE ? OR d.file_path LIKE ?)";
-    array_push($params, "%$q%", "%$q%", "%$q%", "%$q%");
+    $where[] = "(u.full_name LIKE ? OR d.ocr_extracted_text LIKE ? OR d.ocr_matched_name LIKE ? OR d.file_path LIKE ?
+                 OR d.title LIKE ? OR d.conducted_by LIKE ? OR d.venue LIKE ?)";
+    array_push($params, "%$q%", "%$q%", "%$q%", "%$q%", "%$q%", "%$q%", "%$q%");
 }
 if ($type !== '') {
     $where[] = "d.document_type = ?";
@@ -118,11 +120,13 @@ $active = array_filter([
     'Employment' => $employment !== '' ? $employment_options[$employment] : '',
     'Uploaded'   => $date_label,
     'Expiring'   => $expiring_only ? 'within 60 days' : '',
+    'Archived'   => $include_archived ? 'included' : '',
 ], fn($v) => $v !== '');
 
 $filter_query = array_filter([
     'q' => $q, 'type' => $type, 'expiring_only' => $expiring_only ? '1' : '', 'from' => $from, 'to' => $to,
     'program' => $program, 'employment' => $employment, 'sort' => $sort !== 'newest' ? $sort : '',
+    'include_archived' => $include_archived ? '1' : '',
 ], fn($v) => $v !== '');
 
 // Activity log: a search was run (not just the page opened), once -- not again for each results page
@@ -135,11 +139,12 @@ if ($active && $page === 1) {
         'Uploaded from' => $use_dates ? $from : '',
         'Uploaded to'   => $use_dates ? $to : '',
         'Expiring only' => $expiring_only,
+        'Include archived' => $include_archived,
     ]) . " ({$total} result" . ($total === 1 ? '' : 's') . ').');
 }
 
-$advanced_open = $from !== '' || $to !== '' || $program !== '' || $employment !== '' || $expiring_only || $sort !== 'newest';
-$advanced_count = count(array_filter([$from !== '' || $to !== '', $program !== '', $employment !== '', $expiring_only]));
+$advanced_open = $from !== '' || $to !== '' || $program !== '' || $employment !== '' || $expiring_only || $include_archived || $sort !== 'newest';
+$advanced_count = count(array_filter([$from !== '' || $to !== '', $program !== '', $employment !== '', $expiring_only, $include_archived]));
 
 include __DIR__ . '/../includes/header.php';
 include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delete buttons + confirmation dialog
@@ -154,7 +159,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
       <div class="row g-2 align-items-end">
         <div class="col-md-6">
           <label for="fQ" class="form-label small fw-semibold">Search / Filter Documents</label>
-          <input type="search" name="q" id="fQ" value="<?= h($q) ?>" class="form-control" placeholder="Faculty name, extracted text, filename...">
+          <input type="search" name="q" id="fQ" value="<?= h($q) ?>" class="form-control" placeholder="Faculty name, title, organizer, extracted text, filename...">
         </div>
         <div class="col-md-3">
           <label for="fType" class="form-label small fw-semibold">Document Type</label>
@@ -217,6 +222,10 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
               <input type="checkbox" name="expiring_only" id="expiringOnly" class="form-check-input" value="1" <?= $expiring_only ? 'checked' : '' ?>>
               <label for="expiringOnly" class="form-check-label small">Expiring within 60 days</label>
             </div>
+            <div class="form-check">
+              <input type="checkbox" name="include_archived" id="includeArchived" class="form-check-input" value="1" <?= $include_archived ? 'checked' : '' ?>>
+              <label for="includeArchived" class="form-check-label small">Include archived documents (more than <?= (int)ARCHIVE_AFTER_YEARS ?> years old, or archived by the Admin)</label>
+            </div>
           </div>
         </div>
       </div>
@@ -255,7 +264,11 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
           <td class="small"><?= $d['program'] ? '<span title="' . h(PROGRAMS[$d['program']]['label'] ?? $d['program']) . '">' . h($d['program']) . '</span>' : '<span class="text-muted">—</span>' ?></td>
           <td class="small text-nowrap"><?= h(employment_type_label($d['employment_type'])) ?: '<span class="text-muted">—</span>' ?></td>
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?><?php if ($p = document_period_label($d)): ?><div class="small text-muted"><?= h($p) ?></div><?php endif; ?></td>
-          <td class="small text-break"><?= h(basename($d['file_path'])) ?></td>
+          <td class="small text-break">
+            <?php if (trim((string)$d['title']) !== ''): ?><div class="fw-semibold"><?= h($d['title']) ?></div><?php endif; ?>
+            <?= h(basename($d['file_path'])) ?>
+            <?php if ($d['status'] === 'archived'): ?><div><span class="badge bg-light text-dark border">Archived</span></div><?php endif; ?>
+          </td>
           <td><?= $d['ocr_matched_name'] ? h($d['ocr_matched_name']) : '<span class="text-muted">—</span>' ?></td>
           <td>
             <?php if ($d['expiration_date']): ?>

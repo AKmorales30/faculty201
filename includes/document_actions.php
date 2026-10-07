@@ -8,8 +8,8 @@
  * Uses current_user() for the viewer's role.
  */
 
-/** Where document_action.php sends the user back to: this page, with its filters. */
-$doc_action_return = basename(dirname($_SERVER['PHP_SELF'])) . '/' . basename($_SERVER['PHP_SELF'])
+/** Where document_action.php sends the user back to: this page (path from the app root), with its filters. */
+$doc_action_return = ltrim(str_replace('\\', '/', substr((string)realpath($_SERVER['SCRIPT_FILENAME']), strlen((string)realpath(ROOT_PATH)))), '/')
                    . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : '');
 
 /**
@@ -60,13 +60,13 @@ function document_action_buttons(array $doc, array $me): string {
         <p class="small text-muted" id="docActionText"></p>
         <div id="docActionReason">
           <label for="docActionReasonSel" class="form-label small fw-semibold">Reason <span id="docActionReasonHint" class="text-muted fw-normal"></span></label>
-          <select name="reason" id="docActionReasonSel" class="form-select mb-2">
+          <select name="reason" id="docActionReasonSel" class="form-select mb-2" aria-label="Reason">
             <option value="">-- Select a reason --</option>
             <?php foreach (document_removal_reasons() as $r): ?>
               <option value="<?= h($r) ?>"><?= h($r) ?></option>
             <?php endforeach; ?>
           </select>
-          <textarea name="reason_note" class="form-control form-control-sm" rows="2" maxlength="200" placeholder="Details (optional)"></textarea>
+          <textarea name="reason_note" id="docActionNote" class="form-control form-control-sm" rows="2" maxlength="200" placeholder="Details (optional)" aria-label="Details"></textarea>
         </div>
       </div>
       <div class="modal-footer">
@@ -83,24 +83,28 @@ function document_action_buttons(array $doc, array $me): string {
     delete:  IS_ADMIN
       ? ['Delete document', 'It will be removed from the faculty member\'s 201 file and from searches, reports and alerts. The file is kept, so it can still be restored from Archived Documents.', 'btn-danger', 'Delete']
       : ['Delete document', 'It will be removed from your 201 file. This can\'t be undone by you -- the Admin would have to restore it.', 'btn-danger', 'Delete'],
-    archive: ['Archive document', 'It will be hidden from the faculty member, searches, reports and expiration alerts, but the file and record are kept. You can restore it from Archived Documents.', 'btn-secondary', 'Archive'],
-    restore: ['Restore document', 'It will appear in the faculty member\'s 201 file again.', 'btn-success', 'Restore']
+    archive: ['Archive document', 'It will move to the faculty member\'s archive (they can still view it there) and no longer appear in their active 201 file, searches, reports or expiration alerts. You can restore it later.', 'btn-secondary', 'Archive'],
+    restore: ['Restore document', 'It will appear in the faculty member\'s active 201 file again. If it is still more than <?= (int)ARCHIVE_AFTER_YEARS ?> years old, it is kept out of the automatic archive from now on.', 'btn-success', 'Restore']
   };
   var modal = document.getElementById('docActionModal');
   modal.addEventListener('show.bs.modal', function (e) {
     var btn = e.relatedTarget, action = btn.dataset.action, t = TEXT[action];
     var reasonRequired = IS_ADMIN && action !== 'restore';
+    var noteRequired = IS_ADMIN && action === 'restore';   // restoring: a written reason instead of the list
     document.getElementById('docActionId').value = btn.dataset.id;
     document.getElementById('docActionAction').value = action;
     document.getElementById('docActionTitle').textContent = t[0];
     document.getElementById('docActionName').textContent = btn.dataset.name;
     document.getElementById('docActionText').textContent = t[1];
-    document.getElementById('docActionReason').hidden = action === 'restore';
-    var sel = document.getElementById('docActionReasonSel');
+    document.getElementById('docActionReason').hidden = action === 'restore' && !IS_ADMIN;
+    var sel = document.getElementById('docActionReasonSel'), note = document.getElementById('docActionNote');
+    sel.hidden = action === 'restore';
     sel.required = reasonRequired;
     sel.value = '';
-    modal.querySelector('textarea').value = '';
-    document.getElementById('docActionReasonHint').textContent = reasonRequired ? '(required)' : '(optional)';
+    note.value = '';
+    note.required = noteRequired;
+    note.placeholder = noteRequired ? 'Why is this document being restored?' : 'Details (optional)';
+    document.getElementById('docActionReasonHint').textContent = reasonRequired || noteRequired ? '(required)' : '(optional)';
     var submit = document.getElementById('docActionSubmit');
     submit.className = 'btn ' + t[2];
     submit.textContent = t[3];

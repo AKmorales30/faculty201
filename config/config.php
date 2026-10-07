@@ -59,6 +59,28 @@ define('CONFIDENCE_THRESHOLD', 0.60);
 // archive or delete it. Hours; the check is in document_action.php.
 define('FACULTY_DELETE_WINDOW_HOURS', 24);
 
+// Auto-archive (auto_archive_old_documents() in includes/functions.php): a
+// document whose own date is more than this many years ago moves to its
+// owner's archive. The document's date is its seminar / training end date,
+// else its start date, else its date issued, else the upload date. Runs at
+// most once a day on dashboard load (and from cron/auto_archive.php), and
+// right after a document is uploaded or its dates are edited.
+define('ARCHIVE_AFTER_YEARS', 5);
+// Categories never auto-archived, e.g. ['Diploma', 'TOR'] to keep degrees
+// and transcripts in the active 201 file however old they are. Empty = the
+// rule applies to every category.
+define('ARCHIVE_EXEMPT_CATEGORIES', []);
+
+// Seminar / training details recorded for certificates (upload form,
+// Edit Details, Seminar & Training Report). Add values here as needed.
+define('TRAINING_TYPES', ['Seminar', 'Training', 'Workshop', 'Webinar', 'Conference', 'Symposium', 'Forum', 'Other']);
+define('TRAINING_LEVELS', ['Local', 'Regional', 'National', 'International']);
+
+// Profile pictures (profile.php): JPG / PNG only, cropped to a square and
+// resized to PROFILE_PICTURE_SIZE pixels, stored in the database.
+define('PROFILE_PICTURE_MAX_BYTES', 2 * 1024 * 1024); // 2MB
+define('PROFILE_PICTURE_SIZE', 400);
+
 // Brute-force login protection (login_process.php). Failures are counted
 // over the last FAILED_ATTEMPT_WINDOW_MINUTES; reaching a limit refuses
 // further logins for LOCKOUT_MINUTES, even with the right password.

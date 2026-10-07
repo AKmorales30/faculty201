@@ -4,8 +4,9 @@
  * uploads/ are blocked by the web server, so this is the only way to open
  * a filed document.
  *
- * Allowed: the document's owner while it's active, or the Admin -- also
- * archived / deleted ones, to review them (can_access_document()).
+ * Allowed: the document's owner while it's active or archived (My
+ * Archive), or the Admin -- also deleted ones, to review them
+ * (can_access_document()).
  * The file is read from the database (document_files).
  * Program Chairs and Deans can open only their own documents -- never a
  * faculty member's.
@@ -58,7 +59,8 @@ if (!$file) {
 
 header('Content-Type: ' . $file['mime_type']);
 header('Content-Length: ' . strlen($file['data']));
-header('Content-Disposition: inline; filename="' . basename($doc['file_path']) . '"');
+// ?download=1 saves the file instead of opening it (My Archive's download button)
+header('Content-Disposition: ' . (!empty($_GET['download']) ? 'attachment' : 'inline') . '; filename="' . basename($doc['file_path']) . '"');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, no-store');
 echo $file['data'];
