@@ -21,7 +21,8 @@ $meta = $portal_meta[$portal] ?? ['label' => 'Faculty 201-File Repository', 'ico
 $error_key = $portal !== '' ? 'login_error_' . $portal : 'login_error';
 $error = $_SESSION[$error_key] ?? null;
 $email = $_SESSION['login_email'] ?? '';
-unset($_SESSION[$error_key], $_SESSION['login_email']);
+$bad_fields = !empty($_SESSION['login_bad_fields']);   // red boxes only when the email / password typed was wrong
+unset($_SESSION[$error_key], $_SESSION['login_email'], $_SESSION['login_bad_fields']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -56,11 +57,11 @@ unset($_SESSION[$error_key], $_SESSION['login_email']);
       <input type="hidden" name="portal" value="<?= h($portal) ?>">
       <div class="mb-3">
         <label class="form-label small fw-semibold">Email</label>
-        <input type="email" name="email" class="form-control<?= $error ? ' is-invalid' : '' ?>" value="<?= h($email) ?>" required<?= $email === '' ? ' autofocus' : '' ?>>
+        <input type="email" name="email" class="form-control<?= $bad_fields ? ' is-invalid' : '' ?>" value="<?= h($email) ?>" required<?= $email === '' ? ' autofocus' : '' ?>>
       </div>
       <div class="mb-3">
         <label class="form-label small fw-semibold">Password</label>
-        <input type="password" name="password" class="form-control<?= $error ? ' is-invalid' : '' ?>" required<?= $email !== '' ? ' autofocus' : '' ?>>
+        <input type="password" name="password" class="form-control<?= $bad_fields ? ' is-invalid' : '' ?>" required<?= $email !== '' ? ' autofocus' : '' ?>>
       </div>
       <button type="submit" class="btn btn-brand w-100">
         <i class="fa-solid fa-right-to-bracket"></i> Login

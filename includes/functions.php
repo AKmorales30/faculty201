@@ -7,26 +7,37 @@ require_once __DIR__ . '/../config/db.php';
  * deploy doesn't depend on someone running SQL by hand. Applied files
  * are recorded in schema_migrations. "Already exists" errors (duplicate
  * column / index / table) are skipped, so a half-finished run is simply
- * retried on the next request. Only files listed here are auto-applied
- * -- the older migrations were already run manually.
+ * retried on the next request. Only files listed here are auto-applied.
+ * The first two were once run by hand; they are listed too so a database
+ * that missed them (login_attempts, security_alerts, expiration dates)
+ * gets them -- on one that has them, every statement is an "already exists".
+ * Each file is applied on its own: one that fails is logged and retried
+ * later, without holding back the ones after it (a failure there once left
+ * later tables -- login_lockouts -- missing, which broke every login).
  */
 function run_pending_migrations(PDO $pdo): void {
-    $migrations = ['migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
+    $migrations = ['migration_add_expiration.sql', 'migration_add_security_alerts.sql',
+                   'migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
                    'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
                    'migration_search_indexes.sql', 'migration_profile_reports_archive.sql'];
     try {
+        $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (PDOException $e) {
         try {
-            $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
-        } catch (PDOException $e) {
             $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
                             name VARCHAR(190) PRIMARY KEY,
                             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         ) ENGINE=InnoDB");
-            $applied = [];
+        } catch (Throwable $e2) {
+            error_log('Database migration failed: cannot create schema_migrations: ' . $e2->getMessage());
+            return;
         }
-        foreach ($migrations as $file) {
-            if (in_array($file, $applied, true)) { continue; }
+        $applied = [];
+    }
+    foreach ($migrations as $file) {
+        if (in_array($file, $applied, true)) { continue; }
+        try {
             $sql = file_get_contents(__DIR__ . '/../database/' . $file);
             $sql = preg_replace('/^\s*--.*$/m', '', $sql);
             foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
@@ -35,13 +46,15 @@ function run_pending_migrations(PDO $pdo): void {
                     $pdo->exec($statement);
                 } catch (PDOException $e) {
                     // 1050 table exists, 1060 duplicate column, 1061 duplicate key name
-                    if (!in_array((int)($e->errorInfo[1] ?? 0), [1050, 1060, 1061], true)) { throw $e; }
+                    if (!in_array((int)($e->errorInfo[1] ?? 0), [1050, 1060, 1061], true)) {
+                        throw new RuntimeException($e->getMessage() . ' -- in: ' . mb_substr(preg_replace('/\s+/', ' ', $statement), 0, 200), 0, $e);
+                    }
                 }
             }
             $pdo->prepare("INSERT IGNORE INTO schema_migrations (name) VALUES (?)")->execute([$file]);
+        } catch (Throwable $e) {
+            error_log("Database migration {$file} failed (retried on the next request; database/repair_schema.sql adds everything by hand): " . $e->getMessage());
         }
-    } catch (Throwable $e) {
-        error_log('Database migration failed: ' . $e->getMessage());
     }
 }
 run_pending_migrations($pdo);

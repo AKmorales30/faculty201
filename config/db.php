@@ -9,9 +9,11 @@
  *
  * SSL: managed cloud MySQL/MariaDB providers (like MariaDB SkySQL)
  * require an SSL connection. If a CA certificate file is present at
- * config/skysql-ca.pem, it's used automatically. Locally on XAMPP,
- * that file won't exist, so the connection just runs without SSL as
- * before -- no local setup needed.
+ * config/skysql-ca.pem, it's used automatically -- but only for a
+ * database on another host. The file is in the repository, so it also
+ * exists on a local XAMPP copy, whose MySQL has no SSL: connecting to
+ * localhost runs without SSL as before (it used to fail with "MySQL server
+ * has gone away"). DB_SSL=0 / DB_SSL=1 forces it off / on.
  */
 
 define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
@@ -27,7 +29,9 @@ $options = [
 ];
 
 $sslCaPath = __DIR__ . '/skysql-ca.pem';
-if (file_exists($sslCaPath)) {
+$dbIsLocal = in_array(strtolower(DB_HOST), ['localhost', '127.0.0.1', '::1'], true);
+$useSsl = getenv('DB_SSL') !== false ? getenv('DB_SSL') === '1' : !$dbIsLocal;
+if ($useSsl && file_exists($sslCaPath)) {
     $options[PDO::MYSQL_ATTR_SSL_CA] = $sslCaPath;
     $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
 }

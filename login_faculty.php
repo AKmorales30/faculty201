@@ -3,7 +3,8 @@ require_once __DIR__ . '/includes/auth.php';
 if (is_logged_in()) { redirect_to_dashboard(); }
 $error = $_SESSION['login_error_faculty'] ?? null;
 $email = $_SESSION['login_email'] ?? '';
-unset($_SESSION['login_error_faculty'], $_SESSION['login_email']);
+$bad_fields = !empty($_SESSION['login_bad_fields']);   // red boxes only when the email / password typed was wrong
+unset($_SESSION['login_error_faculty'], $_SESSION['login_email'], $_SESSION['login_bad_fields']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -39,11 +40,11 @@ unset($_SESSION['login_error_faculty'], $_SESSION['login_email']);
         <input type="hidden" name="portal" value="faculty">
         <div class="mb-3">
           <label class="form-label">Email</label>
-          <input type="email" name="email" class="form-control<?= $error ? ' is-invalid' : '' ?>" value="<?= h($email) ?>" required<?= $email === '' ? ' autofocus' : '' ?>>
+          <input type="email" name="email" class="form-control<?= $bad_fields ? ' is-invalid' : '' ?>" value="<?= h($email) ?>" required<?= $email === '' ? ' autofocus' : '' ?>>
         </div>
         <div class="mb-3">
           <label class="form-label">Password</label>
-          <input type="password" name="password" class="form-control<?= $error ? ' is-invalid' : '' ?>" required<?= $email !== '' ? ' autofocus' : '' ?>>
+          <input type="password" name="password" class="form-control<?= $bad_fields ? ' is-invalid' : '' ?>" required<?= $email !== '' ? ' autofocus' : '' ?>>
         </div>
         <button type="submit" class="btn btn-brand w-100">
           <i class="fa-solid fa-right-to-bracket"></i> Log In
