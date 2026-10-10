@@ -25,6 +25,33 @@ function discard_files(array $rel_paths): void {
         if (is_file($abs)) { @unlink($abs); }
     }
 }
+/**
+ * Whether $path is a HEIC / HEIF image (an iPhone photo), by its file
+ * signature -- servers often report its type as application/octet-stream.
+ */
+function is_heic_file(string $path): bool {
+    $head = (string)@file_get_contents($path, false, null, 0, 12);
+    return strlen($head) === 12 && substr($head, 4, 4) === 'ftyp'
+        && in_array(substr($head, 8, 4), ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'], true);
+}
+/**
+ * A HEIC / HEIF photo as a JPG, with whichever converter the server has:
+ * heif-convert (libheif), ImageMagick, or sips (macOS). False if none could.
+ */
+function convert_heic_to_jpg(string $src, string $dest): bool {
+    OcrProcessor::useToolDirs();
+    $s = escapeshellarg($src);
+    $d = escapeshellarg($dest);
+    $tries = ['heif-convert' => "-q 92 $s $d", 'magick' => "{$s}[0] -auto-orient -quality 92 $d",
+              'convert' => "{$s}[0] -auto-orient -quality 92 $d", 'sips' => "-s format jpeg $s --out $d"];
+    foreach ($tries as $bin => $args) {
+        if (trim((string)@shell_exec('command -v ' . $bin . ' 2>/dev/null')) === '') { continue; }
+        @shell_exec($bin . ' ' . $args . ' >/dev/null 2>&1');
+        if (is_file($dest) && @getimagesize($dest)) { return true; }
+        @unlink($dest);
+    }
+    return false;
+}
 /** OCR + categorization of a scan; uses the cleaned-up page when there is one. */
 function ocr_pending(array $pending, string $name): array {
     if (!empty($pending['page_image'])) {
@@ -242,8 +269,9 @@ if ($action === 'scan') {
     $mime = function_exists('finfo_open') ? (finfo_file(finfo_open(FILEINFO_MIME_TYPE), $file['tmp_name']) ?: '') : $file['type'];
 
     $is_xlsx = $ext === 'xlsx' && in_array($mime, XLSX_MIME_TYPES, true) && xlsx_read_sheets($file['tmp_name']) !== null;   // must open as a workbook
-    if (!$is_xlsx && (!in_array($ext, ALLOWED_EXTENSIONS, true) || !in_array($mime, ALLOWED_MIME_TYPES, true))) {
-        $_SESSION['flash_error'] = 'Unsupported file type. Allowed: JPG, PNG, WEBP, PDF, and Excel (.xlsx) for the PDS soft copy.';
+    $is_heic = in_array($ext, ['heic', 'heif'], true) && is_heic_file($file['tmp_name']);
+    if (!$is_xlsx && !$is_heic && (!in_array($ext, ALLOWED_EXTENSIONS, true) || !in_array($mime, ALLOWED_MIME_TYPES, true))) {
+        $_SESSION['flash_error'] = 'Unsupported file type. Allowed: JPG, PNG, WEBP, HEIC (iPhone photos), PDF, and Excel (.xlsx) for the PDS soft copy.';
         header('Location: ' . BASE_URL . '/faculty/submit_document.php');
         exit;
     }
@@ -264,7 +292,24 @@ if ($action === 'scan') {
         exit;
     }
 
+    // iPhone photo (HEIC / HEIF): continue with a JPG copy -- the OCR and page-cropping tools can't read HEIC
+    if (in_array($ext, ['heic', 'heif'], true)) {
+        $jpg = pathinfo($filename, PATHINFO_FILENAME) . '.jpg';
+        $converted = convert_heic_to_jpg($destAbs, TEMP_SCAN_PATH . '/' . $jpg);
+        @unlink($destAbs);
+        if (!$converted) {
+            error_log('HEIC upload could not be converted: no working heif-convert / ImageMagick / sips');
+            $_SESSION['flash_error'] = 'This iPhone photo (HEIC) could not be converted on the server. Please upload it as a JPG instead: '
+                . 'use the Take Photo button, or on the iPhone set Settings > Camera > Formats > Most Compatible, then take the photo again.';
+            header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+            exit;
+        }
+        [$filename, $destAbs, $ext] = [$jpg, TEMP_SCAN_PATH . '/' . $jpg, 'jpg'];
+    }
+
     $pending = ['relative_path' => 'temp_scans/' . $filename, 'original_name' => $file['name']];
+    // The type chosen before uploading (optional): pre-selected on the preview, whatever is detected
+    if (isset($categories[$_POST['type_hint'] ?? ''])) { $pending['type_hint'] = $_POST['type_hint']; }
 
     // Photo of a paper document: find the page, crop & straighten it, and
     // file that (as a PDF) instead of the photo. OCR runs on the clean page.
@@ -320,11 +365,22 @@ include __DIR__ . '/../includes/header.php';
             <button type="button" class="btn btn-outline-brand flex-fill" id="photoBtn"><i class="fa-solid fa-camera"></i> Take Photo</button>
           </div>
           <!-- Only one of these carries name="scan_file" at a time: whichever was used last -->
-          <input type="file" name="scan_file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx" class="d-none">
+          <input type="file" name="scan_file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf,.xlsx" class="d-none">
           <input type="file" id="cameraInput" accept="image/*" capture="environment" class="d-none">
           <div class="small mt-2" id="chosenFile"><span class="text-muted">No file selected.</span></div>
-          <div class="form-text">JPG, PNG, WEBP, or PDF -- max <?= MAX_UPLOAD_BYTES / 1024 / 1024 ?>MB. Photos of paper documents are cropped and straightened automatically and saved as PDF; the document type is detected in the next step.
+          <div class="form-text">JPG, PNG, WEBP, HEIC (iPhone), or PDF -- max <?= MAX_UPLOAD_BYTES / 1024 / 1024 ?>MB. Photos of paper documents are cropped and straightened automatically and saved as PDF; the document type is detected in the next step.
             For your PDS, the official Excel soft copy (.xlsx) is read most accurately; a PDF or scan of all or some of its pages works too.</div>
+        </div>
+
+        <div class="mb-3">
+          <label for="typeHint" class="form-label small fw-semibold">Document Type <span class="fw-normal text-muted">(optional)</span></label>
+          <select name="type_hint" id="typeHint" class="form-select">
+            <option value="">Detect automatically</option>
+            <?php foreach ($categories as $key => $meta): ?>
+              <option value="<?= h($key) ?>"><?= h($meta['label']) ?></option>
+            <?php endforeach; ?>
+          </select>
+          <div class="form-text">Already know what it is -- e.g. a photo of your Personal Data Sheet? Choose it here; you can still change it in the next step.</div>
         </div>
 
         <button type="submit" class="btn btn-brand w-100" id="scanBtn" disabled>
@@ -428,6 +484,9 @@ include __DIR__ . '/../includes/header.php';
   $result = $pending['result'];
   $check = classification_check($result, $categories);
   $suggested = $check['suggested'];   // null below CONFIDENCE_THRESHOLD: nothing is pre-selected
+  $hint = isset($categories[$pending['type_hint'] ?? '']) ? $pending['type_hint'] : null;   // chosen before uploading
+  $preselect = $hint ?? $suggested;
+  $pds_check = $result['pds'] ?? null;
   $suggested_sub = $result['detected_subtype'] ?? null;
   $not_applicable = $check['predicted'] && !isset($categories[$check['predicted']]);
   $period = $result['period'] ?? [];
@@ -460,6 +519,22 @@ include __DIR__ . '/../includes/header.php';
       <?php else: ?>
       <div class="alert alert-info small">
         <i class="fa-solid fa-robot"></i> <?= h($result['confidence_note']) ?>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($pds_check && $pds_check['ask'] && $preselect !== 'PDS' && isset($categories['PDS'])): ?>
+      <div class="alert alert-primary small d-flex flex-wrap align-items-center gap-2" id="pdsAsk">
+        <span class="me-auto"><i class="fa-solid fa-id-card"></i> <strong>Is this a Personal Data Sheet (PDS)?</strong>
+          Some of the form's labels were read, but not enough to be sure.</span>
+        <button type="button" class="btn btn-sm btn-brand" id="pdsYes">Yes, it's my PDS</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="pdsNo">No</button>
+      </div>
+      <?php endif; ?>
+
+      <?php if (!empty($result['ocr_poor'])): ?>
+      <div class="alert alert-secondary small">
+        <i class="fa-solid fa-camera-rotate"></i> Only a little text could be read from this file.
+        Please retake the photo flat, in good lighting, with only the page in the frame, or upload a scan/Excel copy.
       </div>
       <?php endif; ?>
 
@@ -562,8 +637,8 @@ include __DIR__ . '/../includes/header.php';
             <select name="document_type" id="docType" class="form-select<?= $check['low'] ? ' border-warning' : '' ?>" required>
               <option value="">-- Select type --</option>
               <?php foreach ($categories as $key => $meta): ?>
-                <option value="<?= h($key) ?>" <?= $suggested === $key ? 'selected' : '' ?>>
-                  <?= h($meta['label']) ?><?= $suggested === $key ? ' (auto-detected)' : '' ?>
+                <option value="<?= h($key) ?>" <?= $preselect === $key ? 'selected' : '' ?>>
+                  <?= h($meta['label']) ?><?= $suggested === $key ? ' (auto-detected)' : ($hint === $key ? ' (your choice)' : '') ?>
                 </option>
               <?php endforeach; ?>
             </select>
@@ -711,6 +786,16 @@ include __DIR__ . '/../includes/header.php';
       typeSel.focus();
     });
   });
+  // "Is this a PDS?" -- Yes picks the PDS type (its import runs after uploading); either answer closes the question
+  var pdsAsk = document.getElementById('pdsAsk');
+  if (pdsAsk) {
+    document.getElementById('pdsYes').addEventListener('click', function () {
+      typeSel.value = 'PDS';
+      typeSel.dispatchEvent(new Event('change', { bubbles: true }));
+      pdsAsk.remove();
+    });
+    document.getElementById('pdsNo').addEventListener('click', function () { pdsAsk.remove(); });
+  }
   // No upload without a document type (the server checks this too).
   // "required" blocks the submit natively; this also highlights the field.
   typeSel.addEventListener('invalid', function () { typeSel.classList.add('is-invalid'); });

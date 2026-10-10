@@ -501,22 +501,41 @@ const PDS_DATE_RE = '(?:\d{1,2}\s*[\/.\-]\s*\d{1,2}\s*[\/.\-]\s*\d{2,4}|\d{4}-\d
  * Split text into sections by their headings. A heading must start a line
  * (or follow a wide gap) and be in capitals, so the same words inside a
  * sentence don't count. Every occurrence is kept (continuation sheets).
+ * OCR of a photo or scan often garbles the headings -- on the form they
+ * are white text on gray bars -- so stray marks before a heading and a
+ * heading cut off after its first letters still count, and a section whose
+ * heading wasn't read at all starts at its first numbered item instead
+ * ("2. SURNAME", "22. SPOUSE'S SURNAME", "26. LEVEL", ...).
  * @return array<string, string> section key => its text
  */
 function pds_text_sections(string $text): array {
     $heads = [
-        'I'    => 'PERSONAL\s+INFORMATION',
-        'II'   => 'FAMILY\s+BACKGROUND',
-        'III'  => 'EDUCATIONAL\s+BACKGROUND',
-        'IV'   => 'CIVIL\s+SERVICE\s+ELIGIBILITY',
-        'V'    => 'WORK\s+EXPERIENCE',
-        'LD'   => 'LEARNING\s+AND\s+DEVELOPMENT|L\s*&\s*D\s+INTERVENTIONS',
+        'I'    => 'PERSONAL\s+INFORM',
+        'II'   => 'FAMILY\s+BACKG',
+        'III'  => 'EDUCATIONAL\s+BA',
+        'IV'   => 'CIVIL\s+SERVICE\s+ELIG',
+        'V'    => 'WORK\s+EXPERI',
+        'LD'   => 'LEARNING\s+AND\s+DEVELOP|L\s*&\s*D\s+INTERVENTIONS',
         'VII'  => 'VOLUNTARY\s+WORK',
-        'VIII' => 'OTHER\s+INFORMATION|SPECIAL\s+SKILLS\s+(?:and|AND)\s+HOBBIES',
+        'VIII' => 'OTHER\s+INFORM|SPECIAL\s+SKILLS\s+(?:and|AND)\s+HOBBIES',
     ];
+    // The first numbered item of each section, where its heading wasn't read (the form's own numbering)
+    $first_items = [
+        'I'    => '2\s*[.,]\s*SURNAME',
+        'II'   => '22\s*[.,]\s*SPOUSE',
+        'III'  => '26\s*[.,]\s*(?:LEVEL|NAME\s+OF\s+SCHOOL)',
+        'IV'   => '27\s*[.,]\s*CAREER\s+SERVICE',
+        'V'    => '28\s*[.,]\s*INCLUSIVE\s+DATES',
+        'VII'  => '29\s*[.,]\s*NAME\s*&?\s*ADDRESS\s+OF\s+ORGANI[SZ]ATION',
+        'LD'   => '30\s*[.,]\s*TITLE\s+OF\s+LEARNING',
+        'VIII' => '31\s*[.,]\s*SPECIAL\s+SKILLS',
+    ];
+    $start = '(?:^[ \t]*[|!\[\](){}.,:;\'"_~=-]*[ \t]*|[ \t]{2,})';   // line start (OCR may leave stray marks) or a wide gap
     $marks = [];
     foreach ($heads as $key => $re) {
-        if (preg_match_all('/(?:^[ \t]*|[ \t]{2,})(?:[IVX]+\s*\.\s*|\d{1,2}\s*\.\s*)?(?:' . $re . ')/m', $text, $m, PREG_OFFSET_CAPTURE)) {
+        $found = preg_match_all('/' . $start . '(?:[IVXl1|]+\s*[.,]\s*|\d{1,2}\s*\.\s*)?(?:' . $re . ')/m', $text, $m, PREG_OFFSET_CAPTURE)
+              || preg_match_all('/' . $start . '(?:' . $first_items[$key] . ')/m', $text, $m, PREG_OFFSET_CAPTURE);
+        if ($found) {
             foreach ($m[0] as [$hit, $pos]) { $marks[] = [$pos, $key]; }
         }
     }

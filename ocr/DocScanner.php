@@ -28,6 +28,8 @@ class DocScanner
         if (!is_file($photo) || !is_file($script)) {
             return null;
         }
+        require_once __DIR__ . '/OcrProcessor.php';
+        OcrProcessor::useToolDirs();   // python3 / tesseract may not be on the web server's PATH
         $cmd = escapeshellcmd(DOCSCAN_PYTHON) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($photo) . ' ' . escapeshellarg($outBase);
         if ($corners !== null) {
             $flat = [];

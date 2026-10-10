@@ -31,6 +31,7 @@ DETECT_SIZE = 1000        # long side used for detection
 MAX_OUTPUT = 3000         # long side of the stored page
 MIN_AREA = 0.12           # a page must cover at least this share of the photo
 FULL_FRAME = 0.92         # a quad this big that hugs the frame = already cropped
+INNER_CONTRAST = 15       # colour difference a page inside such a frame needs from its surroundings
 
 
 def load(path):
@@ -174,24 +175,38 @@ def line_quads(edges, w, h):
                         yield order_corners(pts)
 
 
-def find_page(small):
-    """Best page outline in the (downscaled) photo as (quad, confidence), or (None, 0)."""
+def find_page(small, inner=False):
+    """Best page outline in the (downscaled) photo as (quad, confidence), or (None, 0).
+    inner: the best outline whose sides clearly separate the page from what
+    surrounds it (band_contrast() >= INNER_CONTRAST), leaving out the ones
+    that hug the photo's frame (see main)."""
     h, w = small.shape[:2]
     edges, _ = edge_map(small)
     near = cv2.dilate(edges, np.ones((3, 3), np.uint8))
     best, best_score, best_conf = None, 0.0, 0.0
+    valid = []
     for q in list(contour_quads(edges, w, h)) + list(line_quads(edges, w, h)):
         if (q[:, 0] < -0.02 * w).any() or (q[:, 0] > 1.02 * w).any() or (q[:, 1] < -0.02 * h).any() or (q[:, 1] > 1.02 * h).any():
             continue
         area = cv2.contourArea(q) / (w * h)
-        if area < MIN_AREA or area <= best_score or not angles_ok(q, 15) or not aspect_ok(q):
+        if area < MIN_AREA or (not inner and area <= best_score) or not angles_ok(q, 15) or not aspect_ok(q):
+            continue
+        if inner and area > FULL_FRAME and touches_frame(q, w, h):
             continue
         sup = [side_support(near, q[s], q[(s + 1) % 4], 200) for s in range(4)]
         if min(sup) < 0.8:
             continue
         score = area * min(sup)
-        if score > best_score:
+        if inner:
+            valid.append((score, min(sup), q))
+        elif score > best_score:
             best, best_score, best_conf = q, score, min(sup)
+    if inner:
+        lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32)
+        for score, conf, q in sorted(valid, key=lambda v: -v[0])[:40]:
+            if band_contrast(lab, q) >= INNER_CONTRAST:
+                return q, conf
+        return None, 0.0
     return best, best_conf
 
 
@@ -266,12 +281,15 @@ def main(argv):
         full = order_corners(np.clip(np.array(vals, np.float32).reshape(4, 2), 0, [w - 1, h - 1]))
     elif not args.whole:
         q, _conf = find_page(small)
+        lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32)
         if q is not None:
             area = cv2.contourArea(q) / (sw * sh)
-            if area > FULL_FRAME and touches_frame(q, sw, sh):
-                q = None   # the page already fills the picture
-            elif area > 0.6 and band_contrast(cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32), q) < 6:
-                q = None   # same paper on both sides: a border printed on an already-cropped page
+            if (area > FULL_FRAME and touches_frame(q, sw, sh)) or (area > 0.6 and band_contrast(lab, q) < 6):
+                # The page already fills the picture, or the outline is a border printed on an
+                # already-cropped page -- or the photo's frame won because wood grain or another
+                # paper lines its borders. A page inside still counts if it clearly stands out
+                # from what surrounds it (paper on a desk); a clean scan has only printed boxes.
+                q, _conf = find_page(small, inner=True)
         if q is not None:
             full = q / scale
 

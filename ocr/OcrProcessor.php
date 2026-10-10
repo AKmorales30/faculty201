@@ -25,7 +25,9 @@
 class OcrProcessor
 {
     /**
-     * Run OCR + classification on a scanned file.
+     * Run OCR + classification on a scanned file. A Personal Data Sheet is
+     * looked for first (PdsDetector: many form labels, matched fuzzily);
+     * only if it isn't one does the keyword classifier decide.
      *
      * @return array{
      *   text: string,
@@ -33,18 +35,35 @@ class OcrProcessor
      *   scores: array<string,int>,
      *   confidence: float,
      *   matched_name: ?string,
-     *   confidence_note: string
+     *   confidence_note: string,
+     *   pds: array{score: int, is_pds: bool, ask: bool, matched: string[], pages: int[]},
+     *   ocr_poor: bool
      * }
      */
     public static function process(string $filePath, string $facultyFullName, bool $alreadyPrepared = false): array
     {
-        // A page from DocScanner is already upright and cleaned up; skip the extra pass
-        $text = $alreadyPrepared ? trim((string)self::tesseract($filePath, '')) : self::extractText($filePath);
-        [$detectedType, $scores] = self::classify($text);
+        require_once __DIR__ . '/PdsDetector.php';
+        self::useToolDirs();
+        // A page from DocScanner is already upright and cleaned up; skip the extra preparation
+        $read = $alreadyPrepared ? self::ocrImage($filePath, false) : self::extractText($filePath);
+        $text = $read['text'];
+
+        $pds = PdsDetector::detect($read['detect']);
+        [$detectedType, $scores] = self::classify($read['detect']);
+        if ($pds['is_pds']) {
+            $detectedType = 'PDS';
+            $scores['PDS'] = max($scores['PDS'] ?? 0, $pds['score']);
+            arsort($scores);
+            $confidence = PdsDetector::confidence($pds);
+        } else {
+            if ($pds['ask']) { $scores['PDS'] = max($scores['PDS'] ?? 0, 1); arsort($scores); }   // offered as a possible type
+            $confidence = self::confidence($scores);
+        }
         $detectedSubtype = $detectedType ? self::classifySubtype($detectedType, $text) : null;
-        $confidence = self::confidence($scores);
         $matchedName = self::matchName($text, $facultyFullName);
-        $confidenceNote = self::buildConfidenceNote($detectedType, $detectedSubtype, $scores, $confidence, $matchedName, $text);
+        // Too little readable text from a photo / scan: the page tells the faculty member how to retake it
+        $ocrPoor = $read['ocr'] && self::looksUnreadable($text);
+        $confidenceNote = self::buildConfidenceNote($detectedType, $detectedSubtype, $scores, $confidence, $matchedName, $text, $pds);
 
         return [
             'text'             => $text,
@@ -54,15 +73,23 @@ class OcrProcessor
             'confidence'       => $confidence,
             'matched_name'     => $matchedName,
             'confidence_note'  => $confidenceNote,
+            'pds'              => $pds,
+            'ocr_poor'         => $ocrPoor,
             'period'           => self::extractPeriod($text),
             'training'         => self::extractTraining($text),
         ];
     }
 
-    private static function extractText(string $filePath): string
+    /**
+     * The file's text: 'text' to keep and show, 'detect' for working out the
+     * type (more OCR passes of a photo / scan), 'ocr' whether it was read by OCR.
+     * @return array{text: string, detect: string, ocr: bool}
+     */
+    private static function extractText(string $filePath): array
     {
+        $none = ['text' => '', 'detect' => '', 'ocr' => false];
         if (!is_file($filePath)) {
-            return '';
+            return $none;
         }
         $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
 
@@ -70,39 +97,72 @@ class OcrProcessor
         if ($ext === 'xlsx') {
             require_once __DIR__ . '/../includes/pds_import.php';
             $sheets = xlsx_read_sheets($filePath);
-            return $sheets ? trim(xlsx_to_text($sheets)) : '';
+            $text = $sheets ? trim(xlsx_to_text($sheets)) : '';
+            return ['text' => $text, 'detect' => $text, 'ocr' => false];
         }
 
         if ($ext === 'pdf') {
             if (self::binaryExists('pdftotext')) {
                 $out = @shell_exec('pdftotext -layout ' . escapeshellarg($filePath) . ' - 2>/dev/null');
                 if (is_string($out) && trim($out) !== '') {
-                    return trim($out);
+                    return ['text' => trim($out), 'detect' => $out, 'ocr' => false];
                 }
             }
-            // No text layer (scanned PDF) -- rasterize page 1 and OCR it.
+            // No text layer (scanned PDF) -- rasterize page 1 at about 300 DPI and OCR it.
             if (self::binaryExists('pdftoppm') && self::binaryExists(TESSERACT_BINARY_PATH)) {
                 $tmpBase = sys_get_temp_dir() . '/ocr_' . bin2hex(random_bytes(4));
-                @shell_exec('pdftoppm -jpeg -r 200 -f 1 -l 1 ' . escapeshellarg($filePath) . ' ' . escapeshellarg($tmpBase) . ' 2>/dev/null');
-                $rendered = $tmpBase . '-1.jpg';
-                if (!is_file($rendered)) {
-                    $rendered = $tmpBase . '-01.jpg';
-                }
-                if (is_file($rendered)) {
-                    $text = self::runTesseract($rendered);
+                @shell_exec('pdftoppm -png -r 300 -f 1 -l 1 ' . escapeshellarg($filePath) . ' ' . escapeshellarg($tmpBase) . ' 2>/dev/null');
+                $rendered = glob($tmpBase . '-*.png')[0] ?? null;
+                if ($rendered) {
+                    $read = self::ocrImage($rendered, false);
                     @unlink($rendered);
-                    return $text;
+                    return $read;
                 }
             }
-            return '';
+            return ['text' => '', 'detect' => '', 'ocr' => true];
         }
 
         // Image scan (jpg / jpeg / png / webp)
-        if (self::binaryExists(TESSERACT_BINARY_PATH)) {
-            return self::runTesseract($filePath);
-        }
+        return self::ocrImage($filePath, true);
+    }
 
-        return '';
+    /**
+     * OCR of a photo or scanned page, in up to three passes:
+     *   1. tesseract's automatic layout (best for ordinary documents);
+     *   2. sparse text (--psm 11), which finds the words in a form's many
+     *      small boxes that the automatic layout skips;
+     *   3. only when it may be a PDS that isn't recognized yet: the image
+     *      inverted, so white text on dark bars (the PDS section titles)
+     *      becomes dark text on light.
+     * 'text' is pass 1, or pass 2 when that read much more (a form);
+     * 'detect' is everything read, for the type detection.
+     * $prepare: straighten / resize first (prepareImage()); not for a page
+     * DocScanner or pdftoppm already produced.
+     * @return array{text: string, detect: string, ocr: bool}
+     */
+    private static function ocrImage(string $imagePath, bool $prepare): array
+    {
+        if (!is_file($imagePath) || !self::binaryExists(TESSERACT_BINARY_PATH)) {
+            return ['text' => '', 'detect' => '', 'ocr' => true];
+        }
+        $prepared = $prepare ? self::prepareImage($imagePath) : null;
+        $image = $prepared ?? $imagePath;
+        $auto = trim((string)self::tesseract($image, ''));
+        $sparse = trim((string)self::tesseract($image, '--psm 11'));
+        $detect = $auto . "\n" . $sparse;
+        $pds = PdsDetector::detect($detect);
+        if (!$pds['is_pds'] && $pds['score'] >= 1 && self::binaryExists('convert')) {
+            $inverted = sys_get_temp_dir() . '/ocr_' . bin2hex(random_bytes(4)) . '.png';
+            @shell_exec('convert ' . escapeshellarg($image . '[0]') . ' -negate -colorspace Gray -level 25%,75% ' . escapeshellarg($inverted) . ' 2>/dev/null');
+            if (is_file($inverted)) {
+                $detect .= "\n" . trim((string)self::tesseract($inverted, '--psm 11'));
+                @unlink($inverted);
+            }
+        }
+        if ($prepared !== null) {
+            @unlink($prepared);
+        }
+        return ['text' => mb_strlen($sparse) > 1.5 * mb_strlen($auto) ? $sparse : $auto, 'detect' => $detect, 'ocr' => true];
     }
 
     /**
@@ -114,6 +174,7 @@ class OcrProcessor
      */
     public static function extractAllText(string $filePath, int $maxPages): array
     {
+        self::useToolDirs();
         if (!is_file($filePath)) {
             return ['text' => '', 'ocr' => false];
         }
@@ -130,12 +191,12 @@ class OcrProcessor
                 return ['text' => '', 'ocr' => true];
             }
             $tmpBase = sys_get_temp_dir() . '/pds_' . bin2hex(random_bytes(4));
-            @shell_exec('pdftoppm -jpeg -r 250 -f 1 -l ' . (int)$maxPages . ' ' . escapeshellarg($filePath) . ' ' . escapeshellarg($tmpBase) . ' 2>/dev/null');
-            $pages = glob($tmpBase . '-*.jpg') ?: [];
+            @shell_exec('pdftoppm -png -r 300 -f 1 -l ' . (int)$maxPages . ' ' . escapeshellarg($filePath) . ' ' . escapeshellarg($tmpBase) . ' 2>/dev/null');
+            $pages = glob($tmpBase . '-*.png') ?: [];
             natsort($pages);
             $text = [];
             foreach ($pages as $page) {
-                $text[] = self::runTesseract($page, $layout);
+                $text[] = trim((string)self::tesseract($page, $layout));
                 @unlink($page);
             }
             return ['text' => implode("\n\f\n", $text), 'ocr' => true];
@@ -165,22 +226,45 @@ class OcrProcessor
     }
 
     /**
+     * Make the server find the OCR tools: adds OCR_TOOL_DIRS to the PATH the
+     * tools are run with. XAMPP's Apache (macOS) runs with only /usr/bin:/bin,
+     * so Homebrew's tesseract / pdftotext / ImageMagick were "not installed"
+     * and every scan came back with no text.
+     */
+    public static function useToolDirs(): void
+    {
+        static $done = false;
+        if ($done || DIRECTORY_SEPARATOR !== '/') { return; }
+        $done = true;
+        $path = array_filter(explode(':', (string)getenv('PATH')));
+        foreach (OCR_TOOL_DIRS as $dir) {
+            if (is_dir($dir) && !in_array($dir, $path, true)) { $path[] = $dir; }
+        }
+        putenv('PATH=' . implode(':', $path));
+    }
+
+    /**
      * Make a phone photo readable for tesseract, which ignores EXIF
      * orientation: iPhone photos are stored sideways with a "rotate me"
      * tag, so they were OCR'd sideways and came out as gibberish. Applies
-     * the EXIF rotation, scales large photos down, converts to grayscale,
-     * then lets tesseract's orientation detection (OSD) fix pages that are
-     * still sideways or upside down. Needs ImageMagick; returns the path of
-     * a temporary PNG, or null to OCR the original as-is.
+     * the EXIF rotation, straightens a slightly tilted page (deskew), and
+     * brings it to about 300 DPI for a full page: very large photos are
+     * scaled down to 4200 px, small images scaled up to 3000 px. Colour is
+     * kept -- tesseract's own binarization reads it better than a grayscale,
+     * contrast-stretched copy (tested on phone photos of the PDS). Then
+     * tesseract's orientation detection (OSD) fixes pages still sideways or
+     * upside down. Needs ImageMagick; returns the path of a temporary
+     * image, or null to OCR the original as-is.
      */
     private static function prepareImage(string $imagePath): ?string
     {
         if (!self::binaryExists('convert')) {
             return null;
         }
-        $out = sys_get_temp_dir() . '/ocr_' . bin2hex(random_bytes(4)) . '.png';
-        @shell_exec('convert ' . escapeshellarg($imagePath . '[0]') . ' -auto-orient -resize ' . escapeshellarg('2600x2600>')
-            . ' -colorspace Gray -normalize ' . escapeshellarg($out) . ' 2>/dev/null');
+        $out = sys_get_temp_dir() . '/ocr_' . bin2hex(random_bytes(4)) . '.jpg';
+        @shell_exec('convert ' . escapeshellarg($imagePath . '[0]') . ' -auto-orient -deskew 40% +repage'
+            . ' -resize ' . escapeshellarg('4200x4200>') . ' -resize ' . escapeshellarg('3000x3000<')
+            . ' -quality 95 ' . escapeshellarg($out) . ' 2>/dev/null');
         if (!is_file($out) || filesize($out) === 0) {
             @unlink($out);
             return null;
@@ -191,6 +275,19 @@ class OcrProcessor
             @shell_exec('convert ' . escapeshellarg($out) . ' -rotate ' . $m[1] . ' ' . escapeshellarg($out) . ' 2>/dev/null');
         }
         return $out;
+    }
+
+    /**
+     * Whether OCR text is mostly noise: fewer than 20 real-looking words
+     * (letters only, 4+ long, with a vowel, normal capitalization), or they
+     * are under 35% of what was read. Measured on phone photos of the PDS:
+     * a usable read is around 50-75% real words, a blurry or tiny one 30%.
+     */
+    private static function looksUnreadable(string $text): bool
+    {
+        $tokens = preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY);
+        $real = count(array_filter($tokens, fn($w) => preg_match('/^[("\']?(?:[A-Z]?[a-z]{3,}|[A-Z]{4,})[.,:;)"\']?$/', $w) && preg_match('/[aeiou]/i', $w)));
+        return $real < 20 || $real < 0.35 * count($tokens);
     }
 
     private static function binaryExists(string $bin): bool
@@ -539,14 +636,18 @@ class OcrProcessor
         return null;
     }
 
-    private static function buildConfidenceNote(?string $detectedType, ?string $detectedSubtype, array $scores, float $confidence, ?string $matchedName, string $text): string
+    private static function buildConfidenceNote(?string $detectedType, ?string $detectedSubtype, array $scores, float $confidence, ?string $matchedName, string $text, array $pds): string
     {
         if ($text === '') {
             return 'No text could be extracted automatically. Please select the document type manually and double-check the details before confirming.';
         }
         $notes = [];
         $percent = round($confidence * 100) . '%';
-        if (!$detectedType) {
+        if ($pds['is_pds']) {
+            $pages = PdsDetector::pagesLabel($pds['pages']);
+            $notes[] = 'Recognized as a Personal Data Sheet (CS Form No. 212)' . ($pages !== '' ? " -- {$pages}" : '')
+                     . ": {$pds['score']} points from " . count($pds['matched']) . ' of the form\'s labels.';
+        } elseif (!$detectedType) {
             $notes[] = 'Could not confidently auto-categorize this document -- please confirm the type manually.';
         } elseif ($confidence < CONFIDENCE_THRESHOLD) {
             $notes[] = 'Best guess: ' . document_type_label($detectedType, $detectedSubtype) . " (only {$percent} confidence).";

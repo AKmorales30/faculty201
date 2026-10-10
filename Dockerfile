@@ -2,7 +2,7 @@
 # working: tesseract-ocr (image OCR), poppler-utils (pdftotext /
 # pdftoppm, for PDF scans), imagemagick (straightens / cleans up phone
 # photos before OCR) and Python + OpenCV (document crop / perspective
-# fix). The gd and exif extensions crop / resize profile pictures
+# fix), heif-convert (libheif-examples: iPhone HEIC photos -> JPG). The gd and exif extensions crop / resize profile pictures
 # (square_jpeg() in includes/profile.php); zip reads the Excel PDS soft
 # copy (xlsx_read_sheets() in includes/pds_import.php). This is what a normal XAMPP install gives you "for free" locally
 # (except OpenCV) -- on Render, we have to install it ourselves.
@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
         tesseract-ocr \
         poppler-utils \
         imagemagick \
+        libheif-examples \
         python3 \
         python3-venv \
         libglib2.0-0 \

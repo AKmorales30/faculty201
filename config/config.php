@@ -18,8 +18,12 @@ define('TEMP_SCAN_PATH', ROOT_PATH . '/temp_scans');   // holds scans while the 
 define('UPLOADS_PATH', ROOT_PATH . '/uploads');         // final filed repository: uploads/{faculty_id}/{document_type}/
 
 // Allowed scan file types
-define('ALLOWED_MIME_TYPES', ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
-define('ALLOWED_EXTENSIONS', ['jpg', 'jpeg', 'png', 'webp', 'pdf']);
+define('ALLOWED_MIME_TYPES', ['image/jpeg', 'image/png', 'image/webp', 'application/pdf',
+                               'image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence']);
+// HEIC / HEIF (iPhone photos) are converted to JPG right after upload
+// (convert_heic_to_jpg() in faculty/submit_document.php); if no converter is
+// installed the faculty member is told how to send a JPG instead.
+define('ALLOWED_EXTENSIONS', ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'heic', 'heif']);
 // Excel workbooks (.xlsx) are accepted too -- meant for the official PDS
 // soft copy, read cell by cell. Checked separately in submit_document.php:
 // the type a server reports for .xlsx varies (zip / octet-stream), so the
@@ -29,6 +33,16 @@ define('XLSX_MIME_TYPES', ['application/vnd.openxmlformats-officedocument.spread
 // PDS import (faculty/pds_import.php): how many pages of a PDF / scan are
 // read. A full PDS is 4 pages plus any continuation sheets.
 define('PDS_IMPORT_MAX_PAGES', 8);
+
+// PDS detection (ocr/PdsDetector.php), run before the general classifier.
+// The text is checked for anchor phrases of CS Form No. 212 ("PERSONAL DATA
+// SHEET", "SURNAME", "DATE OF BIRTH", "FAMILY BACKGROUND", ...), matched
+// fuzzily so OCR slips (0/O, 1/I/l, 5/S, missing letters) still count. The
+// form's title and "CS Form No. 212" count double. At or above
+// PDS_DETECT_MIN_SCORE the upload is treated as a PDS; from
+// PDS_DETECT_ASK_SCORE up the faculty member is asked "Is this a PDS?".
+define('PDS_DETECT_MIN_SCORE', 4);
+define('PDS_DETECT_ASK_SCORE', 2);
 define('MAX_UPLOAD_BYTES', 10 * 1024 * 1024); // 10MB
 
 // Keyword hints used by the OCR classifier (OcrProcessor.php) to
@@ -166,6 +180,11 @@ define('PROGRAMS', [
 // path to tesseract.exe; on macOS/Linux with Tesseract installed via
 // brew/apt it is typically just "tesseract" (must be on PATH).
 define('TESSERACT_BINARY_PATH', 'tesseract');
+// Folders searched for the OCR tools (tesseract, pdftotext / pdftoppm,
+// ImageMagick, heif-convert) besides the web server's PATH. XAMPP's Apache on
+// macOS runs with only /usr/bin:/bin, so Homebrew's tools weren't found and
+// every scan came back with no text at all.
+define('OCR_TOOL_DIRS', ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']);
 
 // Python with OpenCV for ocr/docscan.py (cropping / straightening photos of
 // documents). The Docker image installs it in /opt/docscan; elsewhere the
