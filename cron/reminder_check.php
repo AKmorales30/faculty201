@@ -2,9 +2,12 @@
 /**
  * Daily reminders -- the scheduled-job version of the check the dashboards
  * run on page load (run_daily_reminder_check() in includes/ai_reminders.php).
- * Works out who needs a reminder (no seminar certificate in
+ * Checks every active account (also the way to send everyone their
+ * reminders right away -- or use "Run reminder check now" on the Admin
+ * dashboard). Works out who needs a reminder (no seminar certificate in
  * REMINDER_NO_SEMINAR_MONTHS months, missing required documents, expired /
- * expiring documents, incomplete PDS), has Gemini word the messages
+ * expiring documents, incomplete PDS; the follow-up summary for the
+ * Admin, Program Chairs and Deans), has Gemini word the messages
  * (fixed templates when AI is off or unreachable) and sends them. Safe to
  * run any number of times: a reminder is repeated only after
  * REMINDER_REPEAT_DAYS or when its reason changes. Command line only.
@@ -28,10 +31,12 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../includes/functions.php';   // config (Asia/Manila), database, migrations, AI
 
-$result = run_daily_reminder_check($pdo, true);
+$result = run_daily_reminder_check($pdo, true, 'scheduled task');
 if ($result === null) {
     fwrite(STDERR, date('Y-m-d H:i:s') . " Reminder check failed -- see the PHP error log.\n");
     exit(1);
 }
-echo date('Y-m-d H:i:s') . " Reminder check: {$result['checked']} people checked, {$result['sent']} reminder(s) sent"
-   . " ({$result['ai_written']} worded by AI" . (ai_enabled() ? '' : ' -- AI is off, templates used') . "), {$result['resolved']} resolved.\n";
+echo date('Y-m-d H:i:s') . " Reminder check: {$result['checked']} accounts checked, {$result['sent']} reminder(s) sent"
+   . " ({$result['ai_written']} worded by AI" . (ai_enabled() ? '' : ' -- AI is off, templates used') . "), {$result['updated']} follow-up count(s) updated, {$result['resolved']} resolved"
+   . ($result['failed'] ? ', errors for account #' . implode(', #', $result['failed']) . ' (see the PHP error log)' : '') . ".\n";
+exit($result['failed'] ? 1 : 0);

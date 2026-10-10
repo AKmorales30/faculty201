@@ -97,6 +97,9 @@ define('REMINDER_EXPIRING_DAYS', 30);
 // many days; a changed reason (e.g. another document now missing) is sent
 // at the next daily check.
 define('REMINDER_REPEAT_DAYS', 30);
+// Gemini gets this many seconds per check to word the messages; whatever
+// it hasn't worded by then keeps the fixed template (never skipped).
+define('REMINDER_AI_SECONDS', 20);
 
 // Seminar / training details recorded for certificates (upload form,
 // Edit Details, Seminar & Training Report). Add values here as needed.

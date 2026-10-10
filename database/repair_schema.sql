@@ -343,6 +343,13 @@ CREATE INDEX IF NOT EXISTS idx_ai_reminders_open ON ai_reminders(reminder_type, 
 
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link VARCHAR(255) NULL AFTER message;
 
+CREATE TABLE IF NOT EXISTS ai_reminder_checks (
+    user_id      INT PRIMARY KEY,
+    checked_at   DATETIME NULL,
+    started_at   DATETIME NULL,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- ------------------------------------------------------------- record the migrations as applied
 CREATE TABLE IF NOT EXISTS schema_migrations (
     name        VARCHAR(190) PRIMARY KEY,
@@ -353,4 +360,4 @@ INSERT IGNORE INTO schema_migrations (name) VALUES
     ('migration_programs_colleges.sql'), ('migration_document_files.sql'), ('migration_classification_confidence.sql'),
     ('migration_activity_logs.sql'), ('migration_expiration_alerts.sql'), ('migration_document_removal.sql'),
     ('migration_password_management.sql'), ('migration_login_lockout.sql'), ('migration_search_indexes.sql'),
-    ('migration_profile_reports_archive.sql'), ('migration_ai_features.sql');
+    ('migration_profile_reports_archive.sql'), ('migration_ai_features.sql'), ('migration_reminder_checks.sql');

@@ -73,6 +73,8 @@ include __DIR__ . '/../includes/header.php';
 </a>
 <?php endif; ?>
 
+<?php include __DIR__ . '/../includes/reminders_card.php'; ?>
+
 <?php include __DIR__ . '/../includes/reminders_summary_card.php'; ?>
 
 <?php include __DIR__ . '/../includes/expiring_documents_card.php'; ?>

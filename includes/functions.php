@@ -20,7 +20,8 @@ function run_pending_migrations(PDO $pdo): void {
                    'migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
                    'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
-                   'migration_search_indexes.sql', 'migration_profile_reports_archive.sql', 'migration_ai_features.sql'];
+                   'migration_search_indexes.sql', 'migration_profile_reports_archive.sql', 'migration_ai_features.sql',
+                   'migration_reminder_checks.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -888,25 +889,38 @@ function check_expiration_alerts(PDO $pdo): array {
     return ['documents' => count($documents), 'alerts' => $sent];
 }
 
+/** Minutes after which a daily job that never finished (e.g. PHP's time limit stopped it) may be started again. */
+const DAILY_JOB_STALE_MINUTES = 10;
+
 /**
  * Run $job at most once a day system-wide (dashboard load): the first call
- * of the day records today's date under $key in system_settings and runs
- * it; later calls return null at once. $force runs it anyway (the cron
- * scripts). If the job fails, the date is cleared so the next page load
- * tries again. Never throws.
+ * of the day claims $key in system_settings ("running:<time>") and runs it;
+ * today's date is recorded only once it finished, so a run that failed or
+ * was cut off is tried again (a cut-off one after DAILY_JOB_STALE_MINUTES).
+ * Later calls -- done today, or running elsewhere -- return null at once.
+ * $force runs it anyway (the cron scripts, "Run reminder check now").
+ * Never throws.
  */
 function run_once_a_day(PDO $pdo, string $key, callable $job, bool $force = false): ?array {
     try {
-        // Affects 0 rows when today is already recorded
+        $today = date('Y-m-d');
+        $running = 'running:' . date('Y-m-d H:i:s');
+        $stale = 'running:' . date('Y-m-d H:i:s', time() - 60 * DAILY_JOB_STALE_MINUTES);
+        // Leaves the row alone (0 rows) when today is recorded or a run started less than
+        // DAILY_JOB_STALE_MINUTES ago (a date sorts before any "running:" value)
         $stmt = $pdo->prepare(
             "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
-             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+             ON DUPLICATE KEY UPDATE setting_value = IF(? = 0 AND (setting_value <=> ? OR setting_value > ?), setting_value, VALUES(setting_value))"
         );
-        $stmt->execute([$key, date('Y-m-d')]);
+        $stmt->execute([$key, $running, $force ? 1 : 0, $today, $stale]);
         if ($stmt->rowCount() === 0 && !$force) {
             return null;
         }
-        return $job($pdo);
+        // On a dashboard load the job may take a while (AI wording); PHP's default 30 s could cut it off
+        if (PHP_SAPI !== 'cli' && (int)ini_get('max_execution_time') > 0) { @set_time_limit(180); }
+        $result = $job($pdo);
+        $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?")->execute([$today, $key]);
+        return $result;
     } catch (Throwable $e) {
         error_log("Daily job {$key} failed: " . $e->getMessage());
         try {   // let the next page load try again
@@ -1023,12 +1037,15 @@ function run_daily_auto_archive(PDO $pdo, bool $force = false): ?array {
 /**
  * The dashboards' once-a-day jobs: archive old documents first, so they get
  * no expiration alerts; reminders last, so they know which expiration
- * alerts already went out (includes/ai_reminders.php).
+ * alerts already went out (includes/ai_reminders.php). Then the signed-in
+ * user's own reminders, if the day's run didn't cover them (a new account,
+ * or their check failed).
  */
 function run_daily_jobs(PDO $pdo): void {
     run_daily_auto_archive($pdo);
     run_daily_expiration_check($pdo);
     run_daily_reminder_check($pdo);
+    if ($me = current_user()) { ensure_reminders_checked($pdo, (int)$me['user_id']); }
 }
 
 // ---------------------------------------------------------------------
@@ -1341,6 +1358,7 @@ function activity_actions(): array {
         'LOGIN_LOCKOUT'      => 'Login Locked',
         'LOGIN_UNLOCK'       => 'Login Unlocked',
         'AI_SUMMARY'         => 'AI Report Summary Generated',
+        'REMINDER_CHECK'     => 'Reminder Check',
     ];
 }
 

@@ -10,7 +10,7 @@ require_once __DIR__ . '/includes/functions.php';
 require_role(['admin', 'program_chair', 'dean']);
 
 $me = current_user();
-$types = reminder_types();
+$types = personal_reminder_types();
 $type = $_GET['type'] ?? '';
 if (!isset($types[$type])) { $type = array_key_first($types); }
 $page_title = 'Faculty Needing Follow-up';
