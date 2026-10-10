@@ -247,7 +247,9 @@ function store_document_file(PDO $pdo, int $document_id, string $abs_path, strin
         throw new RuntimeException("Could not read $abs_path to store it");
     }
     $limit = (int)$pdo->query("SELECT @@max_allowed_packet")->fetchColumn();
-    if ($limit > 0 && strlen($bytes) > $limit - 1024 * 1024) {
+    // Room for the rest of the query: 1 MB, or an eighth of a small limit -- a flat 1 MB
+    // left nothing at all on XAMPP's default 1M, so no file could be stored there
+    if ($limit > 0 && strlen($bytes) > $limit - min(1024 * 1024, intdiv($limit, 8))) {
         throw new RuntimeException('File of ' . strlen($bytes) . ' bytes exceeds the database max_allowed_packet (' . $limit . ')');
     }
     $stmt = $pdo->prepare(
