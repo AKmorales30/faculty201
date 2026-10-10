@@ -30,7 +30,7 @@ $user = current_user();
     <?php if ($user): ?>
     <div class="d-flex align-items-center gap-2 gap-md-3 ms-auto flex-shrink-0">
       <?php $unread = unread_notification_count($pdo, $user['user_id']); ?>
-      <a href="<?= BASE_URL . '/' . role_notifications_path($user['role']) ?>" class="text-white position-relative px-1" title="Notifications">
+      <a href="<?= BASE_URL . '/' . role_notifications_path($user['role']) ?>" class="text-white position-relative px-1" data-tooltip data-bs-placement="bottom" title="Notifications<?= $unread ? ' (' . $unread . ' unread)' : '' ?>" aria-label="Notifications<?= $unread ? ' (' . $unread . ' unread)' : '' ?>">
         <i class="fa-solid fa-bell fa-lg"></i>
         <?php if ($unread): ?>
           <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:.6rem;"><?= $unread > 9 ? '9+' : $unread ?></span>
@@ -41,7 +41,7 @@ $user = current_user();
         <?= user_avatar(['user_id' => $user['user_id'], 'full_name' => $user['full_name'], 'profile_picture' => current_user_picture($pdo)], 30, 'avatar-navbar') ?>
         <span class="fw-semibold d-none d-md-inline navbar-username text-truncate"><?= h($user['full_name']) ?></span>
       </a>
-      <a href="<?= BASE_URL ?>/change_password.php" class="text-white px-1" title="Change Password" aria-label="Change Password"><i class="fa-solid fa-key"></i></a>
+      <a href="<?= BASE_URL ?>/change_password.php" class="text-white px-1" data-tooltip data-bs-placement="bottom" title="Change Password" aria-label="Change Password"><i class="fa-solid fa-key"></i></a>
       <a href="<?= BASE_URL ?>/logout.php" class="btn btn-sm btn-outline-light" title="Logout"><i class="fa-solid fa-right-from-bracket"></i><span class="d-none d-sm-inline"> Logout</span></a>
     </div>
     <?php endif; ?>

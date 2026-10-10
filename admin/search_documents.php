@@ -278,7 +278,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
           <td class="text-nowrap"><?= date('M j, Y', strtotime($d['filed_at'])) ?></td>
           <td>
             <div class="d-flex flex-wrap gap-1">
-              <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" title="View"><i class="fa-solid fa-eye"></i></a>
+              <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" data-tooltip title="View document" aria-label="View document"><i class="fa-solid fa-eye"></i></a>
               <?= document_action_buttons($d, current_user()) ?>
             </div>
           </td>

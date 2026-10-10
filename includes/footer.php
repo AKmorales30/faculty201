@@ -11,6 +11,17 @@ document.querySelectorAll('#appSidebar .nav-link').forEach(function (link) {
     if (sb) sb.hide();
   });
 });
+
+// Hover / focus tooltips for icon-only buttons: mark the button with data-tooltip and put the text in its title.
+// Delegated from <body>, so rows added or re-rendered later get them too. Shown in <body> above the icon,
+// so a scrolling table can't cut them off (they flip below near the top of the window).
+new bootstrap.Tooltip(document.body, { selector: '[data-tooltip]', placement: 'top', container: 'body', trigger: 'hover focus' });
+// Hide it once the button is clicked, so it doesn't stay up over a modal or confirm box the button opens
+document.addEventListener('click', function (e) {
+  var el = e.target.closest && e.target.closest('[data-tooltip]');
+  var tip = el && bootstrap.Tooltip.getInstance(el);
+  if (tip) tip.hide();
+});
 </script>
 </body>
 </html>

@@ -56,7 +56,7 @@ $card_rows = $card_admin ? array_slice($expiring, 0, $card_limit) : $expiring;
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['expiration_date']))) ?></td>
           <td><span class="badge <?= $badge_class ?>"><?= h($badge_label) ?></span></td>
           <td class="text-nowrap text-end">
-            <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" title="View document"><i class="fa-solid fa-eye"></i></a>
+            <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" data-tooltip title="View document" aria-label="View document"><i class="fa-solid fa-eye"></i></a>
             <?php if (!$card_admin): ?>
               <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-sm btn-brand" title="Upload an updated copy"><i class="fa-solid fa-file-arrow-up"></i> Re-upload</a>
             <?php endif; ?>

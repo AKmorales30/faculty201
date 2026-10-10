@@ -21,14 +21,14 @@ if (!$cb_user || !empty($cb_user['must_change_password']) || !ai_enabled()) { re
         <div class="fw-semibold" id="chatbotTitle">201 File Assistant</div>
         <div class="small chatbot-subtitle">Ask about your 201 file<?= chatbot_has_scope($cb_user) ? ' or your faculty' : '' ?></div>
       </div>
-      <button type="button" class="btn btn-sm btn-link text-white chatbot-clear" title="Clear chat" aria-label="Clear chat"><i class="fa-solid fa-trash-can"></i></button>
-      <button type="button" class="btn btn-sm btn-link text-white chatbot-close" title="Close" aria-label="Close chat"><i class="fa-solid fa-xmark fa-lg"></i></button>
+      <button type="button" class="btn btn-sm btn-link text-white chatbot-clear" data-tooltip title="Clear chat" aria-label="Clear chat"><i class="fa-solid fa-trash-can"></i></button>
+      <button type="button" class="btn btn-sm btn-link text-white chatbot-close" data-tooltip title="Close" aria-label="Close chat"><i class="fa-solid fa-xmark fa-lg"></i></button>
     </header>
     <div class="chatbot-messages" aria-live="polite"></div>
     <div class="chatbot-typing" hidden><span></span><span></span><span></span><span class="visually-hidden">The assistant is typing</span></div>
     <form class="chatbot-form d-flex gap-2 align-items-end">
       <textarea class="form-control form-control-sm" rows="1" maxlength="1000" placeholder="Type your question..." aria-label="Your question" required></textarea>
-      <button class="btn btn-brand btn-sm" type="submit" aria-label="Send"><i class="fa-solid fa-paper-plane"></i></button>
+      <button class="btn btn-brand btn-sm" type="submit" data-tooltip title="Send" aria-label="Send"><i class="fa-solid fa-paper-plane"></i></button>
     </form>
     <div class="chatbot-note">AI-generated content may contain errors. Please review before use.</div>
   </section>

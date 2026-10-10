@@ -458,7 +458,8 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                       <option value="part_time" <?= $u['employment_type'] === 'part_time' ? 'selected' : '' ?>>Part-Time</option>
                     </select>
                   <?php endif; ?>
-                  <button class="btn btn-sm btn-outline-brand" title="Save"><i class="fa-solid fa-floppy-disk"></i></button>
+                  <?php $save_label = 'Save ' . ($u['role'] === 'dean' ? 'college' : 'program') . ($u['role'] !== 'faculty' ? ' & employment type' : ''); ?>
+                  <button class="btn btn-sm btn-outline-brand" data-tooltip title="<?= h($save_label) ?>" aria-label="<?= h($save_label) ?>"><i class="fa-solid fa-floppy-disk"></i></button>
                 </form>
                 <?php if (($u['role'] === 'dean' && !$u['college']) || ($u['role'] !== 'dean' && !$u['program'])): ?>
                   <div class="small text-danger mt-1">Not set -- no upload notifications</div>
@@ -488,35 +489,46 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <?php endif; ?>
               </td>
               <td class="text-nowrap">
+                <?php
+                  // Tooltip / screen-reader text of each icon button. Pause only marks the employment as paused
+                  // (the account can still log in); Deactivate is what blocks the login.
+                  $self = (int)$u['user_id'] === (int)$me['user_id'];
+                  $pause_label = $u['employment_status'] === 'active' ? 'Pause employment (account stays active)' : 'Resume employment';
+                  $active_label = $u['is_active'] ? 'Deactivate account (cannot log in)' : 'Activate account (can log in again)';
+                ?>
                 <?php if ($u['role'] === 'faculty'): ?>
                   <form method="POST" class="d-inline">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="<?= $u['employment_status'] === 'active' ? 'pause' : 'resume' ?>">
                     <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
-                    <button class="btn btn-sm btn-outline-brand" title="<?= $u['employment_status'] === 'active' ? 'Pause employment' : 'Resume employment' ?>">
+                    <button class="btn btn-sm btn-outline-brand" data-tooltip title="<?= h($pause_label) ?>" aria-label="<?= h($pause_label) ?>">
                       <i class="fa-solid <?= $u['employment_status'] === 'active' ? 'fa-pause' : 'fa-play' ?>"></i>
                     </button>
                   </form>
                 <?php endif; ?>
-                <button type="button" class="btn btn-sm btn-outline-brand" title="Edit profile details (employment type, rank, date hired, employee ID)"
+                <button type="button" class="btn btn-sm btn-outline-brand" data-tooltip title="Edit profile details" aria-label="Edit profile details"
                         data-bs-toggle="modal" data-bs-target="#detailsModal" data-edit-id="<?= (int)$u['user_id'] ?>"
                         data-name="<?= h($u['full_name']) ?>" data-role="<?= h($u['role']) ?>" data-emp="<?= h((string)$u['employment_type']) ?>"
                         data-rank="<?= h((string)$u['academic_rank']) ?>" data-hired="<?= h((string)$u['date_engaged']) ?>" data-empid="<?= h((string)$u['employee_id']) ?>">
                   <i class="fa-solid fa-user-pen"></i>
                 </button>
-                <button type="button" class="btn btn-sm btn-outline-brand" title="Reset password"
+                <?php // A disabled button gets no mouse events, so on your own row the tooltip sits on a wrapper ?>
+                <?php if ($self): ?><span class="d-inline-block" tabindex="0" data-tooltip title="Use Change Password to change your own password"><?php endif; ?>
+                <button type="button" class="btn btn-sm btn-outline-brand" <?= $self ? 'disabled' : 'data-tooltip' ?> title="Reset password" aria-label="Reset password"
                         data-bs-toggle="modal" data-bs-target="#resetPasswordModal"
-                        data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-email="<?= h($u['email']) ?>"
-                        <?= (int)$u['user_id'] === (int)$me['user_id'] ? 'disabled' : '' ?>>
+                        data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-email="<?= h($u['email']) ?>">
                   <i class="fa-solid fa-key"></i>
                 </button>
+                <?php if ($self): ?></span><?php endif; ?>
                 <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure?');">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="toggle_active">
                   <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
-                  <button class="btn btn-sm btn-outline-danger" <?= (int)$u['user_id'] === (int)$me['user_id'] ? 'disabled' : '' ?>>
+                  <?php if ($self): ?><span class="d-inline-block" tabindex="0" data-tooltip title="You cannot deactivate your own account"><?php endif; ?>
+                  <button class="btn btn-sm btn-outline-danger" <?= $self ? 'disabled' : 'data-tooltip' ?> title="<?= h($active_label) ?>" aria-label="<?= h($active_label) ?>">
                     <i class="fa-solid <?= $u['is_active'] ? 'fa-user-slash' : 'fa-user-check' ?>"></i>
                   </button>
+                  <?php if ($self): ?></span><?php endif; ?>
                 </form>
               </td>
             </tr>

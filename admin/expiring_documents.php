@@ -113,7 +113,7 @@ include __DIR__ . '/../includes/header.php';
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['expiration_date']))) ?></td>
           <td><span class="badge <?= $badge_class ?>"><?= h($badge_label) ?></span></td>
-          <td class="text-end"><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" title="View document"><i class="fa-solid fa-eye"></i></a></td>
+          <td class="text-end"><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" data-tooltip title="View document" aria-label="View document"><i class="fa-solid fa-eye"></i></a></td>
         </tr>
         <?php endforeach; ?>
       </tbody>

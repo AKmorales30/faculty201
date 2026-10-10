@@ -86,7 +86,7 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
         <input type="hidden" name="<?= $k ?>" value="<?= h((string)$v) ?>">
       <?php endforeach; ?>
       <input type="search" name="q" value="<?= h($q) ?>" class="form-control form-control-sm" placeholder="Search extracted text or filename...">
-      <button class="btn btn-sm btn-outline-brand ms-2"><i class="fa-solid fa-magnifying-glass"></i></button>
+      <button class="btn btn-sm btn-outline-brand ms-2" data-tooltip title="Search documents" aria-label="Search documents"><i class="fa-solid fa-magnifying-glass"></i></button>
     </form>
   </div>
 

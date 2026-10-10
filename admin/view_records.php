@@ -59,7 +59,7 @@ include __DIR__ . '/../includes/header.php';
              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="facultySuggest" aria-label="Search faculty name">
       <div class="list-group shadow-sm faculty-suggest" id="facultySuggest" role="listbox" hidden></div>
     </div>
-    <button class="btn btn-sm btn-outline-brand ms-2" aria-label="Search"><i class="fa-solid fa-magnifying-glass"></i></button>
+    <button class="btn btn-sm btn-outline-brand ms-2" data-tooltip title="Search faculty" aria-label="Search faculty"><i class="fa-solid fa-magnifying-glass"></i></button>
   </form>
 </div>
 
