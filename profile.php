@@ -265,7 +265,9 @@ include __DIR__ . '/includes/header.php';
     <div class="card stat-card mb-4">
       <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
         <span><i class="fa-solid fa-briefcase text-brand"></i> Employment</span>
-        <?php if ($is_own): ?><span class="small text-muted fw-normal"><i class="fa-solid fa-lock"></i> Set by the Admin</span><?php endif; ?>
+        <?php if ($is_own && $viewer_admin): ?>
+          <a href="<?= BASE_URL ?>/admin/manage_faculty.php?edit=<?= $target_id ?>" class="btn btn-sm btn-outline-brand fw-normal"><i class="fa-solid fa-user-pen"></i> Edit</a>
+        <?php elseif ($is_own): ?><span class="small text-muted fw-normal"><i class="fa-solid fa-lock"></i> Set by the Admin</span><?php endif; ?>
       </div>
       <div class="card-body">
         <dl class="profile-dl">
