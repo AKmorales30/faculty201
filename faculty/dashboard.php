@@ -37,6 +37,8 @@ include __DIR__ . '/../includes/header.php';
 ?>
 <h3 class="fw-bold mb-4">Welcome, <?= h($me['full_name']) ?></h3>
 
+<?php include __DIR__ . '/../includes/reminders_card.php'; ?>
+
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-4">
     <div class="card stat-card p-3 h-100">

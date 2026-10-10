@@ -50,6 +50,9 @@ include __DIR__ . '/../includes/header.php';
             <div class="text-muted small text-nowrap ms-3"><?= time_ago($n['created_at']) ?></div>
           </div>
         </button>
+        <?php if ($url = notification_link_url($n['link'] ?? null)): ?>
+          <a href="<?= h($url) ?>" class="small d-block px-3 pb-2 notif-item <?= $n['is_read'] ? '' : 'notif-unread' ?>">Go to page <i class="fa-solid fa-arrow-right"></i></a>
+        <?php endif; ?>
       </form>
     <?php endforeach; ?>
   </div>

@@ -84,6 +84,20 @@ define('ARCHIVE_AFTER_YEARS', 5);
 // rule applies to every category.
 define('ARCHIVE_EXEMPT_CATEGORIES', []);
 
+// Reminders (includes/ai_reminders.php). Who gets one is decided by these
+// rules, checked once a day (dashboard load, throttled system-wide, and
+// cron/reminder_check.php); Gemini only words the message (config/ai.php).
+// No seminar / training certificate uploaded in this many months:
+define('REMINDER_NO_SEMINAR_MONTHS', 6);
+// Expired documents and ones expiring within this many days. Shown on the
+// dashboard card only -- the bell already gets the expiration alerts
+// (60 / 30 / 7 days and on the day), so no second notification is sent.
+define('REMINDER_EXPIRING_DAYS', 30);
+// The same reminder (same type and reason) is sent again only after this
+// many days; a changed reason (e.g. another document now missing) is sent
+// at the next daily check.
+define('REMINDER_REPEAT_DAYS', 30);
+
 // Seminar / training details recorded for certificates (upload form,
 // Edit Details, Seminar & Training Report). Add values here as needed.
 define('TRAINING_TYPES', ['Seminar', 'Training', 'Workshop', 'Webinar', 'Conference', 'Symposium', 'Forum', 'Other']);

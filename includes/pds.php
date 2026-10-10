@@ -369,33 +369,45 @@ function pds_check_value(array $rule, string $type, string $v, array $data, arra
  * @return string[] error messages
  */
 function pds_validate(array $data, array $ld): array {
+    return array_merge([], ...array_values(pds_validate_by_section($data, $ld)));
+}
+
+/**
+ * pds_validate(), grouped by section: section title => error messages,
+ * only sections with errors, in form order. Also used for the "incomplete
+ * PDS sections" reminder (includes/ai_reminders.php).
+ * @return array<string, string[]>
+ */
+function pds_validate_by_section(array $data, array $ld): array {
     $rules = pds_rules();
     $trules = pds_table_rules();
     $errors = [];
-    $check_table = function (string $tkey, string $title, array $columns, array $rows) use (&$errors, $rules, $trules, $data) {
+    $section = '';
+    $check_table = function (string $tkey, string $title, array $columns, array $rows) use (&$errors, &$section, $rules, $trules, $data) {
         $rows = array_values(array_filter($rows, fn($r) => is_array($r) && empty($r['_delete'])
             && implode('', array_map(fn($c) => trim((string)($r[$c] ?? '')), array_keys($columns))) !== ''));
         $tr = $trules[$tkey] ?? [];
-        if ($rows && !empty($data[$tkey . '_na'])) { $errors[] = "$title: remove the entries or untick N/A."; }
+        if ($rows && !empty($data[$tkey . '_na'])) { $errors[$section][] = "$title: remove the entries or untick N/A."; }
         if (count($rows) < ($tr['min'] ?? 0) && !(!empty($tr['na']) && !empty($data[$tkey . '_na']))) {
-            $errors[] = "$title: add at least " . $tr['min'] . ' entr' . ($tr['min'] === 1 ? 'y' : 'ies') . (!empty($tr['na']) ? ' or tick N/A' : '') . '.';
+            $errors[$section][] = "$title: add at least " . $tr['min'] . ' entr' . ($tr['min'] === 1 ? 'y' : 'ies') . (!empty($tr['na']) ? ' or tick N/A' : '') . '.';
         }
         foreach ($rows as $i => $row) {
             foreach ($columns as $ckey => $cdef) {
                 [$label, $type] = pds_field_def($cdef);
                 if (!isset($rules["$tkey.$ckey"])) { continue; }
                 $msg = pds_check_value($rules["$tkey.$ckey"], $type, (string)($row[$ckey] ?? ''), $data, $row);
-                if ($msg) { $errors[] = "$title, row " . ($i + 1) . ": $label $msg."; }
+                if ($msg) { $errors[$section][] = "$title, row " . ($i + 1) . ": $label $msg."; }
             }
         }
     };
     foreach (pds_schema() as $part_key => $part) {
-        if ($part_key === 'VII') { $check_table('ld', 'Learning and Development', pds_ld_columns(), $ld); }
+        if ($part_key === 'VII') { $section = 'Learning and Development'; $check_table('ld', 'Learning and Development', pds_ld_columns(), $ld); }
+        $section = $part['title'];
         foreach ($part['fields'] ?? [] as $key => $def) {
             [$label, $type] = pds_field_def($def);
             if (!isset($rules[$key])) { continue; }
             $msg = pds_check_value($rules[$key], $type, (string)($data[$key] ?? ''), $data);
-            if ($msg) { $errors[] = "$label $msg."; }
+            if ($msg) { $errors[$section][] = "$label $msg."; }
         }
         foreach ($part['tables'] ?? [] as $tkey => $table) {
             $check_table($tkey, $table['label'], $table['columns'], (array)($data[$tkey] ?? []));

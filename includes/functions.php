@@ -20,7 +20,7 @@ function run_pending_migrations(PDO $pdo): void {
                    'migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
                    'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
-                   'migration_search_indexes.sql', 'migration_profile_reports_archive.sql'];
+                   'migration_search_indexes.sql', 'migration_profile_reports_archive.sql', 'migration_ai_features.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -60,13 +60,28 @@ function run_pending_migrations(PDO $pdo): void {
 run_pending_migrations($pdo);
 
 /**
- * Insert a notification for a given user.
+ * Insert a notification for a given user. $link: optional page it points
+ * to, relative to BASE_URL (e.g. 'faculty/pds.php'), shown on the
+ * Notifications page (notification_link_url()).
  */
-function notify(PDO $pdo, int $user_id, string $message, ?int $request_id = null) {
+function notify(PDO $pdo, int $user_id, string $message, ?int $request_id = null, ?string $link = null) {
+    if ($link !== null) {
+        $pdo->prepare("INSERT INTO notifications (user_id, request_id, message, link) VALUES (?, ?, ?, ?)")
+            ->execute([$user_id, $request_id, $message, $link]);
+        return;
+    }
     $stmt = $pdo->prepare(
         "INSERT INTO notifications (user_id, request_id, message) VALUES (?, ?, ?)"
     );
     $stmt->execute([$user_id, $request_id, $message]);
+}
+
+/** Full URL of a notification's link, or null -- only pages of this system (no other sites). */
+function notification_link_url(?string $link): ?string {
+    if ($link === null || !preg_match('#^[a-z0-9_/]+\.php(\?[A-Za-z0-9_=&%.-]*)?(\#[A-Za-z0-9_-]+)?$#', $link)) {
+        return null;
+    }
+    return BASE_URL . '/' . $link;
 }
 
 /**
@@ -1005,10 +1020,15 @@ function run_daily_auto_archive(PDO $pdo, bool $force = false): ?array {
     return run_once_a_day($pdo, 'auto_archive_last_run', fn(PDO $pdo) => auto_archive_old_documents($pdo), $force);
 }
 
-/** The dashboards' once-a-day jobs: archive old documents first, so they get no expiration alerts. */
+/**
+ * The dashboards' once-a-day jobs: archive old documents first, so they get
+ * no expiration alerts; reminders last, so they know which expiration
+ * alerts already went out (includes/ai_reminders.php).
+ */
 function run_daily_jobs(PDO $pdo): void {
     run_daily_auto_archive($pdo);
     run_daily_expiration_check($pdo);
+    run_daily_reminder_check($pdo);
 }
 
 // ---------------------------------------------------------------------
@@ -1320,6 +1340,7 @@ function activity_actions(): array {
         'PASSWORD_RESET'     => 'Password Reset',
         'LOGIN_LOCKOUT'      => 'Login Locked',
         'LOGIN_UNLOCK'       => 'Login Unlocked',
+        'AI_SUMMARY'         => 'AI Report Summary Generated',
     ];
 }
 
@@ -1370,3 +1391,4 @@ function unresolved_security_alert_count(PDO $pdo): int {
 }
 
 require_once __DIR__ . '/profile.php';   // profiles: access scope, pictures, profile details
+require_once __DIR__ . '/ai.php';        // AI (Gemini): settings, privacy, reminders

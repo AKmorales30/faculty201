@@ -15,9 +15,15 @@
  * Archived documents are left out unless "Include archived" is ticked.
  * Certificates without details show "Not specified"; their owner or the
  * Admin can fill them in (document_details.php).
+ *
+ * Generate AI Summary (includes/ai_report.php): a written overview, key
+ * findings, faculty needing attention and recommendations from Gemini,
+ * shown above the table and printed with it -- never in the CSV. Saved per
+ * viewer and filters; Regenerate asks Gemini again.
  */
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/ai_report.php';
 require_role(['admin', 'program_chair', 'dean']);
 
 $me = current_user();
@@ -34,6 +40,16 @@ $stmt = $pdo->prepare(
 $stmt->execute($scope_params);
 $faculty_list = array_column($stmt->fetchAll(), null, 'user_id');
 
+// Program filter: the Admin any program, a Dean their college's programs
+// (a Program Chair already sees one program only)
+$program_options = [];
+if ($me['role'] !== 'program_chair') {
+    $viewer_college = $me['role'] === 'dean' ? (user_row($pdo, (int)$me['user_id'])['college'] ?? '') : null;
+    foreach (PROGRAMS as $key => $p) {
+        if ($viewer_college === null || $p['college'] === $viewer_college) { $program_options[$key] = $p['label']; }
+    }
+}
+
 // Filters (all optional). Anything invalid is ignored rather than erroring.
 $valid_date = function (string $d): string {
     $dt = DateTime::createFromFormat('!Y-m-d', $d);
@@ -46,6 +62,8 @@ $org        = mb_substr(trim($_GET['org'] ?? ''), 0, 100);
 $type       = $_GET['type'] ?? '';
 $category   = $_GET['category'] ?? '';
 $include_archived = !empty($_GET['include_archived']);
+$program    = $_GET['program'] ?? '';
+if (!isset($program_options[$program])) { $program = ''; }
 if (!isset($faculty_list[$faculty_id])) { $faculty_id = 0; }
 if ($type !== TYPE_NOT_SET && !in_array($type, TRAINING_TYPES, true)) { $type = ''; }
 if (!isset($subtypes[$category])) { $category = ''; }
@@ -58,6 +76,7 @@ $where = ["d.document_type = 'Certificate'", $include_archived ? "d.status IN ('
           $scope, "u.role IN ('faculty', 'program_chair', 'dean')"];
 $params = $scope_params;
 if ($faculty_id)       { $where[] = "d.faculty_id = ?"; $params[] = $faculty_id; }
+if ($program !== '')   { $where[] = "u.program = ?"; $params[] = $program; }
 if ($from !== '')      { $where[] = "COALESCE(d.date_end, d.date_start) >= ?"; $params[] = $from; }
 if ($to !== '')        { $where[] = "d.date_start <= ?"; $params[] = $to; }
 if ($org !== '')       { $where[] = "d.conducted_by LIKE ?"; $params[] = '%' . $org . '%'; }
@@ -117,6 +136,7 @@ uksort($by_year, fn($a, $b) => $a === $NS ? 1 : ($b === $NS ? -1 : strcmp($b, $a
 // The filters in force, in words: report header, CSV name and activity log
 $applied = [];
 $applied[] = 'Faculty: ' . ($faculty_id ? $faculty_list[$faculty_id]['full_name'] : 'All faculty');
+if ($program !== '')  { $applied[] = 'Program: ' . $program_options[$program]; }
 if ($from !== '' || $to !== '') {
     $applied[] = 'Seminar date: ' . ($from !== '' ? date('M j, Y', strtotime($from)) : 'any') . ' to ' . ($to !== '' ? date('M j, Y', strtotime($to)) : 'any');
 }
@@ -125,7 +145,7 @@ if ($type !== '')     { $applied[] = 'Type: ' . ($type === TYPE_NOT_SET ? $NS : 
 if ($category !== '') { $applied[] = 'Category: Certificates > ' . $subtypes[$category]; }
 $applied[] = $include_archived ? 'Archived documents included' : 'Archived documents excluded';
 
-$filter_query = array_filter(['faculty' => $faculty_id ?: '', 'from' => $from, 'to' => $to, 'org' => $org, 'type' => $type,
+$filter_query = array_filter(['faculty' => $faculty_id ?: '', 'program' => $program, 'from' => $from, 'to' => $to, 'org' => $org, 'type' => $type,
                               'category' => $category, 'include_archived' => $include_archived ? '1' : ''], fn($v) => $v !== '');
 
 $log_report = function (string $format) use ($pdo, $applied, $rows, $groups) {
@@ -139,6 +159,36 @@ if (($_POST['action'] ?? '') === 'log_print') {
     http_response_code(204);
     exit;
 }
+
+// ---------------------------------------------------------------------
+// AI summary: Generate / Regenerate (POST + CSRF), then back to this report
+// ---------------------------------------------------------------------
+$ai_hash = ai_report_hash((int)$me['user_id'], $filter_query);
+if (($_POST['action'] ?? '') === 'ai_summary') {
+    if (!csrf_valid()) {
+        $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
+    } else {
+        // Everyone the report covers: the faculty chosen, else everyone in scope (and program); inactive accounts only when chosen
+        $covered = array_filter($faculty_list, fn($f) => $faculty_id ? (int)$f['user_id'] === $faculty_id
+            : $f['is_active'] && ($program === '' || $f['program'] === $program));
+        session_write_close();   // Gemini can take a few seconds; don't hold up the user's other tabs
+        set_time_limit(120);
+        $summary = ai_enabled() ? ai_report_generate($pdo, (int)$me['user_id'], ai_report_data($pdo, $covered, $rows, $applied, $from, $to, $include_archived)) : null;
+        session_start();
+        if ($summary) {
+            ai_report_save($pdo, (int)$me['user_id'], ['filters' => $filter_query, 'applied' => $applied], $ai_hash, $summary);
+            log_my_activity($pdo, 'AI_SUMMARY', 'AI summary of the Seminar & Training report -- ' . implode('; ', $applied) . '.');
+        } else {
+            $_SESSION['ai_summary_failed'] = true;
+        }
+    }
+    header('Location: ' . BASE_URL . '/training_report.php?' . http_build_query($filter_query) . '#ai-summary');
+    exit;
+}
+$ai_saved = ai_report_latest($pdo, $ai_hash);
+$ai_failed = !empty($_SESSION['ai_summary_failed']);
+unset($_SESSION['ai_summary_failed']);
+$ai_on = ai_enabled();
 
 $hours_label = fn($h): string => $h === null || $h === '' ? '' : (string)(float)$h;
 $position_of = fn(array $r): string => user_position_label($r) . (isset(PROGRAMS[$r['program'] ?? '']) ? ' · ' . $r['program'] : '');
@@ -217,6 +267,17 @@ include __DIR__ . '/includes/header.php';
           <?php endforeach; ?>
         </select>
       </div>
+      <?php if ($program_options): ?>
+      <div class="col-md-6 col-xl-2">
+        <label for="fProgram" class="form-label small fw-semibold">Program</label>
+        <select name="program" id="fProgram" class="form-select">
+          <option value="">All programs</option>
+          <?php foreach ($program_options as $key => $label): ?>
+            <option value="<?= h($key) ?>" <?= $program === $key ? 'selected' : '' ?>><?= h($label) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <?php endif; ?>
       <div class="col-6 col-md-3 col-xl-2">
         <label for="fFrom" class="form-label small fw-semibold">Seminar Date From</label>
         <input type="date" name="from" id="fFrom" value="<?= h($from) ?>" class="form-control">
@@ -265,6 +326,36 @@ include __DIR__ . '/includes/header.php';
     </form>
   </div>
 </div>
+
+<?php if ($ai_saved || $ai_on || $ai_failed): ?>
+<div class="card stat-card mb-4 ai-summary-card <?= $ai_saved ? '' : 'no-print' ?>" id="ai-summary">
+  <div class="card-header bg-white fw-semibold d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <span><i class="fa-solid fa-wand-magic-sparkles text-brand"></i> AI Summary</span>
+    <?php if ($ai_on): ?>
+      <form method="POST" action="training_report.php?<?= h(http_build_query($filter_query)) ?>" class="m-0 no-print ai-summary-form">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="ai_summary">
+        <button class="btn btn-sm <?= $ai_saved ? 'btn-outline-brand' : 'btn-brand' ?>">
+          <i class="fa-solid <?= $ai_saved ? 'fa-rotate' : 'fa-wand-magic-sparkles' ?>"></i> <?= $ai_saved ? 'Regenerate' : 'Generate AI Summary' ?>
+        </button>
+      </form>
+    <?php endif; ?>
+  </div>
+  <div class="card-body">
+    <?php if ($ai_failed): ?>
+      <div class="alert alert-warning py-2 mb-3 no-print"><i class="fa-solid fa-triangle-exclamation"></i> AI summary is unavailable right now. The report below is complete; please try again later.</div>
+    <?php endif; ?>
+    <?php if ($ai_saved): ?>
+      <?= ai_report_html($ai_saved['summary']) ?>
+      <div class="small text-muted mt-3">Generated <?= h(date('F j, Y g:i A', strtotime($ai_saved['created_at']))) ?> from the report data at that time<?= $ai_on ? '<span class="no-print"> -- press Regenerate after records change</span>' : '' ?>.</div>
+      <?= ai_disclaimer_html('mt-1') ?>
+    <?php elseif (!$ai_failed): ?>
+      <p class="text-muted small mb-0">Get a written overview of this report -- key findings, faculty needing attention and recommendations -- from the numbers below, for the filters selected.
+        Only names, counts, dates, seminar titles and organizers are sent to the AI; never ID numbers, contact details or files.</p>
+    <?php endif; ?>
+  </div>
+</div>
+<?php endif; ?>
 
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
@@ -406,6 +497,14 @@ include __DIR__ . '/includes/header.php';
   function sync() { to.min = from.value; from.max = to.value; }
   from.addEventListener('change', sync); to.addEventListener('change', sync); sync();
 })();
+// AI summary: show progress while Gemini writes it (a few seconds), and stop double submits
+document.querySelectorAll('.ai-summary-form').forEach(function (f) {
+  f.addEventListener('submit', function () {
+    var b = f.querySelector('button');
+    b.disabled = true;
+    b.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating...';
+  });
+});
 // Activity log: record that the report was printed / saved as PDF (button or Ctrl+P), once per page view
 (function () {
   var logged = false;

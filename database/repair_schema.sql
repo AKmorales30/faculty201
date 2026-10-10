@@ -284,6 +284,65 @@ CREATE TABLE IF NOT EXISTS profile_pictures (
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- ------------------------------------------------------------- AI features (migration_ai_features.sql)
+CREATE TABLE IF NOT EXISTS ai_reports (
+    id             INT AUTO_INCREMENT PRIMARY KEY,
+    generated_by   INT NULL,
+    report_type    VARCHAR(30) NOT NULL DEFAULT 'training',
+    filters        JSON NULL,
+    filters_hash   CHAR(64) NOT NULL,
+    summary_text   MEDIUMTEXT NOT NULL,
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (generated_by) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE INDEX IF NOT EXISTS idx_ai_reports_lookup ON ai_reports(filters_hash, created_at);
+
+CREATE TABLE IF NOT EXISTS ai_chat_messages (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT NOT NULL,
+    role         ENUM('user','assistant') NOT NULL,
+    message      TEXT NOT NULL,
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX IF NOT EXISTS idx_ai_chat_user ON ai_chat_messages(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS ai_usage_log (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    user_id         INT NULL,
+    feature         VARCHAR(30) NOT NULL,
+    success         TINYINT(1) NOT NULL,
+    error_message   VARCHAR(255) NULL,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user ON ai_usage_log(user_id, feature, created_at);
+
+CREATE TABLE IF NOT EXISTS ai_reminders (
+    id               INT AUTO_INCREMENT PRIMARY KEY,
+    user_id          INT NOT NULL,
+    reminder_type    VARCHAR(30) NOT NULL,
+    condition_key    VARCHAR(190) NOT NULL,
+    reason           VARCHAR(500) NOT NULL,
+    message          VARCHAR(500) NOT NULL,
+    link             VARCHAR(255) NULL,
+    ai_generated     TINYINT(1) NOT NULL DEFAULT 0,
+    notification_id  INT NULL,
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    dismissed_at     DATETIME NULL,
+    resolved_at      DATETIME NULL,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX IF NOT EXISTS idx_ai_reminders_user ON ai_reminders(user_id, reminder_type, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_ai_reminders_open ON ai_reminders(reminder_type, resolved_at);
+
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link VARCHAR(255) NULL AFTER message;
+
 -- ------------------------------------------------------------- record the migrations as applied
 CREATE TABLE IF NOT EXISTS schema_migrations (
     name        VARCHAR(190) PRIMARY KEY,
@@ -294,4 +353,4 @@ INSERT IGNORE INTO schema_migrations (name) VALUES
     ('migration_programs_colleges.sql'), ('migration_document_files.sql'), ('migration_classification_confidence.sql'),
     ('migration_activity_logs.sql'), ('migration_expiration_alerts.sql'), ('migration_document_removal.sql'),
     ('migration_password_management.sql'), ('migration_login_lockout.sql'), ('migration_search_indexes.sql'),
-    ('migration_profile_reports_archive.sql');
+    ('migration_profile_reports_archive.sql'), ('migration_ai_features.sql');

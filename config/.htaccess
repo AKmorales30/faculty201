@@ -1,0 +1,2 @@
+# Settings (database, AI key) are read by PHP only, never served over the web.
+Require all denied

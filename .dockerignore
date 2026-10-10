@@ -7,3 +7,4 @@ temp_scans/*
 tools/
 !uploads/.htaccess
 !temp_scans/.htaccess
+config/ai.php

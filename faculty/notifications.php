@@ -39,6 +39,8 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php if ($n['request_id']): ?>
           <a href="<?= BASE_URL ?>/faculty/my_requests.php" class="small">View upload history <i class="fa-solid fa-arrow-right"></i></a>
+        <?php elseif ($url = notification_link_url($n['link'] ?? null)): ?>
+          <a href="<?= h($url) ?>" class="small">Go to page <i class="fa-solid fa-arrow-right"></i></a>
         <?php endif; ?>
       </div>
     <?php endforeach; ?>

@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# AI settings with the real Gemini API key (template: config/ai.example.php)
+config/ai.php

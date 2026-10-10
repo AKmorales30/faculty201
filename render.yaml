@@ -17,3 +17,8 @@ services:
         sync: false
       - key: APP_BASE_URL
         sync: false
+      # AI features (config/ai.example.php); without it AI is off and everything else works
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: AI_ENABLED
+        value: "1"
