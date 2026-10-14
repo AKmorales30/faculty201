@@ -4,10 +4,13 @@
  * uploads/ are blocked by the web server, so this is the only way to open
  * a filed document.
  *
- * Allowed: the document's owner while it's active or archived (My
- * Archive), or the Admin -- also deleted ones, to review them
+ * Allowed: the document's owner while it's posted, For Review or archived
+ * (Archived Docs), or the Admin -- also deleted ones, to review them
  * (can_access_document()).
- * The file is read from the database (document_files).
+ * The file is read from the database (document_files). Every opening --
+ * the preview pop-ups included -- sets last_viewed_at, which the
+ * "not opened in ARCHIVE_UNVIEWED_YEARS years" auto-archive goes by.
+ * Opening an archived document does not restore it.
  * Program Chairs and Deans can open only their own documents -- never a
  * faculty member's.
  */
@@ -31,7 +34,8 @@ if (!$doc || !can_access_document($me, $doc)) {
 log_my_activity($pdo, 'VIEW_DOCUMENT', "Viewed document #{$doc['document_id']} \"" . basename($doc['file_path']) . '" ('
     . document_type_label($doc['document_type'], $doc['document_subtype'])
     . ((int)$doc['faculty_id'] === (int)$me['user_id'] ? ', own 201 file' : ', 201 file of ' . $doc['full_name'])
-    . ($doc['status'] !== 'active' ? ', ' . $doc['status'] : '') . ').');
+    . ($doc['status'] !== 'active' ? ', ' . str_replace('_', ' ', $doc['status']) : '') . ').');
+mark_document_viewed($pdo, (int)$doc['document_id']);
 
 // Served from the database (document_files); the server's disk is wiped on
 // every redeploy. A file that only exists on disk (uploaded before files
@@ -59,7 +63,7 @@ if (!$file) {
 
 header('Content-Type: ' . $file['mime_type']);
 header('Content-Length: ' . strlen($file['data']));
-// ?download=1 saves the file instead of opening it (My Archive's download button)
+// ?download=1 saves the file instead of opening it (the Download buttons)
 header('Content-Disposition: ' . (!empty($_GET['download']) ? 'attachment' : 'inline') . '; filename="' . basename($doc['file_path']) . '"');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, no-store');

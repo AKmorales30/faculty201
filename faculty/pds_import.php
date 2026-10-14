@@ -33,7 +33,7 @@ $document_id = (int)($_POST['document_id'] ?? $_GET['document'] ?? 0);
 $stmt = $pdo->prepare(
     "SELECT d.document_id, d.faculty_id, d.document_type, d.file_path, d.filed_at, d.status, d.ocr_extracted_text, u.full_name, u.role AS owner_role
      FROM documents d JOIN users u ON u.user_id = d.faculty_id
-     WHERE d.document_id = ? AND d.status IN ('active', 'archived')"
+     WHERE d.document_id = ? AND d.status IN ('active', 'for_review', 'archived')"
 );
 $stmt->execute([$document_id]);
 $doc = $stmt->fetch();

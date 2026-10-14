@@ -6,7 +6,7 @@ require_role('admin');
 $page_title = 'Notifications';
 $me = current_user();
 
-if (($_POST['action'] ?? '') === 'mark_all_read') {
+if (($_POST['action'] ?? '') === 'mark_all_read' && csrf_valid()) {
     mark_all_notifications_read($pdo, $me['user_id']);
     header('Location: ' . BASE_URL . '/admin/notifications.php');
     exit;
@@ -21,7 +21,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <h3 class="fw-bold mb-0">Notifications</h3>
-  <form method="POST"><input type="hidden" name="action" value="mark_all_read">
+  <form method="POST"><?= csrf_field() ?><input type="hidden" name="action" value="mark_all_read">
     <button class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-check-double"></i> Mark all as read</button>
   </form>
 </div>

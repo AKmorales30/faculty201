@@ -120,11 +120,14 @@ function pds_table_attr(string $tkey, string $label): string {
 include __DIR__ . '/../includes/header.php';
 ?>
 
+<h3 class="fw-bold mb-3">Profile Preference</h3>
+<?= profile_tabs('pds') ?>
+
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
-  <h3 class="fw-bold mb-0">My Personal Data Sheet</h3>
+  <h4 class="fw-bold mb-0">My Personal Data Sheet</h4>
   <div class="d-flex gap-2 flex-wrap">
     <a href="<?= BASE_URL ?>/faculty/pds_print.php" target="_blank" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-print"></i> Print / Save as PDF</a>
-    <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-file-arrow-up"></i> Upload PDS / Certificate</a>
+    <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-file-circle-plus"></i> Upload PDS / Certificate</a>
   </div>
 </div>
 <p class="text-muted mb-3">CS Form No. 212. Edit any part below and save. Seminar and training certificates you upload are added to Section VI (Learning and Development) automatically,

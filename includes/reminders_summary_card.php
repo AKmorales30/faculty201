@@ -2,8 +2,10 @@
 /**
  * Admin / Program Chair / Dean dashboard: how many faculty in the viewer's
  * scope have each kind of open reminder ("12 faculty have not uploaded a
- * seminar or training certificate in 6 months"), each linking to the list
- * (reminder_list.php). From the daily reminder check (includes/ai_reminders.php).
+ * seminar or training certificate in 6 months"), each with a View list
+ * button that opens the list in the pop-up (api/modal.php?view=reminders;
+ * reminder_list.php is the page version). From the daily reminder check
+ * (includes/ai_reminders.php).
  */
 $scope_counts = reminder_scope_counts($pdo, current_user());
 ?>
@@ -17,7 +19,9 @@ $scope_counts = reminder_scope_counts($pdo, current_user());
           <strong><?= $n ?></strong> <?= $n === 1 ? 'faculty member has' : 'faculty have' ?> <?= h($meta['summary']) ?>
         </span>
         <?php if ($n): ?>
-          <a href="<?= BASE_URL ?>/reminder_list.php?type=<?= h($type) ?>" class="text-nowrap">View list <i class="fa-solid fa-arrow-right"></i></a>
+          <button type="button" class="btn btn-sm btn-outline-brand text-nowrap" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=reminders&type=' . $type) ?>" data-app-modal-size="lg" data-app-modal-title="Faculty Needing Follow-up">
+            <i class="fa-solid fa-list"></i> View list
+          </button>
         <?php endif; ?>
       </li>
     <?php endforeach; ?>

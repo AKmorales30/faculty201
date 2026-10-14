@@ -77,8 +77,9 @@ define('DOCUMENT_TYPE_KEYWORDS', [
 // Confidence check on the auto-categorization (Fig. 5 "confident?"). The
 // classifier's confidence is 0-1 (see OcrProcessor::confidence()); at or
 // above this the detected category is pre-selected on the upload form,
-// below it the faculty member must pick the category themselves and the
-// upload is listed for the Admin in Classification Review.
+// below it the faculty member must pick the category themselves. Every
+// upload then waits For Review in the Admin's Manage Document queue, where
+// low-confidence ones are flagged.
 define('CONFIDENCE_THRESHOLD', 0.60);
 
 // How long after uploading a faculty member can still delete the document
@@ -86,16 +87,27 @@ define('CONFIDENCE_THRESHOLD', 0.60);
 // archive or delete it. Hours; the check is in document_action.php.
 define('FACULTY_DELETE_WINDOW_HOURS', 24);
 
-// Auto-archive (auto_archive_old_documents() in includes/functions.php): a
-// document whose own date is more than this many years ago moves to its
-// owner's archive. The document's date is its seminar / training end date,
-// else its start date, else its date issued, else the upload date. Runs at
-// most once a day on dashboard load (and from cron/auto_archive.php), and
-// right after a document is uploaded or its dates are edited.
-define('ARCHIVE_AFTER_YEARS', 5);
+// Auto-archive (auto_archive_unviewed_documents() in includes/functions.php):
+// a posted document that nobody has opened in this many years moves to its
+// owner's archive. "Opened" is any view through document.php, the preview
+// pop-ups included (documents.last_viewed_at; documents from before this
+// rule start at their upload date). Runs at most once a day on dashboard
+// load and from cron/auto_archive.php. Opening an archived document does
+// not bring it back -- the Admin restores it from Archived Docs.
+define('ARCHIVE_UNVIEWED_YEARS', 3);
+// Recently Deleted (recently_deleted.php): a deleted document can be
+// restored for this many days from when it was deleted; after that the
+// daily check (run_daily_deleted_cleanup() in includes/functions.php, and
+// cron/auto_archive.php) deletes it permanently -- file, record and linked
+// notifications; only the activity log keeps a note of it.
+define('DELETED_RETENTION_DAYS', 30);
+// The owner is notified once when this many days are left before their
+// deleted document is permanently removed. 0 = no warning.
+define('DELETED_PURGE_WARNING_DAYS', 3);
+
 // Categories never auto-archived, e.g. ['Diploma', 'TOR'] to keep degrees
-// and transcripts in the active 201 file however old they are. Empty = the
-// rule applies to every category.
+// and transcripts in the active 201 file however long they go unopened.
+// Empty = the rule applies to every category.
 define('ARCHIVE_EXEMPT_CATEGORIES', []);
 
 // Reminders (includes/ai_reminders.php). Who gets one is decided by these

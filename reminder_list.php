@@ -2,8 +2,10 @@
 /**
  * Faculty Needing Follow-up -- Admin, Program Chairs and Deans. The faculty
  * in the viewer's scope (profile_scope_sql()) with an open reminder of one
- * type, with the rule-based reason (not the AI-worded message). Linked
- * from the dashboard summary card (includes/reminders_summary_card.php).
+ * type, with the rule-based reason (not the AI-worded message). The
+ * dashboard summary card (includes/reminders_summary_card.php) opens the
+ * same list in a pop-up (api/modal.php?view=reminders); this page is the
+ * full-page version of it.
  */
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/functions.php';
@@ -39,28 +41,6 @@ include __DIR__ . '/includes/header.php';
   <?php endforeach; ?>
 </ul>
 
-<div class="card stat-card">
-  <div class="card-header bg-white fw-semibold"><?= count($rows) ?> faculty <?= count($rows) === 1 ? 'member has' : 'have' ?> <?= h($types[$type]['summary']) ?></div>
-  <div class="card-body p-0 table-responsive">
-    <table class="table mb-0 align-middle">
-      <thead class="table-light"><tr><th>Faculty</th><th>Reason</th><th class="text-nowrap">Last Reminded</th></tr></thead>
-      <tbody>
-        <?php if (!$rows): ?>
-          <tr><td colspan="3" class="text-center text-muted py-4">No one in your scope needs this reminder right now.</td></tr>
-        <?php endif; ?>
-        <?php foreach ($rows as $r): ?>
-          <tr>
-            <td>
-              <a href="<?= BASE_URL ?>/profile.php?id=<?= (int)$r['user_id'] ?>"><?= h($r['full_name']) ?></a>
-              <div class="small text-muted"><?= h(user_position_line($r)) ?></div>
-            </td>
-            <td class="small"><?= h($r['reason']) ?></td>
-            <td class="small text-nowrap"><?= h(date('M j, Y', strtotime($r['created_at']))) ?><?= $r['dismissed_at'] ? '<div class="text-muted">Dismissed by them</div>' : '' ?></td>
-          </tr>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
-  </div>
-</div>
+<?php include __DIR__ . '/includes/reminder_list_table.php'; ?>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

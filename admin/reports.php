@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_role('admin');
 
-$page_title = 'Reports';
+$page_title = 'Document Status';   // Admin > Report > Document Status (tabs: this report, Expiring documents, Data analytics)
 $categories = document_categories();
 
 // Expiration status buckets. They don't overlap, so the summary counts
@@ -158,11 +158,14 @@ include __DIR__ . '/../includes/header.php';
   <div class="small">Generated: <?= h(date('F j, Y g:i A')) ?> by <?= h(current_user()['full_name']) ?></div>
 </div>
 
+<div class="no-print">
+  <h3 class="fw-bold mb-3">Document Status</h3>
+  <?= report_tabs('status') ?>
+</div>
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4 no-print">
   <div>
-    <h3 class="fw-bold mb-1">Reports</h3>
-    <p class="text-muted mb-0">Generate a report of filed 201-file documents, then print it, save it as PDF or export it to CSV.
-      For each seminar and training with its title, dates, venue and organizer, use the <a href="<?= BASE_URL ?>/training_report.php">Seminar &amp; Training Report</a>.</p>
+    <p class="text-muted mb-0">Generate a report of posted 201-file documents and their expiration status, then print it, save it as PDF or export it to CSV.
+      For each seminar and training with its title, dates, venue and organizer, use the <a href="<?= BASE_URL ?>/training_report.php">Training Summary</a>.</p>
   </div>
   <div class="d-flex gap-2">
     <button type="button" class="btn btn-outline-brand" onclick="window.print()"><i class="fa-solid fa-print"></i> Print / Save as PDF</button>
@@ -277,7 +280,7 @@ include __DIR__ . '/../includes/header.php';
         <tr>
           <td><?= h($d['full_name']) ?></td>
           <td class="text-break">
-            <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank"><?= h(basename($d['file_path'])) ?></a>
+            <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><?= h(basename($d['file_path'])) ?></a>
             <?php if ($p = document_period_label($d)): ?><div class="small text-muted"><?= h($p) ?></div><?php endif; ?>
           </td>
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>

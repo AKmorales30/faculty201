@@ -14,24 +14,36 @@ $doc_action_return = ltrim(str_replace('\\', '/', substr((string)realpath($_SERV
 
 /**
  * Buttons for one document row: for the Admin, archive / delete / restore
- * according to its status; for its owner, Delete while the delete window
- * is open, otherwise a note to contact the Admin. $doc needs document_id,
- * faculty_id, status, file_path, document_type, document_subtype and, for
- * the owner, delete_seconds_left (delete_window_sql()).
+ * according to its status, and "Delete permanently" in Recently Deleted;
+ * for its owner, Delete while the delete window is open (otherwise a note
+ * to contact the Admin), and Restore in Recently Deleted for a document
+ * they deleted themselves. $doc needs document_id, faculty_id, status,
+ * file_path, document_type, document_subtype; for the owner
+ * delete_seconds_left (delete_window_sql()); in Recently Deleted also
+ * deleted_at and deleted_by.
  */
 function document_action_buttons(array $doc, array $me): string {
     $name = document_display_name($doc['file_path']) . ' (' . document_type_label($doc['document_type'], $doc['document_subtype']) . ')'
           . (!empty($doc['full_name']) && $me['role'] === 'admin' ? ' of ' . $doc['full_name'] : '');
     $button = fn(string $action, string $class, string $icon, string $label) =>
         '<button type="button" class="btn btn-sm ' . $class . ' doc-action-btn text-nowrap" data-bs-toggle="modal" data-bs-target="#docActionModal"'
-        . ' data-id="' . (int)$doc['document_id'] . '" data-action="' . $action . '" data-name="' . h($name) . '" title="' . h($label) . '">'
+        . ' data-id="' . (int)$doc['document_id'] . '" data-action="' . $action . '" data-status="' . h($doc['status']) . '" data-name="' . h($name) . '" title="' . h($label) . '">'
         . '<i class="fa-solid ' . $icon . '"></i> ' . h($label) . '</button>';
 
+    if ($doc['status'] === 'deleted') {
+        $out = [];
+        if (can_restore_deleted($me, $doc)) { $out[] = $button('restore', 'btn-outline-success', 'fa-rotate-left', 'Restore'); }
+        if ($me['role'] === 'admin') { $out[] = $button('purge', 'btn-outline-danger', 'fa-trash-can', 'Delete permanently'); }
+        if (!$out && (int)$doc['faculty_id'] === (int)$me['user_id']) {
+            return '<div class="small text-muted" style="max-width:12rem">' . (deleted_restore_open($doc) ? 'Deleted by the Admin -- ask the Admin to restore it.' : 'Restore period over.') . '</div>';
+        }
+        return implode(' ', $out);
+    }
     if ($me['role'] === 'admin') {
         $out = [];
-        if ($doc['status'] !== 'active')  { $out[] = $button('restore', 'btn-outline-success', 'fa-rotate-left', 'Restore'); }
+        if ($doc['status'] === 'archived') { $out[] = $button('restore', 'btn-outline-success', 'fa-rotate-left', 'Restore'); }
         if ($doc['status'] === 'active')  { $out[] = $button('archive', 'btn-outline-secondary', 'fa-box-archive', 'Archive'); }
-        if ($doc['status'] !== 'deleted') { $out[] = $button('delete', 'btn-outline-danger', 'fa-trash-can', 'Delete'); }
+        $out[] = $button('delete', 'btn-outline-danger', 'fa-trash-can', 'Delete');
         return implode(' ', $out);
     }
     if ((int)$doc['faculty_id'] !== (int)$me['user_id']) {
@@ -79,24 +91,28 @@ function document_action_buttons(array $doc, array $me): string {
 <script>
 (function () {
   var IS_ADMIN = <?= current_user()['role'] === 'admin' ? 'true' : 'false' ?>;
+  var DAYS = <?= (int)DELETED_RETENTION_DAYS ?>;
   var TEXT = {
-    delete:  IS_ADMIN
-      ? ['Delete document', 'It will be removed from the faculty member\'s 201 file and from searches, reports and alerts. The file is kept, so it can still be restored from Archived Documents.', 'btn-danger', 'Delete']
-      : ['Delete document', 'It will be removed from your 201 file. This can\'t be undone by you -- the Admin would have to restore it.', 'btn-danger', 'Delete'],
-    archive: ['Archive document', 'It will move to the faculty member\'s archive (they can still view it there) and no longer appear in their active 201 file, searches, reports or expiration alerts. You can restore it later.', 'btn-secondary', 'Archive'],
-    restore: ['Restore document', 'It will appear in the faculty member\'s active 201 file again. If it is still more than <?= (int)ARCHIVE_AFTER_YEARS ?> years old, it is kept out of the automatic archive from now on.', 'btn-success', 'Restore']
+    delete:  ['Delete document', 'This document will be moved to Recently Deleted. You can restore it within ' + DAYS + ' days before it is permanently deleted.', 'btn-danger', 'Delete'],
+    purge:   ['Delete permanently', 'This permanently deletes the document: its file and its record are removed for good. This cannot be undone.', 'btn-danger', 'Delete permanently'],
+    archive: ['Archive document', 'It will move to the faculty member\'s Archived Docs (they can still view it there) and no longer appear in Public Docs, searches, reports or expiration alerts. You can restore it later.', 'btn-secondary', 'Archive'],
+    restoreDeleted: ['Restore document', 'It goes back to where it was before it was deleted (Public Docs, Archived Docs or For Review), with its details.', 'btn-success', 'Restore'],
+    restore: ['Restore document', 'It will appear in the faculty member\'s Public Docs again (a document deleted before it was posted goes back to For Review). Restoring counts as opening it, so the <?= h(archive_period_label()) ?> archive rule starts over.', 'btn-success', 'Restore']
   };
   var modal = document.getElementById('docActionModal');
   modal.addEventListener('show.bs.modal', function (e) {
-    var btn = e.relatedTarget, action = btn.dataset.action, t = TEXT[action];
-    var reasonRequired = IS_ADMIN && action !== 'restore';
+    var btn = e.relatedTarget, action = btn.dataset.action;
+    var t = action === 'restore' && btn.dataset.status === 'deleted' ? TEXT.restoreDeleted : TEXT[action];
+    var reasonRequired = IS_ADMIN && (action === 'delete' || action === 'archive');
     var noteRequired = IS_ADMIN && action === 'restore';   // restoring: a written reason instead of the list
     document.getElementById('docActionId').value = btn.dataset.id;
     document.getElementById('docActionAction').value = action;
     document.getElementById('docActionTitle').textContent = t[0];
     document.getElementById('docActionName').textContent = btn.dataset.name;
-    document.getElementById('docActionText').textContent = t[1];
-    document.getElementById('docActionReason').hidden = action === 'restore' && !IS_ADMIN;
+    var text = document.getElementById('docActionText');
+    text.textContent = t[1];
+    text.className = action === 'purge' ? 'alert alert-danger small py-2' : 'small text-muted';   // "cannot be undone" stands out
+    document.getElementById('docActionReason').hidden = action === 'purge' || (action === 'restore' && !IS_ADMIN);
     var sel = document.getElementById('docActionReasonSel'), note = document.getElementById('docActionNote');
     sel.hidden = action === 'restore';
     sel.required = reasonRequired;

@@ -4,8 +4,8 @@ require_once __DIR__ . '/../includes/functions.php';
 require_role('admin');
 
 // Every faculty member's documents that are expired or expire within 60
-// days (the "View all" of the dashboard's Expiring / Expired Documents
-// card), soonest first. Replaced versions and deactivated accounts are
+// days, soonest first -- the Expiring documents tab of Report > Document
+// Status (the dashboard card's "View all" opens the same list in a pop-up). Replaced versions and deactivated accounts are
 // left out -- see expiring_documents().
 
 $page_title = 'Expiring Documents';
@@ -36,11 +36,8 @@ $documents = array_values(array_filter($all, function ($d) use ($status, $catego
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<a href="<?= BASE_URL ?>/admin/dashboard.php" class="small text-muted d-inline-block mb-3">
-  <i class="fa-solid fa-arrow-left"></i> Back to Dashboard
-</a>
-
-<h3 class="fw-bold mb-1">Expiring Documents</h3>
+<h3 class="fw-bold mb-3">Document Status</h3>
+<?= report_tabs('expiring') ?>
 <p class="text-muted mb-4">Faculty documents that have expired or will expire within 60 days, soonest first. The owner and every Admin are notified 60, 30 and 7 days before and on the expiration date.</p>
 
 <div class="row g-3 mb-4">
@@ -113,7 +110,7 @@ include __DIR__ . '/../includes/header.php';
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['expiration_date']))) ?></td>
           <td><span class="badge <?= $badge_class ?>"><?= h($badge_label) ?></span></td>
-          <td class="text-end"><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" data-tooltip title="View document" aria-label="View document"><i class="fa-solid fa-eye"></i></a></td>
+          <td class="text-end"><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" data-tooltip title="View document" aria-label="View document" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><i class="fa-solid fa-eye"></i></a></td>
         </tr>
         <?php endforeach; ?>
       </tbody>

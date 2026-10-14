@@ -21,7 +21,8 @@ function run_pending_migrations(PDO $pdo): void {
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
                    'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
                    'migration_search_indexes.sql', 'migration_profile_reports_archive.sql', 'migration_ai_features.sql',
-                   'migration_reminder_checks.sql'];
+                   'migration_reminder_checks.sql', 'migration_review_archive_views.sql',
+                   'migration_recently_deleted.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -130,15 +131,22 @@ function status_badge(string $status): array {
 
 /**
  * status_badge() for an upload-log row that also has document_status
- * (documents.status): an upload whose document was later deleted or
- * archived says so instead of "Uploaded to 201 File".
+ * (documents.status): For Review until the Admin posts it, then Posted;
+ * a document later archived or deleted says so.
  */
 function upload_status_badge(array $row): array {
-    return match ($row['document_status'] ?? 'active') {
-        'deleted'  => ['Deleted', 'bg-secondary'],
-        'archived' => ['Archived', 'bg-light text-dark border'],
-        default    => status_badge($row['status']),
+    return match ($row['document_status'] ?? null) {
+        'for_review' => ['For Review', 'bg-review'],
+        'active'     => ['Posted', 'bg-success'],
+        'deleted'    => ['Deleted', 'bg-secondary'],
+        'archived'   => ['Archived', 'bg-light text-dark border'],
+        default      => status_badge($row['status']),
     };
+}
+
+/** [label, badge class] of a documents.status value, as shown in lists and the preview pop-up. */
+function document_status_badge(string $status): array {
+    return upload_status_badge(['document_status' => $status, 'status' => 'uploaded']);
 }
 
 // ---------------------------------------------------------------------
@@ -174,12 +182,12 @@ function move_to_repository(int $faculty_id, string $document_type, string $sour
 function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false): void {
     $when = new DateTime('now', new DateTimeZone('Asia/Manila'));
 
-    // Admin: full details, as before
+    // Admin: full details, as before -- and the upload now waits for their classification review
     $msg = "New Document Uploaded\n"
          . "Faculty: {$uploader['full_name']}\n"
          . "Document Type: " . document_type_label($document_type, $subtype) . "\n"
          . "Date Uploaded: " . $when->format('F j, Y, g:i A') . "\n"
-         . "The document has been added to the faculty member's 201 Repository.";
+         . "It is waiting For Review in Manage Document: check its document type and details, then post it to Public Docs.";
     foreach ($extra_lines as $line) {
         $msg .= "\n" . $line;
     }
@@ -264,24 +272,41 @@ function store_document_file(PDO $pdo, int $document_id, string $abs_path, strin
 }
 
 /**
- * Who may open a 201-file document: its owner (active, or archived -- My
- * Archive is view / download only), or the Admin. Program Chairs and Deans
- * can see faculty profiles, archive lists and report details, but can't
- * view, download or change anyone else's files.
+ * Who may open a 201-file document: its owner (posted, waiting for review,
+ * archived, or in Recently Deleted -- to preview it before restoring), or
+ * the Admin. Program Chairs and Deans can see faculty profiles, archive
+ * lists and report details, but can't view, download or change anyone
+ * else's files.
  */
 function can_access_document(array $user, array $document): bool {
     if ($user['role'] === 'admin') {
         return true;   // including archived / deleted documents, to review or restore them
     }
-    return (int)$document['faculty_id'] === (int)$user['user_id'] && in_array($document['status'] ?? 'active', ['active', 'archived'], true);
+    return (int)$document['faculty_id'] === (int)$user['user_id']
+        && in_array($document['status'] ?? 'active', ['active', 'for_review', 'archived', 'deleted'], true);
+}
+
+/**
+ * Record that a document was opened (document.php). The auto-archive moves
+ * posted documents nobody has opened in ARCHIVE_UNVIEWED_YEARS years.
+ * Opening an archived document is recorded too but does not restore it.
+ */
+function mark_document_viewed(PDO $pdo, int $document_id): void {
+    try {
+        $pdo->prepare("UPDATE documents SET last_viewed_at = NOW() WHERE document_id = ?")->execute([$document_id]);
+    } catch (PDOException $e) {
+        error_log('Recording a document view failed: ' . $e->getMessage());   // migration not applied yet
+    }
 }
 
 // ---------------------------------------------------------------------
 // Deleting / archiving documents (soft delete -- rows are never removed).
-// documents.status: 'active' everywhere; 'archived' and 'deleted' only on
-// the Admin's Archived Documents page. A faculty member may delete their
-// own document within FACULTY_DELETE_WINDOW_HOURS of uploading it; the
-// Admin may archive, delete or restore any document. Done through
+// documents.status: 'active' (Posted) everywhere; 'for_review' in Manage
+// Document and its owner's Pending review tab; 'archived' and 'deleted' on
+// the Admin's Archived Docs page (archived also in the owner's Archived
+// Docs). A faculty member may delete their own document within
+// FACULTY_DELETE_WINDOW_HOURS of uploading it; the Admin may archive,
+// delete or restore any document. Done through
 // document_action.php (POST + CSRF token).
 // ---------------------------------------------------------------------
 
@@ -302,14 +327,15 @@ function delete_window_sql(string $alias = 'd'): string {
 }
 
 /**
- * Whether $user may delete $document themselves: it's theirs, still active,
- * and inside the delete window. $document needs delete_seconds_left
- * (selected with delete_window_sql()). The Admin uses the admin actions instead.
+ * Whether $user may delete $document themselves: it's theirs, posted or
+ * still waiting for review, and inside the delete window. $document needs
+ * delete_seconds_left (selected with delete_window_sql()). The Admin uses
+ * the admin actions instead.
  */
 function faculty_can_delete(array $user, array $document): bool {
     return $user['role'] !== 'admin'
         && (int)$document['faculty_id'] === (int)$user['user_id']
-        && ($document['status'] ?? '') === 'active'
+        && in_array($document['status'] ?? '', ['active', 'for_review'], true)
         && (int)($document['delete_seconds_left'] ?? 0) > 0;
 }
 
@@ -346,11 +372,15 @@ function move_document_file(string $from, string $to): string {
 
 /**
  * Archive, delete or restore one document. $doc is its documents row;
- * $action 'archive' (active only), 'delete' (active or archived) or
- * 'restore' (archived or deleted -> active). Deleting moves the local
- * file into uploads/_deleted/; restoring moves it back. A restored
- * document that is still older than ARCHIVE_AFTER_YEARS is marked
- * archive_exempt, so the auto-archive doesn't take it straight back.
+ * $action 'archive' (posted only), 'delete' (posted, for review or
+ * archived -> Recently Deleted) or 'restore':
+ *   archived -> posted (or For Review if it was never posted)
+ *   deleted  -> back where it was when deleted (status_before_delete:
+ *               Public Docs, Archived Docs or For Review), with its details;
+ *               only within DELETED_RETENTION_DAYS (deleted_restore_open())
+ * Deleting moves the local file into uploads/_deleted/; restoring moves it
+ * back. Restoring to Public Docs counts as a view (last_viewed_at), so the
+ * auto-archive doesn't take it straight back.
  * Returns false if the action doesn't apply to the document's current status.
  */
 function change_document_status(PDO $pdo, array $doc, string $action, int $actor_id, ?string $reason): bool {
@@ -360,24 +390,206 @@ function change_document_status(PDO $pdo, array $doc, string $action, int $actor
             ->execute([$actor_id, $reason, $doc['document_id']]);
         return true;
     }
-    if ($action === 'delete' && in_array($status, ['active', 'archived'], true)) {
+    if ($action === 'delete' && in_array($status, ['active', 'for_review', 'archived'], true)) {
         $path = move_document_file($doc['file_path'], deleted_file_path($doc['file_path']));
-        $pdo->prepare("UPDATE documents SET status = 'deleted', file_path = ?, deleted_at = NOW(), deleted_by = ?, delete_reason = ? WHERE document_id = ?")
-            ->execute([$path, $actor_id, $reason, $doc['document_id']]);
+        $pdo->prepare(
+            "UPDATE documents SET status_before_delete = status, status = 'deleted', file_path = ?,
+                    deleted_at = NOW(), deleted_by = ?, delete_reason = ?, purge_warned_at = NULL
+             WHERE document_id = ?"
+        )->execute([$path, $actor_id, $reason, $doc['document_id']]);
         return true;
     }
-    if ($action === 'restore' && in_array($status, ['archived', 'deleted'], true)) {
+    if ($action === 'restore' && $status === 'deleted') {
+        if (!deleted_restore_open($doc)) {
+            return false;   // past the restore window: waiting for the permanent deletion
+        }
+        $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
+        // MySQL applies SET left to right: work out the place it returns to before clearing status_before_delete
+        $pdo->prepare(
+            "UPDATE documents d SET
+                    d.last_viewed_at = IF(d.status_before_delete = 'archived', d.last_viewed_at, NOW()),
+                    d.status = IF(d.status_before_delete IN ('active', 'for_review', 'archived'), d.status_before_delete,
+                                  IF(d.posted_at IS NULL, 'for_review', 'active')),
+                    d.file_path = ?, d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
+                    d.status_before_delete = NULL, d.purge_warned_at = NULL
+             WHERE d.document_id = ? AND d.status = 'deleted'"
+        )->execute([$path, $doc['document_id']]);
+        return true;
+    }
+    if ($action === 'restore' && $status === 'archived') {
         $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
         $pdo->prepare(
-            "UPDATE documents d SET d.status = 'active', d.file_path = ?,
+            "UPDATE documents d SET d.status = IF(d.posted_at IS NULL, 'for_review', 'active'), d.file_path = ?,
                     d.archived_at = NULL, d.archived_by = NULL, d.archive_reason = NULL,
                     d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
-                    d.archive_exempt = IF(" . document_date_sql('d') . " < ?, 1, 0)
+                    d.last_viewed_at = NOW()
              WHERE d.document_id = ?"
-        )->execute([$path, archive_cutoff_date(), $doc['document_id']]);
+        )->execute([$path, $doc['document_id']]);
         return true;
     }
     return false;
+}
+
+// ---------------------------------------------------------------------
+// Recently Deleted (recently_deleted.php). A deleted document can be
+// restored for DELETED_RETENTION_DAYS from deleted_at -- by the Admin, or
+// by its owner if they deleted it themselves. Afterwards the daily check
+// (run_daily_deleted_cleanup()) deletes it permanently: the Admin can also
+// do that at once ("Delete permanently now"). Permanent deletion removes
+// the file (disk copy and document_files), the documents row, its upload
+// log row (submission_requests) and the notifications linked to it;
+// expiration_alerts_sent rows go with it (ON DELETE CASCADE) and PDS
+// entries made from it are kept (source_document_id ON DELETE SET NULL).
+// Only the activity log keeps a record. Dates are Asia/Manila.
+// ---------------------------------------------------------------------
+
+/** When the restore window of a document deleted at $deleted_at ends: DELETED_RETENTION_DAYS later (Asia/Manila). */
+function deleted_purge_at(string $deleted_at): DateTimeImmutable {
+    return (new DateTimeImmutable($deleted_at))->modify('+' . (int)DELETED_RETENTION_DAYS . ' days');
+}
+
+/** Whole days left before the permanent deletion (0 = today or overdue). */
+function deleted_days_left(string $deleted_at): int {
+    return max(0, days_until(deleted_purge_at($deleted_at)->format('Y-m-d')));
+}
+
+/** "Deletes permanently in 12 days" / "in 1 day" / "today". */
+function deleted_days_left_label(int $days): string {
+    return 'Deletes permanently ' . ($days <= 0 ? 'today' : 'in ' . $days . ' day' . ($days === 1 ? '' : 's'));
+}
+
+/** Whether a deleted document is still inside its restore window. */
+function deleted_restore_open(array $doc): bool {
+    return ($doc['status'] ?? '') === 'deleted'
+        && (empty($doc['deleted_at']) || deleted_purge_at($doc['deleted_at']) > new DateTimeImmutable('now'));
+}
+
+/**
+ * Whether $user may restore a deleted document: the Admin any, its owner
+ * only one they deleted themselves (one the Admin deleted, the Admin
+ * restores). $doc needs faculty_id, status, deleted_at, deleted_by.
+ */
+function can_restore_deleted(array $user, array $doc): bool {
+    if (!deleted_restore_open($doc)) {
+        return false;
+    }
+    if ($user['role'] === 'admin') {
+        return true;
+    }
+    return (int)$doc['faculty_id'] === (int)$user['user_id'] && (int)($doc['deleted_by'] ?? 0) === (int)$user['user_id'];
+}
+
+/** SQL condition: deleted documents whose restore window is over. */
+function deleted_expired_sql(string $alias = 'd'): string {
+    return "{$alias}.status = 'deleted' AND {$alias}.deleted_at < NOW() - INTERVAL " . (int)DELETED_RETENTION_DAYS . " DAY";
+}
+
+/**
+ * Delete one document for good (it must be in Recently Deleted; with
+ * $expired_only, only once its restore window is over). $actor: the Admin
+ * who chose "Delete permanently now", or null for the daily cleanup
+ * (logged as "system"). The database rows go in one transaction; the local
+ * file is removed after it commits. Returns false if the document wasn't
+ * (or is no longer) there to delete.
+ */
+function permanently_delete_document(PDO $pdo, int $document_id, ?array $actor, bool $expired_only = false): bool {
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT d.document_id, d.request_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title,
+                    d.deleted_at, d.delete_reason, u.full_name
+             FROM documents d JOIN users u ON u.user_id = d.faculty_id
+             WHERE d.document_id = ? AND " . ($expired_only ? deleted_expired_sql('d') : "d.status = 'deleted'") . " FOR UPDATE"
+        );
+        $stmt->execute([$document_id]);
+        $doc = $stmt->fetch();
+        if (!$doc) {
+            $pdo->rollBack();
+            return false;
+        }
+        // Notifications about this upload, then the document (document_files and expiration_alerts_sent
+        // follow by ON DELETE CASCADE; PDS entries made from it keep their data, unlinked), then its upload log
+        $pdo->prepare("DELETE FROM notifications WHERE request_id = ?")->execute([$doc['request_id']]);
+        $pdo->prepare("DELETE FROM document_files WHERE document_id = ?")->execute([$document_id]);
+        $pdo->prepare("DELETE FROM documents WHERE document_id = ?")->execute([$document_id]);
+        $pdo->prepare("DELETE FROM submission_requests WHERE request_id = ? AND NOT EXISTS (SELECT 1 FROM documents WHERE request_id = ?)")
+            ->execute([$doc['request_id'], $doc['request_id']]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        throw $e;
+    }
+
+    // The local copy (uploads/_deleted/...), only ever inside uploads/
+    $abs = realpath(ROOT_PATH . '/' . $doc['file_path']);
+    $uploads = realpath(UPLOADS_PATH);
+    if ($abs && $uploads && str_starts_with($abs, $uploads . DIRECTORY_SEPARATOR) && is_file($abs) && !@unlink($abs)) {
+        error_log("Permanent deletion of document {$document_id}: the file {$doc['file_path']} could not be removed from the disk");
+    }
+
+    $what = "document #{$document_id} \"" . basename($doc['file_path']) . '" (' . document_type_label($doc['document_type'], $doc['document_subtype'])
+          . (trim((string)$doc['title']) !== '' ? ', ' . $doc['title'] : '') . ") of {$doc['full_name']}, deleted "
+          . date('M j, Y g:i A', strtotime($doc['deleted_at'])) . ($doc['delete_reason'] ? " (reason: {$doc['delete_reason']})" : '');
+    if ($actor) {
+        log_activity($pdo, (int)$actor['user_id'], 'DOCUMENT_PURGE', "Permanently deleted {$what} from Recently Deleted. The file and record were removed.", $actor['role']);
+    } else {
+        log_activity($pdo, null, 'DOCUMENT_AUTO_PURGE', "Permanently deleted {$what} -- " . (int)DELETED_RETENTION_DAYS
+            . ' days in Recently Deleted had passed. The file and record were removed.', 'system');
+    }
+    return true;
+}
+
+/**
+ * The daily Recently Deleted check: permanently delete every document whose
+ * restore window is over, then warn owners whose deleted documents go in
+ * DELETED_PURGE_WARNING_DAYS days (once per deletion). A document that
+ * fails is logged and the others still run; the run then counts as failed,
+ * so run_once_a_day() tries again on the next page load.
+ * @return array{purged: int, warned: int, document_ids: int[]}
+ */
+function cleanup_recently_deleted(PDO $pdo): array {
+    $ids = $pdo->query("SELECT d.document_id FROM documents d WHERE " . deleted_expired_sql('d') . " ORDER BY d.deleted_at")->fetchAll(PDO::FETCH_COLUMN);
+    $purged = [];
+    $failed = [];
+    foreach ($ids as $id) {
+        try {
+            if (permanently_delete_document($pdo, (int)$id, null, true)) { $purged[] = (int)$id; }
+        } catch (Throwable $e) {
+            error_log("Permanent deletion of document {$id} failed: " . $e->getMessage());
+            $failed[] = (int)$id;
+        }
+    }
+
+    $warned = 0;
+    if ((int)DELETED_PURGE_WARNING_DAYS > 0) {
+        $stmt = $pdo->prepare(
+            "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title, d.deleted_at, d.deleted_by
+             FROM documents d
+             WHERE d.status = 'deleted' AND d.purge_warned_at IS NULL
+               AND d.deleted_at < NOW() - INTERVAL ? DAY AND NOT (" . deleted_expired_sql('d') . ")"
+        );
+        $stmt->execute([(int)DELETED_RETENTION_DAYS - (int)DELETED_PURGE_WARNING_DAYS]);
+        $claim = $pdo->prepare("UPDATE documents SET purge_warned_at = NOW() WHERE document_id = ? AND purge_warned_at IS NULL");
+        foreach ($stmt->fetchAll() as $d) {
+            $claim->execute([$d['document_id']]);
+            if ($claim->rowCount() !== 1) { continue; }   // warned by a run at the same moment
+            $own = (int)$d['deleted_by'] === (int)$d['faculty_id'];
+            notify($pdo, (int)$d['faculty_id'], 'Your deleted ' . document_title($d) . ' (' . document_type_label($d['document_type'], $d['document_subtype'])
+                . ') will be permanently deleted on ' . deleted_purge_at($d['deleted_at'])->format('F j, Y') . '. '
+                . ($own ? 'Restore it from Recently Deleted before then if you still need it.' : 'If you still need it, ask the Admin to restore it before then.'),
+                null, 'recently_deleted.php');
+            $warned++;
+        }
+    }
+    if ($failed) {
+        throw new RuntimeException('Could not permanently delete document(s) #' . implode(', #', $failed) . '; deleted: ' . count($purged));
+    }
+    return ['purged' => count($purged), 'warned' => $warned, 'document_ids' => $purged];
+}
+
+/** cleanup_recently_deleted() at most once a day (run_once_a_day()); $force: cron/auto_archive.php. */
+function run_daily_deleted_cleanup(PDO $pdo, bool $force = false): ?array {
+    return run_once_a_day($pdo, 'deleted_cleanup_last_run', 'cleanup_recently_deleted', $force);
 }
 
 /** URL that serves a 201-file document through the access check (document.php). */
@@ -386,13 +598,15 @@ function document_url(int $document_id): string {
 }
 
 /**
- * File a faculty member's upload immediately: move the scan into the
- * repository, log it in submission_requests as 'uploaded' and insert the
- * documents row. $ocr is the OcrProcessor::process() result from the
- * preview step; $meta holds subtype / academic_year / semester /
- * period_year / expiration, and details (document_details_clean()) --
- * the seminar / training details and date issued. The caller notifies the Chair / Dean
- * (notify_new_upload) once any PDS update has been applied.
+ * Store a faculty member's upload: move the scan into the repository, log
+ * it in submission_requests as 'uploaded' and insert the documents row as
+ * For Review (status 'for_review') -- it reaches Public Docs once the Admin
+ * posts it from Manage Document. $ocr is the OcrProcessor::process() result
+ * from the preview step (empty for a manual entry); $meta holds subtype /
+ * academic_year / semester / period_year / expiration, entry_method
+ * ('ocr' / 'manual') and details (document_details_clean()) -- the seminar /
+ * training details and date issued. The caller notifies the Admin, Chair
+ * and Dean (notify_new_upload) once any PDS update has been applied.
  * Returns [request_id, document_id], or null if the file could not be stored.
  */
 function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, array $meta, string $scan_rel, array $ocr): ?array {
@@ -416,8 +630,9 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
             "INSERT INTO documents (request_id, faculty_id, document_type, document_subtype, academic_year, semester, period_year,
                                     title, date_start, date_end, venue, conducted_by, training_type, training_level, hours, date_issued,
                                     file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note,
-                                    confidence_score, predicted_category, chosen_category, is_low_confidence)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                                    confidence_score, predicted_category, chosen_category, is_low_confidence,
+                                    status, entry_method, last_viewed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'for_review', ?, NOW())"
         )->execute([
             $request_id, $faculty['user_id'], $document_type, $subtype,
             $meta['academic_year'] ?? null, $meta['semester'] ?? null, $meta['period_year'] ?? null,
@@ -426,6 +641,7 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
             $ocr['text'] ?? null, $ocr['matched_name'] ?? null,
             isset($ocr['confidence_note']) ? mb_substr($ocr['confidence_note'], 0, 255) : null,
             $check['score'] ?? null, $check['predicted'] ?? null, $document_type, !empty($check['low']) ? 1 : 0,
+            ($meta['entry_method'] ?? 'ocr') === 'manual' ? 'manual' : 'ocr',
         ]);
         $document_id = (int)$pdo->lastInsertId();
         // The file itself goes into the database too -- the disk copy doesn't survive a redeploy
@@ -474,10 +690,15 @@ function confidence_label($score): string {
     return $score === null ? 'Not scored' : round((float)$score * 100) . '%';
 }
 
-/** Low-confidence uploads the Admin hasn't reviewed yet (sidebar badge). */
-function unreviewed_low_confidence_count(PDO $pdo): int {
+/** Uploads waiting For Review in Manage Document (sidebar badge, dashboard); $faculty_id: one person's. */
+function documents_for_review_count(PDO $pdo, ?int $faculty_id = null): int {
     try {
-        return (int)$pdo->query("SELECT COUNT(*) FROM documents WHERE is_low_confidence = 1 AND reviewed_at IS NULL AND status = 'active'")->fetchColumn();
+        if ($faculty_id === null) {
+            return (int)$pdo->query("SELECT COUNT(*) FROM documents WHERE status = 'for_review'")->fetchColumn();
+        }
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE status = 'for_review' AND faculty_id = ?");
+        $stmt->execute([$faculty_id]);
+        return (int)$stmt->fetchColumn();
     } catch (PDOException $e) {
         return 0;   // migration not applied yet
     }
@@ -523,9 +744,10 @@ function faculty_201_checklist(PDO $pdo, int $faculty_id, ?string $employment_ty
     if ($period['semester'] === 3) { $period['semester'] = 2; }
     $sem_label = semester_options()[$period['semester']] . ', AY ' . $period['academic_year'];
 
-    // $archived: an auto-archived (old) copy still counts as "on file" -- for degrees and transcripts
+    // An upload still waiting For Review counts as on file (it's uploaded; the Admin only checks its type).
+    // $archived: an auto-archived copy still counts too -- for degrees and transcripts
     $has = function (string $type, ?array $sem = null, bool $archived = false) use ($pdo, $faculty_id): bool {
-        $sql = "SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND status IN ('active'" . ($archived ? ", 'archived'" : '') . ")";
+        $sql = "SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND status IN ('active', 'for_review'" . ($archived ? ", 'archived'" : '') . ")";
         $params = [$faculty_id, $type];
         if ($sem) { $sql .= " AND academic_year = ? AND semester = ?"; array_push($params, $sem['academic_year'], $sem['semester']); }
         $stmt = $pdo->prepare($sql);
@@ -938,55 +1160,62 @@ function run_daily_expiration_check(PDO $pdo, bool $force = false): ?array {
 }
 
 // ---------------------------------------------------------------------
-// Auto-archive. A document more than ARCHIVE_AFTER_YEARS old (by its own
-// date, see document_date_sql()) moves to its owner's archive: status
-// 'archived', archived_by NULL, archive_reason auto_archive_reason(). The
-// file and record are kept; the owner sees it in My Archive, the Admin can
-// restore it (which sets archive_exempt when it's still old). Archived
-// documents are left out of active lists, searches, dashboards, expiration
-// alerts and analytics, which all filter on status = 'active'.
-// Runs at most once a day (run_daily_auto_archive(), dashboards and
-// cron/auto_archive.php) and for one document right after it is uploaded
-// or its dates are changed.
+// Auto-archive. A posted document nobody has opened in
+// ARCHIVE_UNVIEWED_YEARS years (documents.last_viewed_at, set by
+// document.php) moves to its owner's archive: status 'archived',
+// archived_by NULL, archive_reason auto_archive_reason(). The file and
+// record are kept; the owner sees it in their Archived Docs, the
+// Admin can restore it (which counts as a view). Opening an archived
+// document does not restore it. Archived documents are left out of Public
+// Docs, searches, dashboards, expiration alerts and analytics, which all
+// filter on status = 'active'. Runs at most once a day
+// (run_daily_auto_archive(), dashboards and cron/auto_archive.php).
 // ---------------------------------------------------------------------
 
 /**
  * SQL for the date a documents row $alias is "from": the seminar / training
  * end date, else its start date, else the date issued, else the upload date.
+ * (Shown in archive lists; no longer used by the archive rule.)
  */
 function document_date_sql(string $alias = 'd'): string {
     return "COALESCE({$alias}.date_end, {$alias}.date_start, {$alias}.date_issued, DATE({$alias}.filed_at))";
 }
 
-/** Documents dated before this day (Y-m-d, Asia/Manila) are more than ARCHIVE_AFTER_YEARS old. */
-function archive_cutoff_date(): string {
-    return (new DateTimeImmutable('today'))->modify('-' . (int)ARCHIVE_AFTER_YEARS . ' years')->format('Y-m-d');
+/** SQL for when a documents row $alias was last opened (its upload time if never). */
+function document_last_viewed_sql(string $alias = 'd'): string {
+    return "COALESCE({$alias}.last_viewed_at, {$alias}.filed_at)";
+}
+
+/** Documents last opened before this moment (Y-m-d H:i:s, Asia/Manila) haven't been opened in ARCHIVE_UNVIEWED_YEARS years. */
+function archive_cutoff_datetime(): string {
+    return (new DateTimeImmutable('now'))->modify('-' . (int)ARCHIVE_UNVIEWED_YEARS . ' years')->format('Y-m-d H:i:s');
+}
+
+/** "3 years" -- the archive rule's period, for messages. */
+function archive_period_label(): string {
+    return (int)ARCHIVE_UNVIEWED_YEARS . ' year' . ((int)ARCHIVE_UNVIEWED_YEARS === 1 ? '' : 's');
 }
 
 function auto_archive_reason(): string {
-    return 'Auto: older than ' . (int)ARCHIVE_AFTER_YEARS . ' years';
+    return 'Auto: not opened in ' . archive_period_label();
 }
 
 /**
- * Archive every active document older than ARCHIVE_AFTER_YEARS (or just
- * $document_id). $actor is the user whose action triggered it (an upload,
- * an edit), or null for the daily run, which is logged as "system". One
- * activity-log entry per run; each owner is notified, except when the
- * owner's own action archived it (they see it on screen instead).
+ * Archive every posted document not opened in ARCHIVE_UNVIEWED_YEARS years.
+ * Documents the Admin restored under the old date rule (archive_exempt)
+ * and ARCHIVE_EXEMPT_CATEGORIES are skipped. The daily run is logged as
+ * "system"; one activity-log entry per run, and each owner is notified.
  * @return array{archived: int, document_ids: int[]}
  */
-function auto_archive_old_documents(PDO $pdo, ?array $actor = null, ?int $document_id = null): array {
-    $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title, " . document_date_sql('d') . " AS doc_date
+function auto_archive_unviewed_documents(PDO $pdo): array {
+    $last_viewed = document_last_viewed_sql('d');
+    $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title
             FROM documents d
-            WHERE d.status = 'active' AND d.archive_exempt = 0 AND " . document_date_sql('d') . " < ?";
-    $params = [archive_cutoff_date()];
+            WHERE d.status = 'active' AND d.archive_exempt = 0 AND $last_viewed < ?";
+    $params = [archive_cutoff_datetime()];
     if (ARCHIVE_EXEMPT_CATEGORIES) {
         $sql .= " AND d.document_type NOT IN (" . implode(',', array_fill(0, count(ARCHIVE_EXEMPT_CATEGORIES), '?')) . ")";
         array_push($params, ...ARCHIVE_EXEMPT_CATEGORIES);
-    }
-    if ($document_id !== null) {
-        $sql .= " AND d.document_id = ?";
-        $params[] = $document_id;
     }
     $stmt = $pdo->prepare($sql . " ORDER BY d.faculty_id, d.document_id");
     $stmt->execute($params);
@@ -995,56 +1224,53 @@ function auto_archive_old_documents(PDO $pdo, ?array $actor = null, ?int $docume
         return ['archived' => 0, 'document_ids' => []];
     }
 
+    // Checked again in the UPDATE: not taken by a run at the same moment, and not opened in the meantime
     $archive = $pdo->prepare(
-        "UPDATE documents SET status = 'archived', archived_at = NOW(), archived_by = NULL, archive_reason = ?
-         WHERE document_id = ? AND status = 'active' AND archive_exempt = 0"
+        "UPDATE documents d SET d.status = 'archived', d.archived_at = NOW(), d.archived_by = NULL, d.archive_reason = ?
+         WHERE d.document_id = ? AND d.status = 'active' AND d.archive_exempt = 0 AND $last_viewed < ?"
     );
     $done = [];
     foreach ($docs as $d) {
-        $archive->execute([auto_archive_reason(), $d['document_id']]);
-        if ($archive->rowCount() === 1) { $done[] = $d; }   // not already taken by a run at the same moment
+        $archive->execute([auto_archive_reason(), $d['document_id'], $params[0]]);
+        if ($archive->rowCount() === 1) { $done[] = $d; }
     }
     if (!$done) {
         return ['archived' => 0, 'document_ids' => []];
     }
 
     $ids = array_map(fn($d) => (int)$d['document_id'], $done);
-    $details = 'Auto-archived ' . count($done) . ' document' . (count($done) === 1 ? '' : 's')
-             . ' dated before ' . date('M j, Y', strtotime(archive_cutoff_date())) . ' (older than ' . (int)ARCHIVE_AFTER_YEARS . ' years): '
-             . implode(', ', array_map(fn($d) => "#{$d['document_id']}", $done)) . '.';
-    if ($actor) {
-        log_activity($pdo, (int)$actor['user_id'], 'DOCUMENT_AUTO_ARCHIVE', $details, $actor['role']);
-    } else {
-        log_activity($pdo, null, 'DOCUMENT_AUTO_ARCHIVE', $details, 'system');
-    }
+    log_activity($pdo, null, 'DOCUMENT_AUTO_ARCHIVE', 'Auto-archived ' . count($done) . ' document' . (count($done) === 1 ? '' : 's')
+        . ' not opened since ' . date('M j, Y', strtotime(archive_cutoff_datetime())) . ' (' . archive_period_label() . '): '
+        . implode(', ', array_map(fn($d) => "#{$d['document_id']}", $done)) . '.', 'system');
 
     $by_owner = [];
     foreach ($done as $d) { $by_owner[(int)$d['faculty_id']][] = $d; }
     foreach ($by_owner as $owner_id => $owned) {
-        if ($actor && (int)$actor['user_id'] === $owner_id) { continue; }
         $names = array_map(fn($d) => document_title($d), array_slice($owned, 0, 5));
-        notify($pdo, $owner_id, count($owned) . ' document' . (count($owned) === 1 ? ' was' : 's were') . ' moved to your archive because '
-            . (count($owned) === 1 ? 'it is' : 'they are') . ' more than ' . (int)ARCHIVE_AFTER_YEARS . ' years old: '
+        notify($pdo, $owner_id, count($owned) . ' document' . (count($owned) === 1 ? ' was' : 's were') . ' moved to your Archived Docs because '
+            . (count($owned) === 1 ? 'it has' : 'they have') . ' not been opened in ' . archive_period_label() . ': '
             . implode('; ', $names) . (count($owned) > 5 ? '; and ' . (count($owned) - 5) . ' more' : '')
-            . '. You can still view and download them in My Archive.');
+            . '. You can still view and download ' . (count($owned) === 1 ? 'it' : 'them') . ' there; ask the Admin if '
+            . (count($owned) === 1 ? 'it' : 'one') . ' should be restored.', null, 'archive.php');
     }
     return ['archived' => count($done), 'document_ids' => $ids];
 }
 
-/** auto_archive_old_documents() at most once a day (run_once_a_day()). $force: cron/auto_archive.php. */
+/** auto_archive_unviewed_documents() at most once a day (run_once_a_day()). $force: cron/auto_archive.php. */
 function run_daily_auto_archive(PDO $pdo, bool $force = false): ?array {
-    return run_once_a_day($pdo, 'auto_archive_last_run', fn(PDO $pdo) => auto_archive_old_documents($pdo), $force);
+    return run_once_a_day($pdo, 'auto_archive_last_run', 'auto_archive_unviewed_documents', $force);
 }
 
 /**
- * The dashboards' once-a-day jobs: archive old documents first, so they get
- * no expiration alerts; reminders last, so they know which expiration
+ * The dashboards' once-a-day jobs: archive unopened documents first, so they get
+ * no expiration alerts; then the Recently Deleted cleanup; reminders last, so they know which expiration
  * alerts already went out (includes/ai_reminders.php). Then the signed-in
  * user's own reminders, if the day's run didn't cover them (a new account,
  * or their check failed).
  */
 function run_daily_jobs(PDO $pdo): void {
     run_daily_auto_archive($pdo);
+    run_daily_deleted_cleanup($pdo);
     run_daily_expiration_check($pdo);
     run_daily_reminder_check($pdo);
     if ($me = current_user()) { ensure_reminders_checked($pdo, (int)$me['user_id']); }
@@ -1117,10 +1343,10 @@ function training_type_label(array $doc): string {
     return implode(' · ', array_filter([$doc['training_type'] ?? null, $doc['training_level'] ?? null]));
 }
 
-/** Whether $user may edit a document's details: its owner while it's active, or the Admin. */
+/** Whether $user may edit a document's details: its owner while it's posted or waiting for review, or the Admin. */
 function can_edit_document_details(array $user, array $doc): bool {
     return $user['role'] === 'admin'
-        || ((int)$doc['faculty_id'] === (int)$user['user_id'] && ($doc['status'] ?? '') === 'active');
+        || ((int)$doc['faculty_id'] === (int)$user['user_id'] && in_array($doc['status'] ?? '', ['active', 'for_review'], true));
 }
 
 /**
@@ -1351,6 +1577,10 @@ function activity_actions(): array {
         'DOCUMENT_ARCHIVE'   => 'Document Archived',
         'DOCUMENT_RESTORE'   => 'Document Restored',
         'DOCUMENT_AUTO_ARCHIVE' => 'Documents Auto-Archived',
+        'DOCUMENT_POST'      => 'Document Posted (Classification Review)',
+        'DOCUMENT_REVIEW_EDIT' => 'Document Corrected in Review',
+        'DOCUMENT_PURGE'     => 'Document Permanently Deleted',
+        'DOCUMENT_AUTO_PURGE' => 'Document Permanently Deleted (automatic)',
         'DOCUMENT_DETAILS'   => 'Document Details Updated',
         'PROFILE_UPDATE'     => 'Profile Updated',
         'PROFILE_PICTURE'    => 'Profile Picture Changed',
@@ -1411,4 +1641,6 @@ function unresolved_security_alert_count(PDO $pdo): int {
 }
 
 require_once __DIR__ . '/profile.php';   // profiles: access scope, pictures, profile details
+require_once __DIR__ . '/document_review.php';   // Manage Document: classification review, posting
+require_once __DIR__ . '/page_tabs.php';         // tab bars joining the pages behind one menu entry
 require_once __DIR__ . '/ai.php';        // AI (Gemini): settings, privacy, reminders

@@ -7,6 +7,11 @@ $page_title = 'Notifications';
 $me = current_user();
 
 $action = $_POST['action'] ?? '';
+if ($action !== '' && !csrf_valid()) {   // every action is a POST with the CSRF token
+    $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
+    header('Location: ' . BASE_URL . '/approval/notifications.php');
+    exit;
+}
 if ($action === 'mark_all_read') {
     mark_all_notifications_read($pdo, $me['user_id']);
     header('Location: ' . BASE_URL . '/approval/notifications.php');
@@ -29,7 +34,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <h3 class="fw-bold mb-0">Notifications</h3>
-  <form method="POST"><input type="hidden" name="action" value="mark_all_read">
+  <form method="POST"><?= csrf_field() ?><input type="hidden" name="action" value="mark_all_read">
     <button class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-check-double"></i> Mark all as read</button>
   </form>
 </div>
@@ -41,6 +46,7 @@ include __DIR__ . '/../includes/header.php';
     <?php endif; ?>
     <?php foreach ($notifications as $n): ?>
       <form method="POST" class="m-0">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="mark_read">
         <input type="hidden" name="id" value="<?= (int)$n['notification_id'] ?>">
         <button type="submit" class="list-group-item list-group-item-action notif-item text-start w-100 <?= $n['is_read'] ? '' : 'notif-unread' ?>"

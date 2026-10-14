@@ -303,9 +303,10 @@ function check_reminders(PDO $pdo, ?int $only_user = null): array {
 
     // Looked up for everyone at once. Someone with no seminar / training certificate -- or no
     // uploads at all -- isn't in $last_seminar: that's "never", which gets the reminder too.
+    // One still waiting For Review counts: it was uploaded, the Admin only checks its type.
     $stmt = $pdo->prepare(
         "SELECT faculty_id, MAX(filed_at) FROM documents
-         WHERE document_type = 'Certificate' AND status IN ('active', 'archived')
+         WHERE document_type = 'Certificate' AND status IN ('active', 'for_review', 'archived')
            AND (document_subtype IN ('Seminar', 'Training') OR training_type IS NOT NULL)" . ($one ? ' AND faculty_id = ?' : '') . "
          GROUP BY faculty_id"
     );

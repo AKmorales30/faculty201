@@ -4,7 +4,8 @@
 -- One script with everything from schema.sql and all database/migration_*.sql
 -- files. Safe to run any number of times, on any database of this system
 -- (new, partly migrated, or complete): every statement uses IF NOT EXISTS,
--- nothing is dropped, and no existing data is changed. It then records all
+-- nothing is dropped, and no existing data is changed (except that
+-- documents without a last-viewed / posted time get their upload time). It then records all
 -- migrations as applied, so the automatic runner (run_pending_migrations()
 -- in includes/functions.php) doesn't try them again.
 --
@@ -144,6 +145,19 @@ CREATE INDEX IF NOT EXISTS idx_documents_low_confidence ON documents(is_low_conf
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status, faculty_id);
 CREATE INDEX IF NOT EXISTS idx_documents_status_filed ON documents(status, filed_at);
 CREATE INDEX IF NOT EXISTS idx_documents_training ON documents(document_type, status, date_start);
+ALTER TABLE documents MODIFY COLUMN status ENUM('active','archived','deleted','for_review') NOT NULL DEFAULT 'active';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS posted_at DATETIME NULL AFTER reviewed_by;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS posted_by INT NULL AFTER posted_at;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS entry_method VARCHAR(10) NULL AFTER posted_by;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_viewed_at DATETIME NULL AFTER entry_method;
+UPDATE documents SET last_viewed_at = filed_at WHERE last_viewed_at IS NULL;
+UPDATE documents SET posted_at = filed_at WHERE posted_at IS NULL AND status <> 'for_review';
+CREATE INDEX IF NOT EXISTS idx_documents_last_viewed ON documents(status, last_viewed_at);
+CREATE INDEX IF NOT EXISTS idx_documents_review_queue ON documents(status, filed_at);
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS status_before_delete VARCHAR(20) NULL AFTER delete_reason;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS purge_warned_at DATETIME NULL AFTER status_before_delete;
+UPDATE documents SET deleted_at = NOW() WHERE status = 'deleted' AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_documents_deleted ON documents(status, deleted_at);
 
 CREATE TABLE IF NOT EXISTS document_files (
     document_id  INT PRIMARY KEY,
@@ -360,4 +374,5 @@ INSERT IGNORE INTO schema_migrations (name) VALUES
     ('migration_programs_colleges.sql'), ('migration_document_files.sql'), ('migration_classification_confidence.sql'),
     ('migration_activity_logs.sql'), ('migration_expiration_alerts.sql'), ('migration_document_removal.sql'),
     ('migration_password_management.sql'), ('migration_login_lockout.sql'), ('migration_search_indexes.sql'),
-    ('migration_profile_reports_archive.sql'), ('migration_ai_features.sql'), ('migration_reminder_checks.sql');
+    ('migration_profile_reports_archive.sql'), ('migration_ai_features.sql'), ('migration_reminder_checks.sql'),
+    ('migration_review_archive_views.sql'), ('migration_recently_deleted.sql');

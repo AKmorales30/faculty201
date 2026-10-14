@@ -119,13 +119,18 @@ $unset = '<span class="profile-unset">Not set</span>';
 $show = fn(?string $v): string => ($v !== null && trim($v) !== '') ? h($v) : $unset;
 $fmt_date = fn(?string $d, string $f = 'F j, Y'): ?string => $d ? date($f, strtotime($d)) : null;
 
-$page_title = $is_own ? 'My Profile' : $u['full_name'] . ' — Profile';
+$page_title = $is_own ? 'Profile Preference' : $u['full_name'] . ' — Profile';
 include __DIR__ . '/includes/header.php';
 ?>
 
+<?php if ($is_own): ?>
+  <h3 class="fw-bold mb-3">Profile Preference</h3>
+  <?= profile_tabs('profile') ?>
+<?php endif; ?>
+
 <?php if (!$is_own): ?>
   <a href="<?= BASE_URL ?>/<?= $viewer_admin ? 'admin/view_records.php' : 'faculty_directory.php' ?>" class="small text-muted d-inline-block mb-3">
-    <i class="fa-solid fa-arrow-left"></i> Back to <?= $viewer_admin ? 'Faculty Records' : 'Faculty Profiles' ?>
+    <i class="fa-solid fa-arrow-left"></i> Back to <?= $viewer_admin ? 'Public Docs &rsaquo; By faculty' : 'Faculty Profiles' ?>
   </a>
 <?php endif; ?>
 
@@ -149,12 +154,12 @@ include __DIR__ . '/includes/header.php';
       <?php endif; ?>
     </div>
     <div class="flex-grow-1 min-w-0 text-center text-sm-start">
-      <h3 class="fw-bold mb-1"><?= h($u['full_name']) ?></h3>
+      <<?= $is_own ? 'h4' : 'h3' ?> class="fw-bold mb-1"><?= h($u['full_name']) ?></<?= $is_own ? 'h4' : 'h3' ?>>
       <div class="text-muted mb-2"><?= h(user_position_line($u)) ?><?= $u['academic_rank'] && $u['academic_rank'] !== 'N/A' ? ' · ' . h($u['academic_rank']) : '' ?></div>
       <div class="d-flex flex-wrap gap-2 justify-content-center justify-content-sm-start">
-        <span class="badge <?= $u['is_active'] ? 'bg-success' : 'bg-secondary' ?>"><?= $u['is_active'] ? 'Active account' : 'Deactivated account' ?></span>
-        <?php if ($u['employment_status']): ?>
-          <span class="badge <?= $u['employment_status'] === 'active' ? 'bg-info' : 'bg-warning' ?> text-capitalize">Employment: <?= h($u['employment_status']) ?></span>
+        <span class="status-pill <?= $u['is_active'] ? 'status-pill-active' : 'status-pill-off' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
+        <?php if ($u['employment_status'] === 'paused'): ?>
+          <span class="small text-muted"><i class="fa-solid fa-pause"></i> Employment paused</span>
         <?php endif; ?>
       </div>
       <?php if (!$is_own && ($viewer_admin || $has_201)): ?>
@@ -227,7 +232,7 @@ include __DIR__ . '/includes/header.php';
         </div>
         <p class="small text-muted mt-3 mb-0">
           <?php if ($has_201): ?>
-            Your address, employee number and other personal details are edited in <a href="<?= BASE_URL ?>/faculty/pds.php">My PDS</a>.
+            Your address, employee number and other personal details are edited in the <a href="<?= BASE_URL ?>/faculty/pds.php">My PDS</a> tab.
           <?php endif; ?>
           Your employee ID is set by the Admin<?= $has_201 ? ' (until then, the Agency Employee No. in your PDS is shown)' : '' ?>.
         </p>
@@ -311,7 +316,7 @@ include __DIR__ . '/includes/header.php';
         </div>
         <?php if ($summary['trainings_archived'] || $exp_total): ?>
           <p class="small text-muted">
-            <?php if ($summary['trainings_archived']): ?><?= (int)$summary['trainings_archived'] ?> of the seminars / trainings are in the archive (more than <?= (int)ARCHIVE_AFTER_YEARS ?> years old). <?php endif; ?>
+            <?php if ($summary['trainings_archived']): ?><?= (int)$summary['trainings_archived'] ?> of the seminars / trainings  are in Archived Docs. <?php endif; ?>
             <?php if ($exp_total): ?><?= (int)$summary['expired'] ?> expired, <?= (int)$summary['expiring'] ?> expiring within 60 days.<?php endif; ?>
           </p>
         <?php endif; ?>

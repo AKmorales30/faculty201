@@ -7,10 +7,19 @@ $page_title = 'Manage Faculty & Accounts';
 $me = current_user();
 $action = $_POST['action'] ?? '';
 
+// Account status: only Active (can log in) and Deactivated (cannot) -- users.is_active.
+// Employment pause, a temporary password and a login lockout are not account
+// statuses: they show as small notes under the status.
+// The list's filters (role, status) are kept across every action: forms post to the same URL.
+$role_filter = in_array($_GET['role'] ?? '', ['admin', 'faculty', 'program_chair', 'dean'], true) ? $_GET['role'] : '';
+$status_filter = in_array($_GET['status'] ?? '', ['active', 'deactivated'], true) ? $_GET['status'] : '';
+$list_query = http_build_query(array_filter(['role' => $role_filter, 'status' => $status_filter]));
+$list_url = BASE_URL . '/admin/manage_faculty.php' . ($list_query !== '' ? '?' . $list_query : '');
+
 // Every action is a POST with the CSRF token (create / reset / unlock also say so in their own messages)
 if (in_array($action, ['assign', 'toggle_active', 'pause', 'resume', 'profile_details'], true) && !csrf_valid()) {
     $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
-    header('Location: ' . BASE_URL . '/admin/manage_faculty.php');
+    header('Location: ' . $list_url);
     exit;
 }
 
@@ -70,7 +79,7 @@ if ($action === 'assign') {
             $_SESSION['flash_success'] = "Updated {$target['full_name']}.";
         }
     }
-    header('Location: ' . BASE_URL . '/admin/manage_faculty.php' . (isset($_GET['role']) ? '?role=' . urlencode($_GET['role']) : ''));
+    header('Location: ' . $list_url);
     exit;
 }
 
@@ -81,7 +90,7 @@ if ($action === 'assign') {
 // ---------------------------------------------------------------------
 if ($action === 'profile_details') {
     $target = user_row($pdo, (int)($_POST['user_id'] ?? 0));
-    $back = BASE_URL . '/admin/manage_faculty.php' . (isset($_GET['role']) ? '?role=' . urlencode($_GET['role']) : '');
+    $back = $list_url;
     if (!$target) {
         $_SESSION['flash_error'] = 'That account could not be found.';
         header('Location: ' . $back);
@@ -186,7 +195,7 @@ if ($action === 'create') {
             $_SESSION['temp_password_notice'] = ['name' => $full_name, 'email' => $email, 'password' => $password, 'what' => 'created'];
         }
     }
-    header('Location: ' . BASE_URL . '/admin/manage_faculty.php');
+    header('Location: ' . $list_url);
     exit;
 }
 
@@ -218,7 +227,7 @@ if ($action === 'reset_password') {
         $_SESSION['flash_success'] = "Password reset for {$target['full_name']}.";
         $_SESSION['temp_password_notice'] = ['name' => $target['full_name'], 'email' => $target['email'], 'password' => $password, 'what' => 'reset'];
     }
-    header('Location: ' . BASE_URL . '/admin/manage_faculty.php' . (isset($_GET['role']) ? '?role=' . urlencode($_GET['role']) : ''));
+    header('Location: ' . $list_url);
     exit;
 }
 
@@ -234,7 +243,7 @@ if ($action === 'unlock_login') {
     } else {
         $_SESSION['flash_error'] = 'That account is not locked.';
     }
-    header('Location: ' . BASE_URL . '/admin/manage_faculty.php' . (isset($_GET['role']) ? '?role=' . urlencode($_GET['role']) : ''));
+    header('Location: ' . $list_url);
     exit;
 }
 
@@ -254,7 +263,7 @@ if ($action === 'toggle_active') {
     } else {
         $_SESSION['flash_error'] = 'You cannot deactivate your own account.';
     }
-    header('Location: ' . BASE_URL . '/admin/manage_faculty.php');
+    header('Location: ' . $list_url);
     exit;
 }
 
@@ -274,21 +283,30 @@ if ($action === 'pause' || $action === 'resume') {
             . (trim($_POST['remarks'] ?? '') !== '' ? ' -- Remarks: ' . trim($_POST['remarks']) : '') . '.');
     }
     $_SESSION['flash_success'] = $action === 'pause' ? 'Faculty employment paused.' : 'Faculty employment resumed.';
-    header('Location: ' . BASE_URL . '/admin/manage_faculty.php');
+    header('Location: ' . $list_url);
     exit;
 }
 
-$role_filter = $_GET['role'] ?? '';
-$sql = "SELECT * FROM users";
+$where = [];
 $params = [];
-if (in_array($role_filter, ['admin','faculty','program_chair','dean'], true)) {
-    $sql .= " WHERE role = ?";
+if ($role_filter !== '') {
+    $where[] = "role = ?";
     $params[] = $role_filter;
 }
-$sql .= " ORDER BY role, full_name";
-$stmt = $pdo->prepare($sql);
+// Counts for the status filter, within the role filter
+$stmt = $pdo->prepare("SELECT is_active, COUNT(*) FROM users" . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . " GROUP BY is_active");
+$stmt->execute($params);
+$status_counts = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+if ($status_filter !== '') {
+    $where[] = "is_active = ?";
+    $params[] = $status_filter === 'active' ? 1 : 0;
+}
+$stmt = $pdo->prepare("SELECT * FROM users" . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . " ORDER BY role, full_name");
 $stmt->execute($params);
 $users = $stmt->fetchAll();
+
+/** This page with the role / status filter changed, the other kept. */
+$filter_url = fn(array $change): string => '?' . http_build_query(array_filter(array_merge(['role' => $role_filter, 'status' => $status_filter], $change)));
 
 // Accounts locked out by failed logins right now: email => seconds left
 $locked = [];
@@ -398,14 +416,19 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
 
   <div class="col-lg-8">
     <div class="card stat-card">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <span class="fw-semibold">All Accounts</span>
-        <div class="btn-group btn-group-sm">
-          <a href="?role=" class="btn btn-outline-brand <?= $role_filter === '' ? 'active' : '' ?>">All</a>
-          <a href="?role=faculty" class="btn btn-outline-brand <?= $role_filter === 'faculty' ? 'active' : '' ?>">Faculty</a>
-          <a href="?role=program_chair" class="btn btn-outline-brand <?= $role_filter === 'program_chair' ? 'active' : '' ?>">Chair</a>
-          <a href="?role=dean" class="btn btn-outline-brand <?= $role_filter === 'dean' ? 'active' : '' ?>">Dean</a>
-          <a href="?role=admin" class="btn btn-outline-brand <?= $role_filter === 'admin' ? 'active' : '' ?>">Admin</a>
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold">All Accounts <span class="text-muted fw-normal small">(<?= count($users) ?>)</span></span>
+        <div class="d-flex flex-wrap gap-2">
+          <div class="btn-group btn-group-sm" role="group" aria-label="Filter by role">
+            <?php foreach (['' => 'All roles', 'faculty' => 'Faculty', 'program_chair' => 'Chair', 'dean' => 'Dean', 'admin' => 'Admin'] as $key => $label): ?>
+              <a href="<?= h($filter_url(['role' => $key])) ?>" class="btn btn-outline-brand <?= $role_filter === $key ? 'active' : '' ?>"><?= h($label) ?></a>
+            <?php endforeach; ?>
+          </div>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Filter by status">
+            <?php foreach (['' => ['All', array_sum($status_counts)], 'active' => ['Active', $status_counts[1] ?? 0], 'deactivated' => ['Deactivated', $status_counts[0] ?? 0]] as $key => [$label, $n]): ?>
+              <a href="<?= h($filter_url(['status' => $key])) ?>" class="btn btn-outline-secondary <?= $status_filter === $key ? 'active' : '' ?>"><?= h($label) ?> <span class="small opacity-75"><?= (int)$n ?></span></a>
+            <?php endforeach; ?>
+          </div>
         </div>
       </div>
       <div class="card-body p-0 table-responsive">
@@ -432,7 +455,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
               </td>
               <td>
                 <?php if ($u['role'] !== 'admin'): ?>
-                <form method="POST" action="?<?= $role_filter !== '' ? 'role=' . h($role_filter) : '' ?>" class="d-flex gap-1 align-items-center">
+                <form method="POST" action="?<?= h($list_query) ?>" class="d-flex gap-1 align-items-center">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="assign">
                   <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
@@ -467,25 +490,23 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <?php else: ?><span class="text-muted small">—</span><?php endif; ?>
               </td>
               <td>
-                <span class="badge <?= $u['is_active'] ? 'bg-success' : 'bg-secondary' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
-                <?php if (!empty($u['must_change_password'])): ?>
-                  <div class="mt-1"><span class="badge bg-warning" title="Must choose a new password at next login"><i class="fa-solid fa-key"></i> Temporary password</span></div>
-                <?php endif; ?>
+                <span class="status-pill <?= $u['is_active'] ? 'status-pill-active' : 'status-pill-off' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
                 <?php if (isset($locked[mb_strtolower($u['email'])])): ?>
-                  <div class="mt-1 d-flex align-items-center gap-1 flex-wrap">
-                    <span class="badge bg-danger" title="Too many failed login attempts"><i class="fa-solid fa-lock"></i> Locked until <?= h(date('g:i A', time() + $locked[mb_strtolower($u['email'])])) ?></span>
-                    <form method="POST" action="?<?= $role_filter !== '' ? 'role=' . h($role_filter) : '' ?>" class="d-inline" onsubmit="return confirm('Unlock login for this account now?');">
+                  <div class="mt-1 d-flex align-items-center gap-1 flex-wrap small text-muted">
+                    <span title="Too many failed login attempts -- unlocks by itself"><i class="fa-solid fa-lock"></i> Login locked until <?= h(date('g:i A', time() + $locked[mb_strtolower($u['email'])])) ?></span>
+                    <form method="POST" action="?<?= h($list_query) ?>" class="d-inline" onsubmit="return confirm('Unlock login for this account now?');">
                       <?= csrf_field() ?>
                       <input type="hidden" name="action" value="unlock_login">
                       <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
-                      <button class="btn btn-sm btn-outline-danger py-0"><i class="fa-solid fa-lock-open"></i> Unlock</button>
+                      <button class="btn btn-link btn-sm p-0 align-baseline small">Unlock</button>
                     </form>
                   </div>
                 <?php endif; ?>
-                <?php if ($u['role'] === 'faculty'): ?>
-                  <div class="mt-1">
-                    <span class="badge <?= $u['employment_status'] === 'active' ? 'bg-info text-dark' : 'bg-warning text-dark' ?> text-capitalize"><?= h($u['employment_status']) ?></span>
-                  </div>
+                <?php if (!empty($u['must_change_password'])): ?>
+                  <div class="small text-muted mt-1" title="Must choose a new password at next login"><i class="fa-solid fa-key"></i> Temporary password</div>
+                <?php endif; ?>
+                <?php if ($u['role'] === 'faculty' && $u['employment_status'] === 'paused'): ?>
+                  <div class="small text-muted mt-1" title="Employment paused: no FTA / IPCR expected this semester. The account can still log in."><i class="fa-solid fa-pause"></i> Employment paused</div>
                 <?php endif; ?>
               </td>
               <td class="text-nowrap">
@@ -543,7 +564,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
 <!-- Profile details only the Admin sets -->
 <div class="modal fade" id="detailsModal" tabindex="-1" aria-labelledby="detailsTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
-    <form method="POST" action="?<?= $role_filter !== '' ? 'role=' . h($role_filter) : '' ?>" class="modal-content">
+    <form method="POST" action="?<?= h($list_query) ?>" class="modal-content">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="profile_details">
       <input type="hidden" name="user_id" id="detailsUserId">
@@ -593,7 +614,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
 <!-- Reset password: confirmation dialog -->
 <div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetPasswordTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
-    <form method="POST" action="?<?= $role_filter !== '' ? 'role=' . h($role_filter) : '' ?>" class="modal-content">
+    <form method="POST" action="?<?= h($list_query) ?>" class="modal-content">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="reset_password">
       <input type="hidden" name="user_id" id="resetUserId">

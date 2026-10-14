@@ -27,7 +27,7 @@ require_once __DIR__ . '/includes/ai_report.php';
 require_role(['admin', 'program_chair', 'dean']);
 
 $me = current_user();
-$page_title = 'Seminar & Training Report';
+$page_title = 'Training Summary';   // the Seminar & Training Report (menu: Report > Training Summary)
 $subtypes = document_categories()['Certificate']['subtypes'];
 const TYPE_NOT_SET = '__none';
 
@@ -241,8 +241,8 @@ include __DIR__ . '/includes/header.php';
 
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4 no-print">
   <div>
-    <h3 class="fw-bold mb-1">Seminar &amp; Training Report</h3>
-    <p class="text-muted mb-0">Every seminar, training and certificate in the faculty 201 files, with its details. Print it, save it as PDF or export it to CSV.
+    <h3 class="fw-bold mb-1">Training Summary</h3>
+    <p class="text-muted mb-0">The Seminar &amp; Training Report: every posted seminar, training and certificate in the faculty 201 files, with its details. Print it, save it as PDF or export it to CSV.
       <?php if ($me['role'] === 'program_chair'): ?>You see the faculty of your program.<?php elseif ($me['role'] === 'dean'): ?>You see the faculty and Program Chairs of your college.<?php endif; ?></p>
   </div>
   <div class="d-flex gap-2">
@@ -313,7 +313,7 @@ include __DIR__ . '/includes/header.php';
       <div class="col-md-6 col-xl-4 d-flex align-items-center">
         <div class="form-check mt-md-4">
           <input type="checkbox" name="include_archived" value="1" id="fArchived" class="form-check-input" <?= $include_archived ? 'checked' : '' ?>>
-          <label for="fArchived" class="form-check-label small">Include archived (more than <?= (int)ARCHIVE_AFTER_YEARS ?> years old)</label>
+          <label for="fArchived" class="form-check-label small">Include archived (not opened in <?= h(archive_period_label()) ?>, or archived by the Admin)</label>
         </div>
       </div>
       <div class="col-md-6 col-xl-4 d-flex gap-2">

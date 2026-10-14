@@ -1,7 +1,8 @@
 <?php
 /**
- * 201-file folder tiles + document list, shared by Faculty "My 201 File"
- * and the Admin per-faculty drill-down.
+ * 201-file folder tiles + document list of posted documents, shared by the
+ * faculty member's Public Docs and the Admin per-faculty drill-down. View
+ * opens the preview pop-up.
  *
  * Expects: $pdo, $faculty (users row), $link_base (query-string prefix
  * for this page, e.g. '?' or '?id=12&').
@@ -23,7 +24,8 @@ $active_sub = $_GET['sub'] ?? '';
 if ($active_type === '' || !isset($all_categories[$active_type]['subtypes'][$active_sub])) { $active_sub = ''; }
 $q = trim($_GET['q'] ?? '');
 
-// Active documents only -- archived ones are in the faculty member's archive (archive.php), deleted ones on the Admin's Archived Documents page
+// Posted documents only -- For Review ones are in the Pending review tab / Manage Document, archived ones in
+// the faculty member's archive (archive.php), deleted ones on the Admin's Archived Docs page
 $stmt = $pdo->prepare("SELECT d.*, " . delete_window_sql('d') . " AS delete_seconds_left, ? AS full_name
                        FROM documents d WHERE d.faculty_id = ? AND d.status = 'active'");
 $stmt->execute([$faculty['full_name'], $faculty['user_id']]);
@@ -161,7 +163,8 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
           <td class="text-nowrap"><?= date('M j, Y', strtotime($d['filed_at'])) ?></td>
           <td>
             <div class="d-flex flex-wrap gap-1 align-items-start">
-              <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"><i class="fa-solid fa-eye"></i> View</a>
+              <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"
+                 data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><i class="fa-solid fa-eye"></i> View</a>
               <?php if ($d['document_type'] === 'PDS' && (current_user()['role'] === 'admin' || (int)$d['faculty_id'] === (int)current_user()['user_id'])): ?>
                 <a href="<?= BASE_URL ?>/faculty/pds_import.php?document=<?= (int)$d['document_id'] ?>" class="btn btn-sm btn-outline-brand text-nowrap" title="Read this PDS file and choose what to add to the digital PDS"><i class="fa-solid fa-file-import"></i> Import to PDS</a>
               <?php endif; ?>

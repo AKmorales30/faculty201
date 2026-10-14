@@ -7,7 +7,15 @@ require_once __DIR__ . '/../ocr/OcrProcessor.php';
 require_once __DIR__ . '/../ocr/DocScanner.php';
 require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Deans keep their own 201 file too
 
-$page_title = 'Upload Document';
+// Create Document: two ways in, one page --
+//   Upload & auto-detect   the file is read (OCR) and its type and details are
+//                          detected, then checked by the uploader on a preview
+//   Enter details manually the uploader picks the type and types the details in
+//                          themselves (no OCR); the file is still attached, as
+//                          every 201-file record is a document
+// Either way the document is saved For Review: the Admin checks it in Manage
+// Document and posts it to the uploader's Public Docs.
+$page_title = 'Create Document';
 $me = current_user();
 $employment_type = faculty_employment_type($pdo, $me['user_id']);
 $categories = categories_for_faculty($employment_type);
@@ -52,8 +60,22 @@ function convert_heic_to_jpg(string $src, string $dest): bool {
     }
     return false;
 }
-/** OCR + categorization of a scan; uses the cleaned-up page when there is one. */
+/** What a manual entry has instead of an OCR result: no text, nothing detected. */
+function manual_entry_result(): array {
+    return ['text' => '', 'detected_type' => null, 'detected_subtype' => null, 'scores' => [], 'confidence' => null, 'matched_name' => null,
+            'confidence_note' => 'Entered manually -- no automatic detection.', 'pds' => null, 'ocr_poor' => false, 'period' => [], 'training' => []];
+}
+/** The "confident?" check of a pending upload; a manual entry has nothing detected, so nothing to be unsure about. */
+function pending_classification(array $pending, array $categories): array {
+    return !empty($pending['manual'])
+        ? ['score' => null, 'predicted' => null, 'suggested' => null, 'low' => false, 'candidates' => []]
+        : classification_check($pending['result'], $categories);
+}
+/** OCR + categorization of a scan; uses the cleaned-up page when there is one. Skipped for a manual entry. */
 function ocr_pending(array $pending, string $name): array {
+    if (!empty($pending['manual'])) {
+        return manual_entry_result();
+    }
     if (!empty($pending['page_image'])) {
         return OcrProcessor::process(ROOT_PATH . '/' . $pending['page_image'], $name, true);
     }
@@ -88,13 +110,14 @@ if ($action !== '' && !csrf_valid()) {
 }
 
 // ---------------------------------------------------------------------
-// Step 2a: faculty confirmed the previewed scan -> file it immediately,
-// update the PDS where applicable, then notify the Program Chair / Dean.
-// (No approval step -- the upload is accepted once it's stored.)
+// Step 2a: faculty confirmed the previewed scan / entered details -> store it
+// For Review, update the PDS where applicable, then notify the Admin and the
+// Program Chair / Dean. (No approval step -- the Admin's review only checks
+// the document type and details before posting it to Public Docs.)
 // ---------------------------------------------------------------------
 if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $scan = $_SESSION['pending_scan'];
-    $check = classification_check($scan['result'], $categories);
+    $check = pending_classification($scan, $categories);
     $type = $_POST['document_type'] ?? '';
     // Below the confidence threshold nothing is pre-selected, so an empty type
     // here means the faculty member didn't pick one -- the upload can't go through.
@@ -120,6 +143,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         'expiration'     => ($_POST['expiration_date'] ?? '') ?: null,
         'classification' => $check,   // stored with the document: score, the system's guess, low-confidence flag
         'details'        => $details,
+        'entry_method'   => !empty($scan['manual']) ? 'manual' : 'ocr',
     ];
     if ($cat['frequency'] === 'semester') {
         $ay  = $_POST['academic_year'] ?? '';
@@ -132,7 +156,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     }
 
     // A re-upload is a new version of a document type the uploader already has
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND document_subtype <=> ? AND status = 'active'");
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND document_subtype <=> ? AND status IN ('active', 'for_review')");
     $stmt->execute([$me['user_id'], $type, $subtype]);
     $reupload = (int)$stmt->fetchColumn() > 0;
 
@@ -140,7 +164,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     if ($stored === null) {
         if (is_file(ROOT_PATH . '/' . $scan['relative_path'])) {
             // Still have the scan: stay on the preview so it can simply be confirmed again
-            $_SESSION['flash_error'] = 'The document could not be saved just now. Please press "Upload to My 201 File" again.';
+            $_SESSION['flash_error'] = 'The document could not be saved just now. Please press "Save & Send for Review" again.';
         } else {
             unset($_SESSION['pending_scan']);
             $_SESSION['flash_error'] = 'The uploaded file could not be stored. Please upload it again.';
@@ -150,7 +174,8 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     }
     [$request_id, $document_id] = $stored;
     log_my_activity($pdo, 'UPLOAD', "Uploaded document #{$document_id} \"{$scan['original_name']}\" as " . document_type_label($type, $subtype)
-        . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '') . '.');
+        . (!empty($scan['manual']) ? ' (details entered manually)' : '')
+        . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '') . '; waiting For Review.');
     // A PDS: read what it holds now (the cleaned-up page of a photo reads best), for the review page
     $pds_import = null;
     if ($type === 'PDS') {
@@ -187,18 +212,14 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $stmt->execute([$me['user_id']]);
     notify_new_upload($pdo, $stmt->fetch(), $type, $subtype, $request_id, $extra_lines, $reupload);
 
-    // A document already more than ARCHIVE_AFTER_YEARS old goes straight to the archive
-    $archived = auto_archive_old_documents($pdo, $me, $document_id)['archived'] > 0;
-
     unset($_SESSION['pending_scan']);
-    $_SESSION['flash_success'] = 'Your ' . document_type_label($type, $subtype) . ' has been uploaded to your 201 file.'
-        . ($archived ? ' It is more than ' . ARCHIVE_AFTER_YEARS . ' years old, so it was filed directly in your archive (My Archive).' : '')
+    $_SESSION['flash_success'] = 'Your ' . document_type_label($type, $subtype) . ' has been uploaded and is waiting For Review: the Admin checks its document type and details, '
+        . 'then posts it to your Public Docs. You\'ll be notified when it is posted.'
         . $pds_note . ($me['role'] === 'faculty' ? ' Your Program Chair and Dean have been notified.' : '');
     header('Location: ' . BASE_URL . match (true) {
         !empty($pds_import['sections']) => '/faculty/pds_import.php?document=' . $document_id,
-        $archived                       => '/archive.php',
         $type === 'PDS'                 => '/faculty/pds.php',
-        default                         => '/faculty/my_documents.php?type=' . urlencode($type),
+        default                         => '/faculty/my_documents.php?tab=pending',
     });
     exit;
 }
@@ -246,9 +267,18 @@ if ($action === 'recrop' && isset($_SESSION['pending_scan']['raw_path'])) {
 }
 
 // ---------------------------------------------------------------------
-// Step 1: faculty uploaded a scan -> run OCR/AI extraction + preview
+// Step 1: faculty uploaded a scan -> run OCR/AI extraction + preview.
+// Manual entry (mode=manual): the type is chosen here and no OCR runs; the
+// next step is the same form, empty, to type the details in.
 // ---------------------------------------------------------------------
 if ($action === 'scan') {
+    $manual = ($_POST['mode'] ?? '') === 'manual';
+    $back_to_form = BASE_URL . '/faculty/submit_document.php' . ($manual ? '?mode=manual' : '');
+    if ($manual && !isset($categories[$_POST['type_hint'] ?? ''])) {
+        $_SESSION['flash_error'] = 'Please choose the document type.';
+        header('Location: ' . $back_to_form);
+        exit;
+    }
     $upload_error = $_FILES['scan_file']['error'] ?? UPLOAD_ERR_NO_FILE;
     if ($upload_error !== UPLOAD_ERR_OK) {
         $_SESSION['flash_error'] = match ($upload_error) {
@@ -260,7 +290,7 @@ if ($action === 'scan') {
         if (!in_array($upload_error, [UPLOAD_ERR_NO_FILE, UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE, UPLOAD_ERR_PARTIAL], true)) {
             error_log('Upload failed with PHP upload error ' . $upload_error);
         }
-        header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+        header('Location: ' . $back_to_form);
         exit;
     }
     $file = $_FILES['scan_file'];
@@ -272,12 +302,12 @@ if ($action === 'scan') {
     $is_heic = in_array($ext, ['heic', 'heif'], true) && is_heic_file($file['tmp_name']);
     if (!$is_xlsx && !$is_heic && (!in_array($ext, ALLOWED_EXTENSIONS, true) || !in_array($mime, ALLOWED_MIME_TYPES, true))) {
         $_SESSION['flash_error'] = 'Unsupported file type. Allowed: JPG, PNG, WEBP, HEIC (iPhone photos), PDF, and Excel (.xlsx) for the PDS soft copy.';
-        header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+        header('Location: ' . $back_to_form);
         exit;
     }
     if ($file['size'] > MAX_UPLOAD_BYTES) {
         $_SESSION['flash_error'] = 'File is too large. Maximum size is 10MB.';
-        header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+        header('Location: ' . $back_to_form);
         exit;
     }
 
@@ -288,7 +318,7 @@ if ($action === 'scan') {
     if (!move_uploaded_file($file['tmp_name'], $destAbs)) {
         error_log('Could not move upload to ' . $destAbs . ' (is temp_scans/ writable?)');
         $_SESSION['flash_error'] = 'Could not save the uploaded file. Please try again.';
-        header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+        header('Location: ' . $back_to_form);
         exit;
     }
 
@@ -301,13 +331,13 @@ if ($action === 'scan') {
             error_log('HEIC upload could not be converted: no working heif-convert / ImageMagick / sips');
             $_SESSION['flash_error'] = 'This iPhone photo (HEIC) could not be converted on the server. Please upload it as a JPG instead: '
                 . 'use the Take Photo button, or on the iPhone set Settings > Camera > Formats > Most Compatible, then take the photo again.';
-            header('Location: ' . BASE_URL . '/faculty/submit_document.php');
+            header('Location: ' . $back_to_form);
             exit;
         }
         [$filename, $destAbs, $ext] = [$jpg, TEMP_SCAN_PATH . '/' . $jpg, 'jpg'];
     }
 
-    $pending = ['relative_path' => 'temp_scans/' . $filename, 'original_name' => $file['name']];
+    $pending = ['relative_path' => 'temp_scans/' . $filename, 'original_name' => $file['name'], 'manual' => $manual];
     // The type chosen before uploading (optional): pre-selected on the preview, whatever is detected
     if (isset($categories[$_POST['type_hint'] ?? ''])) { $pending['type_hint'] = $_POST['type_hint']; }
 
@@ -324,7 +354,9 @@ if ($action === 'scan') {
                 'page_image'    => 'temp_scans/' . $base . '.jpg',
                 'orig_preview'  => 'temp_scans/' . $base . '_orig.jpg',
                 'docscan'       => $info,
+                'manual'        => $manual,
             ];
+            if (isset($categories[$_POST['type_hint'] ?? ''])) { $pending['type_hint'] = $_POST['type_hint']; }
         }
     }
     $pending['result'] = ocr_pending($pending, $me['full_name']);
@@ -339,14 +371,39 @@ $pending = $_SESSION['pending_scan'] ?? null;
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-1">Upload Document</h3>
-<p class="text-muted mb-4">Upload any document for your 201 file -- PDS, certificates, diploma, TOR, FTA, IPCR<?= $employment_type === 'part_time' ? ', contract of service, affidavit of undertaking' : '' ?>, or other documents. The system reads it, identifies the document type, and files it in the right folder. Seminar and training certificates are also added to your PDS automatically.</p>
+<h3 class="fw-bold mb-1">Create Document</h3>
+<p class="text-muted mb-4">Add any document to your 201 file -- PDS, certificates, diploma, TOR, FTA, IPCR<?= $employment_type === 'part_time' ? ', contract of service, affidavit of undertaking' : '' ?>, or other documents.
+  Upload it and let the system read it and detect its type, or enter its details yourself. Either way it waits For Review until the Admin checks it and posts it to your Public Docs.
+  Seminar and training certificates can also be added to your PDS.</p>
 
-<?php if (!$pending): ?>
+<?php if (!$pending):
+  $mode = ($_GET['mode'] ?? '') === 'manual' ? 'manual' : 'upload'; ?>
 
-  <div class="card stat-card mx-auto" style="max-width:640px;">
+  <div class="mx-auto" style="max-width:680px;">
+    <div class="row g-3 mb-3 create-options" role="tablist" aria-label="How to create the document">
+      <div class="col-sm-6">
+        <button type="button" class="create-option w-100 h-100 <?= $mode === 'upload' ? 'active' : '' ?>" id="optUpload" data-bs-toggle="pill" data-bs-target="#paneUpload"
+                role="tab" aria-controls="paneUpload" aria-selected="<?= $mode === 'upload' ? 'true' : 'false' ?>">
+          <i class="fa-solid fa-wand-magic-sparkles fa-lg text-brand" aria-hidden="true"></i>
+          <span class="fw-semibold d-block mt-2">Upload &amp; auto-detect</span>
+          <span class="small text-muted d-block">Upload a file or take a photo. The system reads it (OCR) and fills in the type and details for you to check.</span>
+        </button>
+      </div>
+      <div class="col-sm-6">
+        <button type="button" class="create-option w-100 h-100 <?= $mode === 'manual' ? 'active' : '' ?>" id="optManual" data-bs-toggle="pill" data-bs-target="#paneManual"
+                role="tab" aria-controls="paneManual" aria-selected="<?= $mode === 'manual' ? 'true' : 'false' ?>">
+          <i class="fa-solid fa-keyboard fa-lg text-brand" aria-hidden="true"></i>
+          <span class="fw-semibold d-block mt-2">Enter details manually</span>
+          <span class="small text-muted d-block">Choose the document type, attach the file, and type in the details yourself -- no automatic reading.</span>
+        </button>
+      </div>
+    </div>
+
+  <div class="tab-content">
+  <div class="tab-pane fade <?= $mode === 'upload' ? 'show active' : '' ?>" id="paneUpload" role="tabpanel" aria-labelledby="optUpload">
+  <div class="card stat-card">
     <div class="card-header bg-white fw-semibold">
-      <i class="fa-solid fa-file-arrow-up text-brand"></i> Document Upload &amp; OCR/AI Extraction Portal
+      <i class="fa-solid fa-file-arrow-up text-brand"></i> Upload &amp; OCR/AI Extraction
     </div>
     <div class="card-body">
       <form action="submit_document.php" method="POST" enctype="multipart/form-data" id="scanForm">
@@ -388,6 +445,39 @@ include __DIR__ . '/../includes/header.php';
         </button>
       </form>
     </div>
+  </div>
+  </div>
+
+  <div class="tab-pane fade <?= $mode === 'manual' ? 'show active' : '' ?>" id="paneManual" role="tabpanel" aria-labelledby="optManual">
+  <div class="card stat-card">
+    <div class="card-header bg-white fw-semibold">
+      <i class="fa-solid fa-keyboard text-brand"></i> Enter Document Details Manually
+    </div>
+    <div class="card-body">
+      <form action="submit_document.php" method="POST" enctype="multipart/form-data" id="manualForm">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="scan">
+        <input type="hidden" name="mode" value="manual">
+        <div class="mb-3">
+          <label for="manualType" class="form-label small fw-semibold">Document Type <span class="text-danger">*</span></label>
+          <select name="type_hint" id="manualType" class="form-select" required>
+            <option value="">-- Select type --</option>
+            <?php foreach ($categories as $key => $meta): ?>
+              <option value="<?= h($key) ?>"><?= h($meta['label']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label for="manualFile" class="form-label small fw-semibold">The Document's File <span class="text-danger">*</span></label>
+          <input type="file" name="scan_file" id="manualFile" class="form-control" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf,.xlsx" required>
+          <div class="form-text">JPG, PNG, WEBP, HEIC, PDF or Excel (.xlsx), max <?= MAX_UPLOAD_BYTES / 1024 / 1024 ?>MB. Photos are still cropped and straightened, but nothing is read from the file.</div>
+        </div>
+        <button type="submit" class="btn btn-brand w-100" id="manualBtn"><i class="fa-solid fa-arrow-right"></i> Next: Enter the Details</button>
+      </form>
+    </div>
+  </div>
+  </div>
+  </div>
   </div>
 
   <!-- Desktop "Take Photo": webcam capture -->
@@ -477,12 +567,29 @@ include __DIR__ . '/../includes/header.php';
     scanBtn.disabled = true;   // scanning can take a while on the server
     scanBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning document&hellip; this can take up to a minute';
   });
+  var manualForm = document.getElementById('manualForm'), manualFile = document.getElementById('manualFile');
+  manualFile.addEventListener('change', function () {
+    var f = manualFile.files && manualFile.files[0];
+    manualFile.setCustomValidity(f && f.size > MAX ? 'Too large: the maximum is ' + Math.round(MAX / 1048576) + 'MB.' : '');
+  });
+  manualForm.addEventListener('submit', function () {
+    var btn = document.getElementById('manualBtn');
+    setTimeout(function () { btn.disabled = true; }, 0);
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading&hellip;';
+  });
+  // The chosen option is kept in the address, so a reload or an error comes back to it
+  document.querySelectorAll('.create-option').forEach(function (b) {
+    b.addEventListener('shown.bs.tab', function () {
+      history.replaceState(null, '', b.id === 'optManual' ? '?mode=manual' : location.pathname);
+    });
+  });
 })();
 </script>
 
 <?php else:
   $result = $pending['result'];
-  $check = classification_check($result, $categories);
+  $manual = !empty($pending['manual']);
+  $check = pending_classification($pending, $categories);
   $suggested = $check['suggested'];   // null below CONFIDENCE_THRESHOLD: nothing is pre-selected
   $hint = isset($categories[$pending['type_hint'] ?? '']) ? $pending['type_hint'] : null;   // chosen before uploading
   $preselect = $hint ?? $suggested;
@@ -496,11 +603,19 @@ include __DIR__ . '/../includes/header.php';
 
   <div class="card stat-card mx-auto" style="max-width:820px;">
     <div class="card-header bg-white fw-semibold">
-      <i class="fa-solid fa-magnifying-glass-chart text-brand"></i> Extracted Data Preview
+      <?php if ($manual): ?>
+        <i class="fa-solid fa-keyboard text-brand"></i> Enter the Document Details
+      <?php else: ?>
+        <i class="fa-solid fa-magnifying-glass-chart text-brand"></i> Extracted Data Preview
+      <?php endif; ?>
     </div>
     <div class="card-body">
 
-      <?php if ($check['low']): ?>
+      <?php if ($manual): ?>
+      <div class="alert alert-light border small">
+        <i class="fa-solid fa-keyboard text-brand"></i> Fill in the details below -- nothing was read from the file. The Admin checks them before the document is posted.
+      </div>
+      <?php elseif ($check['low']): ?>
       <div class="alert alert-warning small" id="lowConfidenceAlert">
         <div class="fw-semibold mb-1"><i class="fa-solid fa-triangle-exclamation"></i> The system is not confident about this document's type. Please select the correct category.</div>
         <i class="fa-solid fa-robot"></i> <?= h($result['confidence_note']) ?>
@@ -522,7 +637,7 @@ include __DIR__ . '/../includes/header.php';
       </div>
       <?php endif; ?>
 
-      <?php if ($pds_check && $pds_check['ask'] && $preselect !== 'PDS' && isset($categories['PDS'])): ?>
+      <?php if (!$manual && $pds_check && $pds_check['ask'] && $preselect !== 'PDS' && isset($categories['PDS'])): ?>
       <div class="alert alert-primary small d-flex flex-wrap align-items-center gap-2" id="pdsAsk">
         <span class="me-auto"><i class="fa-solid fa-id-card"></i> <strong>Is this a Personal Data Sheet (PDS)?</strong>
           Some of the form's labels were read, but not enough to be sure.</span>
@@ -693,7 +808,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="card border mb-3 type-field" data-types="Certificate">
           <div class="card-header bg-light small fw-semibold"><i class="fa-solid fa-chalkboard-user text-brand"></i> Seminar / Training Details</div>
           <div class="card-body">
-            <p class="small text-muted mb-3">Read from the certificate -- please check and correct these before uploading. Leave a field blank if it isn't on the certificate.</p>
+            <p class="small text-muted mb-3"><?= $manual ? 'Type in the details from the certificate.' : 'Read from the certificate -- please check and correct these before uploading.' ?> Leave a field blank if it isn't on the certificate.</p>
             <?php
             $values = ['title' => $training['title'] ?? null, 'date_start' => $training['date_from'] ?? null, 'date_end' => $training['date_to'] ?? null,
                        'venue' => $training['venue'] ?? null, 'conducted_by' => $training['conducted_by'] ?? null, 'hours' => $training['hours'] ?? null,
@@ -730,14 +845,16 @@ include __DIR__ . '/../includes/header.php';
           next to your <a href="<?= BASE_URL ?>/faculty/pds.php">digital PDS</a>, and choose what to add. Nothing is overwritten without your OK.
         </div>
 
+        <?php if (!$manual): ?>
         <div class="mb-3">
           <label class="form-label small fw-semibold">Extracted Text Preview</label>
           <textarea class="form-control" rows="6" disabled><?= h($result['text'] !== '' ? $result['text'] : '(No text extracted -- please confirm the details manually.)') ?></textarea>
         </div>
+        <?php endif; ?>
 
         <div class="d-flex gap-2">
           <button type="submit" name="action" value="confirm" class="btn btn-brand flex-grow-1">
-            <i class="fa-solid fa-check"></i> Upload to My 201 File
+            <i class="fa-solid fa-check"></i> Save &amp; Send for Review
           </button>
           <button type="submit" name="action" value="cancel" formnovalidate class="btn btn-outline-secondary">
             <i class="fa-solid fa-xmark"></i> Cancel

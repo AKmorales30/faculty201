@@ -8,7 +8,7 @@ $me = current_user();
 
 // Anything left waiting under the old approval workflow gets filed now.
 file_outstanding_requests($pdo);
-// Auto-archive of old documents, then expiration alerts -- each at most once a
+// Auto-archive of unopened documents, then expiration alerts -- each at most once a
 // day system-wide (before the header, so the bell counts them)
 run_daily_jobs($pdo);
 $expiring = expiring_documents($pdo, (int)$me['user_id']);
@@ -21,9 +21,9 @@ $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
 $stmt->execute([$me['user_id']]);
 $self = $stmt->fetch();
 
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND status = 'active'");
+$stmt = $pdo->prepare("SELECT status, COUNT(*) FROM documents WHERE faculty_id = ? GROUP BY status");
 $stmt->execute([$me['user_id']]);
-$my_docs = (int)$stmt->fetchColumn();
+$by_status = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 $unread = unread_notification_count($pdo, $me['user_id']);
 
 $checklist = faculty_201_checklist($pdo, $me['user_id'], $self['employment_type'] ?? null);
@@ -35,7 +35,13 @@ $scope = $me['role'] === 'dean'
 
 include __DIR__ . '/../includes/header.php';
 ?>
-<h3 class="fw-bold mb-1">Welcome, <?= h($me['full_name']) ?></h3>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+  <h3 class="fw-bold mb-0">Welcome, <?= h($me['full_name']) ?></h3>
+  <div class="d-flex flex-wrap gap-2">
+    <a href="<?= BASE_URL ?>/faculty_directory.php" class="btn btn-outline-brand"><i class="fa-solid fa-address-book"></i> Faculty Profiles</a>
+    <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus"></i> Create Document</a>
+  </div>
+</div>
 <p class="text-muted mb-4">
   <?php if ($scope): ?>
     You're notified whenever faculty in <strong><?= h($scope) ?></strong> upload to their 201 file.
@@ -44,34 +50,46 @@ include __DIR__ . '/../includes/header.php';
   <?php endif; ?>
 </p>
 
-<?php include __DIR__ . '/../includes/reminders_card.php'; ?>
-
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-4">
-    <a href="<?= BASE_URL ?>/approval/notifications.php" class="text-decoration-none">
-      <div class="card stat-card p-3 h-100">
-        <div class="text-muted small">Unread Notifications</div>
-        <div class="stat-number text-accent-gold"><?= $unread ?></div>
+  <div class="col-md-3 col-6">
+    <a href="<?= BASE_URL ?>/faculty/my_documents.php" class="text-decoration-none">
+      <div class="card stat-card stat-card-link p-3 h-100">
+        <div class="text-muted small">My Public Docs</div>
+        <div class="stat-number text-brand"><?= (int)($by_status['active'] ?? 0) ?></div>
+        <div class="small text-muted">posted to your 201 file</div>
       </div>
     </a>
   </div>
-  <div class="col-6 col-md-4">
-    <div class="card stat-card p-3 h-100">
-      <div class="text-muted small">Documents in My 201 File</div>
-      <div class="stat-number text-accent-teal"><?= $my_docs ?></div>
-    </div>
+  <div class="col-md-3 col-6">
+    <a href="<?= BASE_URL ?>/faculty/my_documents.php?tab=pending" class="text-decoration-none">
+      <div class="card stat-card stat-card-link p-3 h-100">
+        <div class="text-muted small">For Review</div>
+        <div class="stat-number text-accent-gold"><?= (int)($by_status['for_review'] ?? 0) ?></div>
+        <div class="small text-muted">waiting for the Admin to post</div>
+      </div>
+    </a>
   </div>
-  <div class="col-12 col-md-4">
-    <div class="card stat-card p-3 h-100 d-flex flex-column justify-content-center gap-2">
-      <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand">
-        <i class="fa-solid fa-file-arrow-up"></i> Upload a New Document
-      </a>
-      <a href="<?= BASE_URL ?>/faculty/pds.php" class="btn btn-outline-brand">
-        <i class="fa-solid fa-id-card"></i> Edit My PDS
-      </a>
-    </div>
+  <div class="col-md-3 col-6">
+    <a href="<?= BASE_URL ?>/approval/notifications.php" class="text-decoration-none">
+      <div class="card stat-card stat-card-link p-3 h-100">
+        <div class="text-muted small">Unread Notifications</div>
+        <div class="stat-number text-accent-teal"><?= (int)$unread ?></div>
+        <div class="small text-muted">uploads in your <?= $me['role'] === 'dean' ? 'college' : 'program' ?> and more</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-3 col-6">
+    <a href="<?= BASE_URL ?>/archive.php" class="text-decoration-none">
+      <div class="card stat-card stat-card-link p-3 h-100">
+        <div class="text-muted small">My Archived Docs</div>
+        <div class="stat-number text-secondary"><?= (int)($by_status['archived'] ?? 0) ?></div>
+        <div class="small text-muted">not opened in <?= h(archive_period_label()) ?></div>
+      </div>
+    </a>
   </div>
 </div>
+
+<?php include __DIR__ . '/../includes/reminders_card.php'; ?>
 
 <?php include __DIR__ . '/../includes/reminders_summary_card.php'; ?>
 
@@ -79,7 +97,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="card stat-card">
   <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
-    My 201 File Checklist
+    <span><i class="fa-solid fa-list-check text-brand"></i> My 201 File Checklist</span>
     <?php if ($missing): ?>
       <span class="badge bg-warning"><?= $missing ?> to do</span>
     <?php else: ?>

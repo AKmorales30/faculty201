@@ -51,8 +51,10 @@ $suggest = array_map(fn($f) => [
 include __DIR__ . '/../includes/header.php';
 ?>
 
+<h3 class="fw-bold mb-3">Public Docs</h3>
+<?= admin_docs_tabs('faculty') ?>
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-  <h3 class="fw-bold mb-0">Faculty Records</h3>
+  <p class="text-muted mb-0">Faculty Records: everyone with a 201 file. Open a person to see their posted documents by category.</p>
   <form method="GET" class="d-flex" role="search" autocomplete="off">
     <div class="faculty-search">
       <input type="search" name="q" id="facultySearch" value="<?= h($q) ?>" class="form-control form-control-sm" placeholder="Search faculty name..."

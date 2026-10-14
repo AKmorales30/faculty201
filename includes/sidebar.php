@@ -1,68 +1,73 @@
 <?php
-$role = current_user()['role'];
-$here = basename($_SERVER['PHP_SELF']);
-function nav_active($file, $here) { return $file === $here ? 'active' : ''; }
+/**
+ * Left menu of every page after login, drawn from app_menu()
+ * (includes/nav_menu.php) for the signed-in user's role.
+ *
+ * Look: every row -- links and section headers alike -- is a rounded,
+ * full-width row with a round icon holder and a one-line label (styles:
+ * "Sidebar menu" in assets/css/style.css). Sections (Files, Report, ...)
+ * are real buttons that expand / collapse their links (Bootstrap collapse,
+ * aria-expanded); the section holding the current page is always open, and
+ * a section you close stays closed on the next page (saved in the browser
+ * by assets/js/app.js). The current page's row is highlighted.
+ * Static on md+; a slide-in (offcanvas) menu below md, opened by the
+ * header's hamburger button.
+ */
+require_once __DIR__ . '/nav_menu.php';
+$sb_user = current_user();
+$sb_page = nav_current_page();
+$sb_menu = app_menu($pdo, $sb_user);
+
+/** One menu link: [round icon] label [badge]. */
+$sb_link = function (array $item, bool $nested) use ($sb_page): string {
+    $active = ($item['active'])($sb_page);
+    $badge = (int)($item['badge'] ?? 0);
+    return '<li><a class="sb-row' . ($nested ? ' sb-row-sub' : '') . ($active ? ' active' : '') . '"'
+         . ' href="' . h(BASE_URL . '/' . $item['url']) . '"' . ($active ? ' aria-current="page"' : '') . '>'
+         . '<span class="sb-icon" aria-hidden="true"><i class="fa-solid ' . h($item['icon']) . '"></i></span>'
+         . '<span class="sb-label">' . h($item['label']) . '</span>'
+         . ($badge ? '<span class="badge rounded-pill sb-badge ' . h($item['badge_class'] ?? 'bg-warning') . '" title="' . h($badge . ' ' . ($item['badge_title'] ?? '')) . '">'
+                   . ($badge > 99 ? '99+' : $badge) . '<span class="visually-hidden"> ' . h($item['badge_title'] ?? '') . '</span></span>' : '')
+         . '</a></li>';
+};
 ?>
-<?php $sb_user = current_user(); ?>
-<!-- Static sidebar on md+; slide-in (offcanvas) menu below md, opened by the navbar hamburger -->
 <nav class="col-md-3 col-lg-2 sidebar offcanvas-md offcanvas-start" id="appSidebar" tabindex="-1" aria-labelledby="appSidebarLabel">
   <div class="offcanvas-header sidebar-mobile-header d-md-none">
     <div class="text-truncate">
       <div class="fw-semibold text-truncate" id="appSidebarLabel"><?= h($sb_user['full_name']) ?></div>
-      <div class="small text-white-50 text-capitalize"><?= h(str_replace('_',' ',$role)) ?></div>
+      <div class="small text-white-50 text-capitalize"><?= h(str_replace('_', ' ', $sb_user['role'])) ?></div>
     </div>
     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar" aria-label="Close menu"></button>
   </div>
-  <div class="sidebar-body pt-3">
-    <ul class="nav flex-column">
-
-      <?php if ($role === 'admin'): ?>
-        <li class="nav-item"><a class="nav-link <?= nav_active('dashboard.php',$here) ?>" href="<?= BASE_URL ?>/admin/dashboard.php"><i class="fa-solid fa-gauge"></i> Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('manage_faculty.php',$here) ?>" href="<?= BASE_URL ?>/admin/manage_faculty.php"><i class="fa-solid fa-users-gear"></i> Manage Faculty</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('view_records.php',$here) ?>" href="<?= BASE_URL ?>/admin/view_records.php"><i class="fa-solid fa-folder"></i> Faculty Records</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('search_documents.php',$here) ?>" href="<?= BASE_URL ?>/admin/search_documents.php"><i class="fa-solid fa-magnifying-glass"></i> Search Documents</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('archived_documents.php',$here) ?>" href="<?= BASE_URL ?>/admin/archived_documents.php"><i class="fa-solid fa-box-archive"></i> Archived Documents</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('analytics.php',$here) ?>" href="<?= BASE_URL ?>/admin/analytics.php"><i class="fa-solid fa-chart-column"></i> Data Analytics</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('reports.php',$here) ?>" href="<?= BASE_URL ?>/admin/reports.php"><i class="fa-solid fa-file-lines"></i> Reports</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('training_report.php',$here) ?>" href="<?= BASE_URL ?>/training_report.php"><i class="fa-solid fa-chalkboard-user"></i> Seminar &amp; Training Report</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('classification_review.php',$here) ?>" href="<?= BASE_URL ?>/admin/classification_review.php">
-          <i class="fa-solid fa-robot"></i> Classification Review
-          <?php $lc = unreviewed_low_confidence_count($pdo); if ($lc): ?><span class="badge bg-warning rounded-pill ms-1"><?= $lc ?></span><?php endif; ?>
-        </a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('activity_logs.php',$here) ?>" href="<?= BASE_URL ?>/admin/activity_logs.php"><i class="fa-solid fa-clock-rotate-left"></i> Activity Logs</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('security_alerts.php',$here) ?>" href="<?= BASE_URL ?>/admin/security_alerts.php">
-          <i class="fa-solid fa-shield-halved"></i> Security Alerts
-          <?php $sa = unresolved_security_alert_count($pdo); if ($sa): ?><span class="badge bg-danger rounded-pill ms-1"><?= $sa ?></span><?php endif; ?>
-        </a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('notifications.php',$here) ?>" href="<?= BASE_URL ?>/admin/notifications.php"><i class="fa-solid fa-bell"></i> Notifications</a></li>
-      <?php endif; ?>
-
-      <?php if ($role === 'faculty'): ?>
-        <li class="nav-item"><a class="nav-link <?= nav_active('dashboard.php',$here) ?>" href="<?= BASE_URL ?>/faculty/dashboard.php"><i class="fa-solid fa-gauge"></i> Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('submit_document.php',$here) ?>" href="<?= BASE_URL ?>/faculty/submit_document.php"><i class="fa-solid fa-file-arrow-up"></i> Upload Document</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('my_requests.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_requests.php"><i class="fa-solid fa-list-check"></i> Upload History</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('my_documents.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_documents.php"><i class="fa-solid fa-folder-open"></i> My 201 File</a></li>
-        <li class="nav-item"><a class="nav-link <?= $here === 'archive.php' && empty($_GET['id']) ? 'active' : '' ?>" href="<?= BASE_URL ?>/archive.php"><i class="fa-solid fa-box-archive"></i> My Archive</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('pds.php',$here) ?>" href="<?= BASE_URL ?>/faculty/pds.php"><i class="fa-solid fa-id-card"></i> My PDS</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('notifications.php',$here) ?>" href="<?= BASE_URL ?>/faculty/notifications.php"><i class="fa-solid fa-bell"></i> Notifications</a></li>
-      <?php endif; ?>
-
-      <?php if (in_array($role, ['program_chair','dean'], true)): ?>
-        <li class="nav-item"><a class="nav-link <?= nav_active('dashboard.php',$here) ?>" href="<?= BASE_URL ?>/approval/dashboard.php"><i class="fa-solid fa-gauge"></i> Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('submit_document.php',$here) ?>" href="<?= BASE_URL ?>/faculty/submit_document.php"><i class="fa-solid fa-file-arrow-up"></i> Upload Document</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('my_requests.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_requests.php"><i class="fa-solid fa-list-check"></i> Upload History</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('my_documents.php',$here) ?>" href="<?= BASE_URL ?>/faculty/my_documents.php"><i class="fa-solid fa-folder-open"></i> My 201 File</a></li>
-        <li class="nav-item"><a class="nav-link <?= $here === 'archive.php' && empty($_GET['id']) ? 'active' : '' ?>" href="<?= BASE_URL ?>/archive.php"><i class="fa-solid fa-box-archive"></i> My Archive</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('pds.php',$here) ?>" href="<?= BASE_URL ?>/faculty/pds.php"><i class="fa-solid fa-id-card"></i> My PDS</a></li>
-        <li class="nav-item"><a class="nav-link <?= in_array($here, ['faculty_directory.php'], true) || (in_array($here, ['profile.php', 'archive.php'], true) && !empty($_GET['id']) && (int)$_GET['id'] !== (int)$sb_user['user_id']) ? 'active' : '' ?>" href="<?= BASE_URL ?>/faculty_directory.php"><i class="fa-solid fa-address-book"></i> Faculty Profiles</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('training_report.php',$here) ?>" href="<?= BASE_URL ?>/training_report.php"><i class="fa-solid fa-chalkboard-user"></i> Seminar &amp; Training Report</a></li>
-        <li class="nav-item"><a class="nav-link <?= nav_active('notifications.php',$here) ?>" href="<?= BASE_URL ?>/approval/notifications.php"><i class="fa-solid fa-bell"></i> Notifications</a></li>
-      <?php endif; ?>
-
-      <li class="nav-item border-top mt-2 pt-2"><a class="nav-link <?= $here === 'profile.php' && (empty($_GET['id']) || (int)$_GET['id'] === (int)$sb_user['user_id']) ? 'active' : '' ?>" href="<?= BASE_URL ?>/profile.php"><i class="fa-solid fa-circle-user"></i> My Profile</a></li>
-      <li class="nav-item"><a class="nav-link <?= nav_active('change_password.php',$here) ?>" href="<?= BASE_URL ?>/change_password.php"><i class="fa-solid fa-key"></i> Change Password</a></li>
-      <li class="nav-item d-md-none"><a class="nav-link text-danger" href="<?= BASE_URL ?>/logout.php"><i class="fa-solid fa-right-from-bracket"></i> Logout</a></li>
-
+  <div class="sidebar-body">
+    <ul class="sb-menu" aria-label="Main menu">
+      <?php foreach ($sb_menu as $i => $entry): ?>
+        <?php if (!isset($entry['group'])): ?>
+          <?= $sb_link($entry, false) ?>
+        <?php else:
+          $group_id = 'navGroup' . $i;
+          $group_active = (bool)array_filter($entry['items'], fn($item) => ($item['active'])($sb_page)); ?>
+          <li class="sb-group">
+            <button class="sb-row sb-group-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#<?= $group_id ?>"
+                    aria-expanded="true" aria-controls="<?= $group_id ?>" data-group="<?= h($entry['group']) ?>">
+              <span class="sb-icon" aria-hidden="true"><i class="fa-solid <?= h($entry['icon']) ?>"></i></span>
+              <span class="sb-label"><?= h($entry['group']) ?></span>
+              <i class="fa-solid fa-chevron-down sb-chevron" aria-hidden="true"></i>
+            </button>
+            <ul class="sb-sub collapse show" id="<?= $group_id ?>" data-group="<?= h($entry['group']) ?>"<?= $group_active ? ' data-has-active="1"' : '' ?>>
+              <?php foreach ($entry['items'] as $item): ?>
+                <?= $sb_link($item, true) ?>
+              <?php endforeach; ?>
+            </ul>
+          </li>
+        <?php endif; ?>
+      <?php endforeach; ?>
+      <li class="d-md-none sb-divider" role="separator"></li>
+      <li class="d-md-none">
+        <a class="sb-row sb-row-danger" href="<?= BASE_URL ?>/logout.php">
+          <span class="sb-icon" aria-hidden="true"><i class="fa-solid fa-right-from-bracket"></i></span><span class="sb-label">Log out</span>
+        </a>
+      </li>
     </ul>
   </div>
 </nav>

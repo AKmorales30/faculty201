@@ -21,11 +21,11 @@ $top_uploaders = $pdo->query(
 // Full-time vs part-time faculty
 $by_employment = $pdo->query("SELECT employment_type, COUNT(*) c FROM users WHERE role='faculty' AND is_active=1 GROUP BY employment_type")->fetchAll(PDO::FETCH_KEY_PAIR);
 
-// Uploads over the last 6 months
+// Posted documents over the last 6 months, by upload month (uploads still For Review aren't counted)
 $monthly = $pdo->query(
-    "SELECT DATE_FORMAT(submitted_at, '%Y-%m') ym, COUNT(*) c
-     FROM submission_requests
-     WHERE submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+    "SELECT DATE_FORMAT(filed_at, '%Y-%m') ym, COUNT(*) c
+     FROM documents
+     WHERE status = 'active' AND filed_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
      GROUP BY ym ORDER BY ym"
 )->fetchAll(PDO::FETCH_KEY_PAIR);
 
@@ -34,7 +34,8 @@ $expiring = documents_expiring_soon($pdo, 60);
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-4">Data Analytics</h3>
+<h3 class="fw-bold mb-3">Document Status</h3>
+<?= report_tabs('analytics') ?>
 
 <div class="row g-3 mb-4">
   <div class="col-lg-4">
@@ -60,7 +61,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="row g-3 mb-4">
   <div class="col-lg-7">
     <div class="card stat-card p-3">
-      <div class="text-muted small mb-2">Uploads — Last 6 Months</div>
+      <div class="text-muted small mb-2">Posted Documents — Uploaded in the Last 6 Months</div>
       <canvas id="chartMonthly" height="140"></canvas>
     </div>
   </div>
@@ -122,7 +123,7 @@ new Chart(document.getElementById('chartMonthly'), {
   type: 'line',
   data: {
     labels: <?= json_encode(array_keys($monthly)) ?>,
-    datasets: [{ label: 'Uploads', data: <?= json_encode(array_values($monthly)) ?>, borderColor: teal, backgroundColor: 'rgba(21,121,117,.15)', fill: true, tension: .3 }]
+    datasets: [{ label: 'Posted documents', data: <?= json_encode(array_values($monthly)) ?>, borderColor: teal, backgroundColor: 'rgba(21,121,117,.15)', fill: true, tension: .3 }]
   },
   options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
 });

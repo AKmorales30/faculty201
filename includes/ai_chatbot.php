@@ -142,7 +142,7 @@ function chatbot_my_checklist(PDO $pdo, int $uid): array {
         'complete' => !array_filter($items, fn($i) => !$i['done']),
         'missing'  => array_values(array_map(fn($i) => $i['label'], array_filter($items, fn($i) => !$i['done']))),
         'on_file'  => array_values(array_map(fn($i) => $i['label'], array_filter($items, fn($i) => $i['done']))),
-        'where'    => 'Upload Document page; the PDS is updated on the My PDS page.',
+        'where'    => 'Create Document page; the PDS is updated on Profile Preference > My PDS.',
     ];
 }
 
@@ -202,7 +202,7 @@ function chatbot_my_pds(PDO $pdo, int $uid): array {
         'incomplete_sections'  => array_map(fn($title, $errors) => ['section' => $title, 'issues' => count($errors), 'examples' => array_slice($errors, 0, 3)],
                                             array_keys($sections), $sections),
         'learning_and_development_entries' => count($pds['ld']),
-        'where'                => 'My PDS page (sidebar): edit and save each section; or import an uploaded PDS file.',
+        'where'                => 'My PDS (sidebar > Account > Profile Preference > My PDS tab): edit and save each section; or import an uploaded PDS file.',
     ];
 }
 
@@ -363,7 +363,7 @@ function chatbot_documents_summary(PDO $pdo, array $viewer, string $faculty_name
                    'expired_or_expiring_60_days' => $expiring[$fid] ?? 0];
     }
     return ['scope' => chatbot_scope_note($viewer), 'category' => $category, 'faculty_count' => count($list), 'faculty' => $list,
-            'note' => $viewer['role'] === 'admin' ? 'The Admin can open the files in Faculty Records / Search Documents.'
+            'note' => $viewer['role'] === 'admin' ? 'The Admin can open the files in Files > Public Docs.'
                                                  : 'Program Chairs and Deans see counts and profiles only; they cannot open faculty files.'];
 }
 
@@ -375,27 +375,30 @@ function chatbot_system_instruction(PDO $pdo, array $user): string {
     $role_label = user_position_line($u);
     $guide = "HOW-TO GUIDE (the actual features of this system):\n"
         . "- Log in: from the home page choose a portal -- Faculty for faculty members; Admin for the Admin, Program Chairs and Deans. After " . (int)MAX_FAILED_ATTEMPTS . " failed attempts a login is locked for " . (int)LOCKOUT_MINUTES . " minutes.\n"
-        . "- Change password: the key icon in the top bar or \"Change Password\" in the sidebar. Enter the current password and a new one with at least 8 characters, an uppercase letter, a lowercase letter and a number. Forgot it? Ask the Admin to reset it; the temporary password must be changed at the next login.\n"
-        . "- My Profile (sidebar / your name in the top bar): profile picture (JPG/PNG up to 2 MB), specialization and contact number. Academic rank and employee ID are set by the Admin.\n"
+        . "- Change password: sidebar > Account > Change Password. Enter the current password and a new one with at least 8 characters, an uppercase letter, a lowercase letter and a number. Forgot it? Ask the Admin to reset it; the temporary password must be changed at the next login.\n"
+        . "- Profile Preference (sidebar > Account, or the initials avatar in the top bar): profile picture (JPG/PNG up to 2 MB), specialization and contact number. Academic rank and employee ID are set by the Admin.\n"
+        . "- Search: the magnifier icon in the top bar searches documents by title, faculty or document type (faculty: their own documents only).\n"
         . "- Notifications: the bell icon in the top bar. Expiration alerts arrive 60, 30 and 7 days before a document expires and on the day it expires.\n";
     if (chatbot_has_own_file($user)) {
-        $guide .= "- Upload a document: sidebar > Upload Document > choose the file (JPG, PNG, WEBP or PDF up to 10 MB; Excel .xlsx for the PDS soft copy) or take a photo. The system reads the scan and suggests the category; check it, fill in the details (for seminar / training certificates: title, dates, venue, conducted by, type, level, hours -- you can also add it to PDS Section VI), then upload. It is filed in your 201 file at once; your Program Chair and Dean are notified.\n"
+        $guide .= "- Create a document: sidebar > Create Document, then either \"Upload & auto-detect\" (choose the file -- JPG, PNG, WEBP or PDF up to 10 MB; Excel .xlsx for the PDS soft copy -- or take a photo; the system reads it and suggests the category) or \"Enter details manually\" (choose the type and type in the details yourself, then attach the file). Check the details (for seminar / training certificates: title, dates, venue, conducted by, type, level, hours -- you can also add it to PDS Section VI), then save. It waits For Review until the Admin checks its type and posts it to your Public Docs; you are notified when it is posted. Your Program Chair and Dean are notified of the upload.\n"
             . "- Categories: PDS, Certificates (Seminar, Training, Other), Diploma, TOR, FTA (each semester), IPCR (each semester, full-time only), Contract of Service and Affidavit of Undertaking (part-time only), Other Documents.\n"
-            . "- A wrong upload can be deleted by its owner within " . (int)FACULTY_DELETE_WINDOW_HOURS . " hours (My 201 File); after that, ask the Admin.\n"
-            . "- My 201 File: documents by category with the latest version marked. Upload History lists every upload. Edit a certificate's seminar details with \"Edit details\" / \"Fill in\".\n"
-            . "- My Archive: documents more than " . (int)ARCHIVE_AFTER_YEARS . " years old move there automatically; they can still be viewed and downloaded.\n"
-            . "- Update my PDS: sidebar > My PDS. Open each section, fill it in (tick N/A where it doesn't apply) and Save. The PDS must be updated every year. Uploading a PDS file (xlsx, PDF or scan) offers \"Import into my PDS\" with a review step. Print it as CS Form No. 212 from the PDS page.\n"
+            . "- A wrong upload can be deleted by its owner within " . (int)FACULTY_DELETE_WINDOW_HOURS . " hours (Public Docs > Pending review, or Public Docs); after that, ask the Admin.\n"
+            . "- Public Docs (sidebar > File / Files): posted documents by category with the latest version marked; the Pending review tab lists uploads still For Review, and the Upload history tab lists every upload. Edit a certificate's seminar details with \"Edit details\" / \"Fill in\".\n"
+            . "- Archived Docs (My Archive): documents nobody has opened in " . archive_period_label() . " move there automatically; they can still be viewed and downloaded, and the Admin can restore them.\n"
+            . "- New uploads wait For Review until the Admin checks the document type and posts them to Public Docs.\n"
+            . "- Recently Deleted (sidebar > File / Files): deleted documents stay there " . (int)DELETED_RETENTION_DAYS . " days and can be restored to where they were (your own deletions by you; ones the Admin deleted by the Admin), then they are permanently deleted.\n"
+            . "- Update my PDS: sidebar > Account > Profile Preference > My PDS tab. Open each section, fill it in (tick N/A where it doesn't apply) and Save. The PDS must be updated every year. Uploading a PDS file (xlsx, PDF or scan) offers \"Import into my PDS\" with a review step. Print it as CS Form No. 212 from the PDS page.\n"
             . "- The dashboard shows the 201 File Checklist, reminders and expiring documents.\n";
     }
     if (in_array($user['role'], ['program_chair', 'dean'], true)) {
-        $guide .= "- Faculty Profiles (sidebar): profiles and archive lists of the faculty you oversee. You cannot open or download their files.\n";
+        $guide .= "- Faculty Profiles (sidebar > Report): profiles and archive lists of the faculty you oversee. You cannot open or download their files.\n";
     }
     if (chatbot_has_scope($user)) {
-        $guide .= "- Seminar & Training Report (sidebar): filter by faculty, program, seminar dates, organizer, type; Generate, Print / Save as PDF, Export CSV, and \"Generate AI Summary\" for a written overview.\n"
-            . "- Dashboard: \"Faculty Needing Follow-up\" lists faculty who need reminders.\n";
+        $guide .= "- Training Summary (sidebar > Report; the Seminar & Training Report): filter by faculty, program, seminar dates, organizer, type; Generate, Print / Save as PDF, Export CSV, and \"Generate AI Summary\" for a written overview.\n"
+            . "- Home (dashboard): \"Faculty Needing Follow-up\" counts faculty who need reminders; \"View list\" opens the list in a pop-up.\n";
     }
     if ($user['role'] === 'admin') {
-        $guide .= "- Admin: Manage Faculty (create accounts, reset passwords, unlock logins, deactivate), Faculty Records, Search Documents, Archived Documents (restore), Data Analytics, Reports (documents report with Print/PDF and CSV), Classification Review, Activity Logs, Security Alerts.\n";
+        $guide .= "- Admin menu: Home; Files > Public Docs (all posted documents with filters, and Faculty Records by person), Archived Docs (restore archived documents), Recently Deleted (restore deleted documents within " . (int)DELETED_RETENTION_DAYS . " days, or delete permanently now), Manage Document (the For Review queue: check each new upload's detected type and details in a pop-up, correct them, then Post); Report > Document Status (expiration status report with Print/PDF and CSV, Expiring Documents, Data Analytics), Training Summary; Security > Manage Faculty (create accounts, reset passwords, unlock logins, activate / deactivate), Security Alerts, Activity Logs; Account > Profile Preference, Change Password.\n";
     }
 
     return "You are the 201 File Assistant of the CCS Faculty 201-File Repository, College of Computing Studies, Universidad de Manila.\n"

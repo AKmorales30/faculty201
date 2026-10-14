@@ -6,8 +6,16 @@
  * each with a link to the page that fixes it and a Dismiss button
  * (api/reminders.php, POST + CSRF token). With none open, a status card
  * instead: "You're all set" once the account has been checked.
+ *
+ * Optional, set by the including page:
+ *   $reminders_title    card title (default "Reminders"; the Admin's is "AI Overview")
+ *   $reminders_compact  true: messages only, no Dismiss / link buttons -- the
+ *                       Admin dashboard shows the breakdown right below it
+ *                       (includes/reminders_summary_card.php)
  */
 $reminder_viewer = current_user();
+$reminders_title = $reminders_title ?? 'Reminders';
+$reminders_compact = $reminders_compact ?? false;
 $my_reminders = open_reminders_for_user($pdo, (int)$reminder_viewer['user_id']);
 $reminder_meta = reminder_types();
 if (!$my_reminders):
@@ -40,7 +48,7 @@ if (!$my_reminders):
 <?php return; endif; ?>
 <div class="card stat-card mb-4 reminder-card">
   <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
-    <span><i class="fa-solid fa-bell text-accent-gold"></i> Reminders</span>
+    <span><i class="fa-solid <?= $reminders_compact ? 'fa-wand-magic-sparkles' : 'fa-bell' ?> text-accent-gold"></i> <?= h($reminders_title) ?></span>
     <span class="badge bg-warning"><?= count($my_reminders) ?></span>
   </div>
   <ul class="list-group list-group-flush">
@@ -51,6 +59,7 @@ if (!$my_reminders):
           <div><?= h($r['message']) ?></div>
           <div class="small text-muted"><?= h($meta['label']) ?> · <?= h(time_ago($r['created_at'])) ?></div>
         </div>
+        <?php if (!$reminders_compact): ?>
         <div class="d-flex gap-2 flex-shrink-0">
           <?php if ($url = notification_link_url($r['link'])): ?>
             <a href="<?= h($url) ?>" class="btn btn-sm btn-brand text-nowrap"><?= h($meta['link_text']) ?></a>
@@ -62,6 +71,7 @@ if (!$my_reminders):
             <button class="btn btn-sm btn-outline-secondary text-nowrap" title="Hide this reminder (it comes back only if it still applies in <?= (int)REMINDER_REPEAT_DAYS ?> days)">Dismiss</button>
           </form>
         </div>
+        <?php endif; ?>
       </li>
     <?php endforeach; ?>
   </ul>

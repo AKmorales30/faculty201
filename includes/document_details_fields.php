@@ -1,8 +1,10 @@
 <?php
 /**
  * Document detail inputs, shared by the upload preview
- * (faculty/submit_document.php) and Edit Document Details
- * (document_details.php). Saved through document_details_clean().
+ * (faculty/submit_document.php), Edit Document Details
+ * (document_details.php) and the Admin's review pop-up (api/modal.php).
+ * Saved through document_details_clean(). No inline script, so it also
+ * works when loaded into a pop-up.
  *
  * Expects:
  *   $values         current values, keyed by document_detail_columns()
@@ -16,10 +18,9 @@
 $v = fn(string $k): string => (string)($values[$k] ?? '');
 $n = fn(string $k): string => h($prefix) . '[' . $k . ']';
 $attr = isset($detail_attr) ? ' ' . $detail_attr : '';
-$archive_hint = 'A document dated more than ' . (int)ARCHIVE_AFTER_YEARS . ' years ago goes straight to the archive.';
 $uid = 'dd' . bin2hex(random_bytes(3));   // unique ids when included twice on one page
 ?>
-<div class="row g-2 document-details" data-cutoff="<?= h(archive_cutoff_date()) ?>">
+<div class="row g-2 document-details">
   <?php if (!empty($detail_groups['training'])): ?>
   <div class="col-12">
     <label class="form-label small" for="<?= $uid ?>title">Seminar / Training Title</label>
@@ -72,20 +73,4 @@ $uid = 'dd' . bin2hex(random_bytes(3));   // unique ids when included twice on o
     <input type="date" id="<?= $uid ?>issued" name="<?= $n('date_issued') ?>" class="form-control form-control-sm detail-date" value="<?= h($v('date_issued')) ?>"<?= $attr ?>>
   </div>
   <?php endif; ?>
-  <div class="col-12">
-    <div class="small text-warning-emphasis detail-archive-note" hidden><i class="fa-solid fa-box-archive"></i> <?= h($archive_hint) ?></div>
-  </div>
 </div>
-<script>
-// Warn when the dates entered make the document old enough to be archived (the server decides)
-(function (box) {
-  function check() {
-    var dates = Array.prototype.map.call(box.querySelectorAll('.detail-date'), function (i) { return i.disabled ? '' : i.value; });
-    var end = dates[1] || dates[0] || dates[2] || '';   // same order as document_date_sql(): to, from, issued
-    box.querySelector('.detail-archive-note').hidden = !(end && end < box.dataset.cutoff);
-  }
-  box.addEventListener('change', check);
-  box.addEventListener('input', check);
-  check();
-})(document.currentScript.previousElementSibling);
-</script>

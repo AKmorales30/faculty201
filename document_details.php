@@ -9,9 +9,7 @@
  * Certificates uploaded before these details existed show "Not specified"
  * in the report. "Pre-fill from scanned text" re-reads the OCR text already
  * stored with the document (no new scan) to fill in the empty fields.
- *
- * After saving, the document's age is checked again: one dated more than
- * ARCHIVE_AFTER_YEARS ago moves to the archive straight away.
+ * The owner can also edit while the document is still For Review.
  */
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/functions.php';
@@ -64,10 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             . document_type_label($doc['document_type'], $doc['document_subtype']) . ') of ' . $doc['full_name'] . ' -- ' . describe_filters($changes) . '.');
     }
 
-    // New dates can make it more than ARCHIVE_AFTER_YEARS old: archive it now, not tomorrow
-    $archived = $doc['status'] === 'active' && auto_archive_old_documents($pdo, $me, $document_id)['archived'] > 0;
-    $_SESSION['flash_success'] = ($changes ? 'The document details were saved.' : 'Nothing was changed.')
-        . ($archived ? ' It is more than ' . ARCHIVE_AFTER_YEARS . ' years old, so it was moved to ' . ((int)$doc['faculty_id'] === (int)$me['user_id'] ? 'your archive (My Archive).' : 'the archive.') : '');
+    $_SESSION['flash_success'] = $changes ? 'The document details were saved.' : 'Nothing was changed.';
     header('Location: ' . BASE_URL . '/' . $return);
     exit;
 }
@@ -101,7 +96,7 @@ include __DIR__ . '/includes/header.php';
         <div class="small text-muted">
           <?= h(document_type_label($doc['document_type'], $doc['document_subtype'])) ?> · uploaded <?= h(date('M j, Y', strtotime($doc['filed_at']))) ?>
           <?= (int)$doc['faculty_id'] !== (int)$me['user_id'] ? ' · ' . h($doc['full_name']) : '' ?>
-          <?= $doc['status'] === 'archived' ? ' · <span class="badge bg-light text-dark border">Archived</span>' : '' ?>
+          <?php if ($doc['status'] !== 'active'): [$st_label, $st_badge] = document_status_badge($doc['status']); ?> · <span class="badge <?= $st_badge ?>"><?= h($st_label) ?></span><?php endif; ?>
         </div>
       </div>
       <div class="d-flex gap-2 align-items-start">
