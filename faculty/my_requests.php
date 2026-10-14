@@ -21,7 +21,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <h3 class="fw-bold mb-0">Public Docs</h3>
   <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand btn-sm">
-    <i class="fa-solid fa-file-circle-plus"></i> Create Document
+    <i class="fa-solid fa-file-circle-plus"></i> Upload Document
   </a>
 </div>
 

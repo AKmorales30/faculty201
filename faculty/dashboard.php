@@ -43,7 +43,7 @@ include __DIR__ . '/../includes/header.php';
   <h3 class="fw-bold mb-0">Welcome, <?= h($me['full_name']) ?></h3>
   <div class="d-flex flex-wrap gap-2">
     <a href="<?= BASE_URL ?>/faculty/pds.php" class="btn btn-outline-brand"><i class="fa-solid fa-id-card"></i> My PDS</a>
-    <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus"></i> Create Document</a>
+    <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus"></i> Upload Document</a>
   </div>
 </div>
 

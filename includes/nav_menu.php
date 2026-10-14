@@ -78,7 +78,7 @@ function app_menu(PDO $pdo, array $user): array {
     if ($user['role'] === 'faculty') {
         return [
             ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'faculty/dashboard.php', 'active' => nav_on('faculty/dashboard.php')],
-            ['label' => 'Create Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
+            ['label' => 'Upload Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
             ['group' => 'File', 'icon' => 'fa-folder', 'items' => [
                 ['label' => 'Public Docs', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public,
                  'badge' => $pending, 'badge_title' => 'Waiting for review', 'badge_class' => 'bg-review'],
@@ -92,7 +92,7 @@ function app_menu(PDO $pdo, array $user): array {
     // Program Chair / Dean: their own 201 file, plus profiles and the training report of the faculty they oversee
     return [
         ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'approval/dashboard.php', 'active' => nav_on('approval/dashboard.php', 'reminder_list.php')],
-        ['label' => 'Create Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
+        ['label' => 'Upload Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
         ['group' => 'Files', 'icon' => 'fa-folder', 'items' => [
             ['label' => 'Public Docs', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public,
              'badge' => $pending, 'badge_title' => 'Waiting for review', 'badge_class' => 'bg-review'],

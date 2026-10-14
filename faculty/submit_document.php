@@ -7,7 +7,7 @@ require_once __DIR__ . '/../ocr/OcrProcessor.php';
 require_once __DIR__ . '/../ocr/DocScanner.php';
 require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Deans keep their own 201 file too
 
-// Create Document: two ways in, one page --
+// Upload Document: two ways in, one page --
 //   Upload & auto-detect   the file is read (OCR) and its type and details are
 //                          detected, then checked by the uploader on a preview
 //   Enter details manually the uploader picks the type and types the details in
@@ -15,7 +15,7 @@ require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Dean
 //                          every 201-file record is a document
 // Either way the document is saved For Review: the Admin checks it in Manage
 // Document and posts it to the uploader's Public Docs.
-$page_title = 'Create Document';
+$page_title = 'Upload Document';
 $me = current_user();
 $employment_type = faculty_employment_type($pdo, $me['user_id']);
 $categories = categories_for_faculty($employment_type);
@@ -371,7 +371,7 @@ $pending = $_SESSION['pending_scan'] ?? null;
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-1">Create Document</h3>
+<h3 class="fw-bold mb-1">Upload Document</h3>
 <p class="text-muted mb-4">Add any document to your 201 file -- PDS, certificates, diploma, TOR, FTA, IPCR<?= $employment_type === 'part_time' ? ', contract of service, affidavit of undertaking' : '' ?>, or other documents.
   Upload it and let the system read it and detect its type, or enter its details yourself. Either way it waits For Review until the Admin checks it and posts it to your Public Docs.
   Seminar and training certificates can also be added to your PDS.</p>
