@@ -6,7 +6,9 @@
  *          $card_admin true on the Admin dashboard: all faculty, with a
  *                      Faculty column, summary counts, the first rows only
  *                      and a "View all" button that opens the whole list in
- *                      the pop-up (api/modal.php?view=expiring)
+ *                      the pop-up; each bucket count opens only that bucket
+ *                      (api/modal.php?view=list&category=expiring / expired /
+ *                      expiring_7 / expiring_30 / expiring_60)
  * Each document's eye button opens its preview pop-up.
  *
  * Colors: red = expired, orange = within 7 days, yellow = within 30 days,
@@ -19,7 +21,7 @@ $card_rows = $card_admin ? array_slice($expiring, 0, $card_limit) : $expiring;
   <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="fa-solid fa-hourglass-half text-brand"></i> Expiring / Expired Documents</span>
     <?php if ($card_admin): ?>
-      <button type="button" class="btn btn-sm btn-outline-brand fw-normal" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=expiring') ?>" data-app-modal-title="Expiring / Expired Documents">
+      <button type="button" class="btn btn-sm btn-outline-brand fw-normal" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=expiring') ?>" data-app-modal-title="Expiring / Expired Documents">
         <i class="fa-solid fa-list"></i> View all<?= $expiring ? ' (' . count($expiring) . ')' : '' ?>
       </button>
     <?php elseif ($expiring): ?>
@@ -32,7 +34,7 @@ $card_rows = $card_admin ? array_slice($expiring, 0, $card_limit) : $expiring;
   <div class="card-body border-bottom py-2">
     <div class="d-flex flex-wrap gap-2 small">
       <?php foreach (expiration_buckets() as $key => [$label, $class]): ?>
-        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=expiring&status=' . $key) ?>" data-app-modal-title="Expiring / Expired Documents">
+        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=' . ($key === 'expired' ? 'expired' : 'expiring_' . $key)) ?>" data-app-modal-title="<?= h($label) ?>">
           <span class="badge <?= $class ?>"><?= (int)$buckets[$key] ?></span> <span class="text-body small"><?= h($label) ?></span>
         </button>
       <?php endforeach; ?>

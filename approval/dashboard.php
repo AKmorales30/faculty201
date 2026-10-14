@@ -61,7 +61,7 @@ include __DIR__ . '/../includes/header.php';
     </a>
   </div>
   <div class="col-md-3 col-6">
-    <a href="<?= BASE_URL ?>/faculty/my_documents.php?tab=pending" class="text-decoration-none">
+    <a href="<?= BASE_URL ?>/faculty/my_documents.php?tab=pending" class="text-decoration-none" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=for_review') ?>" data-app-modal-title="For Review">
       <div class="card stat-card stat-card-link p-3 h-100">
         <div class="text-muted small">For Review</div>
         <div class="stat-number text-accent-gold"><?= (int)($by_status['for_review'] ?? 0) ?></div>

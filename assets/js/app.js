@@ -64,6 +64,7 @@
     var dialog = modalEl.querySelector('.modal-dialog');
     var body = document.getElementById('appModalBody');
     var title = document.getElementById('appModalTitle');
+    var footerExtra = document.getElementById('appModalFooterExtra');
     var request = 0;
 
     var openAppModal = function (url, opts) {
@@ -72,7 +73,8 @@
       dialog.classList.remove('modal-lg', 'modal-xl');
       dialog.classList.add(opts.size === 'lg' ? 'modal-lg' : 'modal-xl');
       title.textContent = opts.title || 'Loading…';
-      body.innerHTML = '<div class="text-center text-muted py-5"><span class="spinner-border spinner-border-sm"></span> Loading…</div>';
+      footerExtra.innerHTML = '';
+      body.innerHTML = '<div class="text-center text-muted py-5" role="status"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Loading…</div>';
       modal.show();
       fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function (res) { return res.text().then(function (html) { return { ok: res.ok, status: res.status, html: html }; }); })
@@ -82,6 +84,9 @@
           body.innerHTML = r.html;
           var head = body.querySelector('[data-modal-title]');
           title.textContent = head ? head.dataset.modalTitle : (opts.title || (r.ok ? '' : 'Something went wrong'));
+          // The fragment's footer part (e.g. "Open as a full page") goes next to the Close button
+          var foot = body.querySelector('[data-modal-footer]');
+          if (foot) { footerExtra.appendChild(foot); }
           body.scrollTop = 0;
         })
         .catch(function () {
@@ -114,7 +119,7 @@
       }
     });
     // Stop a previewed PDF / video from staying loaded once the pop-up is closed
-    modalEl.addEventListener('hidden.bs.modal', function () { request++; body.innerHTML = ''; });
+    modalEl.addEventListener('hidden.bs.modal', function () { request++; body.innerHTML = ''; footerExtra.innerHTML = ''; });
     // Forms inside the pop-up: no double submit
     body.addEventListener('submit', function (e) {
       var btns = e.target.querySelectorAll('button[type="submit"], button:not([type])');

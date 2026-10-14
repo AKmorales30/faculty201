@@ -3,11 +3,14 @@
  * Admin / Program Chair / Dean dashboard: how many faculty in the viewer's
  * scope have each kind of open reminder ("12 faculty have not uploaded a
  * seminar or training certificate in 6 months"), each with a View list
- * button that opens the list in the pop-up (api/modal.php?view=reminders;
+ * button that opens ONLY that category's list in the pop-up
+ * (api/modal.php?view=list&category=..., includes/modals/list.php;
  * reminder_list.php is the page version). From the daily reminder check
  * (includes/ai_reminders.php).
  */
 $scope_counts = reminder_scope_counts($pdo, current_user());
+// Reminder type => the pop-up's category
+$summary_category = ['pds' => 'pds_update', 'missing_docs' => 'missing_documents', 'no_seminar' => 'no_recent_seminar', 'expiring' => 'expiring_followup'];
 ?>
 <div class="card stat-card mb-4">
   <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-user-clock text-brand"></i> Faculty Needing Follow-up</div>
@@ -19,7 +22,7 @@ $scope_counts = reminder_scope_counts($pdo, current_user());
           <strong><?= $n ?></strong> <?= $n === 1 ? 'faculty member has' : 'faculty have' ?> <?= h($meta['summary']) ?>
         </span>
         <?php if ($n): ?>
-          <button type="button" class="btn btn-sm btn-outline-brand text-nowrap" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=reminders&type=' . $type) ?>" data-app-modal-size="lg" data-app-modal-title="Faculty Needing Follow-up">
+          <button type="button" class="btn btn-sm btn-outline-brand text-nowrap" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=' . $summary_category[$type]) ?>" data-app-modal-title="<?= h($meta['label']) ?>">
             <i class="fa-solid fa-list"></i> View list
           </button>
         <?php endif; ?>

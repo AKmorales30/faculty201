@@ -1,7 +1,6 @@
 <?php
 /**
- * Faculty Needing Follow-up table, shared by reminder_list.php and its
- * pop-up (api/modal.php?view=reminders). Expects $rows
+ * Faculty Needing Follow-up table of reminder_list.php. Expects $rows
  * (reminder_scope_list()), $types (personal_reminder_types()) and $type.
  */
 ?>

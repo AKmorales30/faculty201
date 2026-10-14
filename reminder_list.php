@@ -4,8 +4,9 @@
  * in the viewer's scope (profile_scope_sql()) with an open reminder of one
  * type, with the rule-based reason (not the AI-worded message). The
  * dashboard summary card (includes/reminders_summary_card.php) opens the
- * same list in a pop-up (api/modal.php?view=reminders); this page is the
- * full-page version of it.
+ * list of each type in a pop-up, one type at a time
+ * (api/modal.php?view=list&category=...); this page is the full-page
+ * version, with all types as tabs.
  */
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/functions.php';

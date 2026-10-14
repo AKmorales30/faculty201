@@ -55,7 +55,7 @@ if (mb_strlen($q) >= 2) {
 $more = count($rows) > $limit;
 $rows = array_slice($rows, 0, $limit);
 ?>
-<div data-modal-title="Search results<?= $q !== '' ? ' for “' . h($q) . '”' : '' ?>"></div>
+<div data-modal-title="Search results<?= $q !== '' ? ' for “' . h($q) . '”' : '' ?><?= mb_strlen($q) >= 2 ? ' (' . ($more ? $limit . '+' : count($rows)) . ')' : '' ?>"></div>
 <?php if (mb_strlen($q) < 2): ?>
   <p class="text-muted mb-0">Type at least 2 characters: a title, <?= $is_admin ? 'a faculty member\'s name, ' : '' ?>or a document type such as “TOR” or “certificate”.</p>
 <?php else: ?>
@@ -70,7 +70,7 @@ $rows = array_slice($rows, 0, $limit);
       </thead>
       <tbody>
         <?php if (!$rows): ?>
-          <tr><td colspan="<?= $is_admin ? 5 : 4 ?>" class="text-center text-muted py-4">No documents match “<?= h($q) ?>”.</td></tr>
+          <tr><td colspan="<?= $is_admin ? 5 : 4 ?>" class="text-center text-muted py-4">No records found for “<?= h($q) ?>”.</td></tr>
         <?php endif; ?>
         <?php foreach ($rows as $r): [$st_label, $st_badge] = document_status_badge($r['status']); ?>
           <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$r['document_id']) ?>">
@@ -84,7 +84,7 @@ $rows = array_slice($rows, 0, $limit);
       </tbody>
     </table>
   </div>
-  <div class="mt-3 small">
+  <div data-modal-footer>
     <a href="<?= h($full_page) ?>"><i class="fa-solid fa-sliders"></i> Search with more filters in <?= $is_admin ? 'Public Docs' : 'your Public Docs' ?></a>
   </div>
 <?php endif; ?>

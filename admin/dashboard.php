@@ -50,7 +50,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
   </div>
   <div class="col-md-3 col-6">
-    <a href="<?= BASE_URL ?>/admin/manage_documents.php" class="text-decoration-none">
+    <a href="<?= BASE_URL ?>/admin/manage_documents.php" class="text-decoration-none" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=for_review') ?>" data-app-modal-title="For Review">
       <div class="card stat-card stat-card-link p-3 h-100">
         <div class="text-muted small">For Review</div>
         <div class="stat-number text-accent-gold"><?= (int)$review_count ?></div>
@@ -92,7 +92,9 @@ include __DIR__ . '/../includes/header.php';
 <div class="card stat-card">
   <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="fa-solid fa-clock-rotate-left text-brand"></i> Recent File Uploads</span>
-    <span class="small text-muted fw-normal">Click a file to preview it</span>
+    <button type="button" class="btn btn-sm btn-outline-brand fw-normal" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=recent_uploads') ?>" data-app-modal-title="Recent File Uploads">
+      <i class="fa-solid fa-list"></i> View all
+    </button>
   </div>
   <div class="card-body p-0 table-responsive">
     <table class="table table-hover mb-0 align-middle">

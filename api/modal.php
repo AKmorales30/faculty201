@@ -11,11 +11,14 @@
  *                        Review document (edit, then Post)
  *   view=search&q=...    header search by title, faculty or  everyone; the Admin all
  *                        document type                       documents, others their own
- *   view=reminders&type= Faculty Needing Follow-up list      Admin, Program Chair, Dean
- *                                                            (their scope only)
- *   view=expiring&status= expired / expiring documents       Admin
+ *   view=list&category=  ONE category of records -- the one  per category, see
+ *                        clicked (PDS for update, expired,   includes/modals/list.php
+ *                        for review, recent uploads, ...)    (scope by role / ownership)
  *
- * Returns an HTML fragment; every value from the database is escaped (h()).
+ * Returns an HTML fragment for the shared pop-up (includes/app_modal.php):
+ * its first element carries the title (data-modal-title), and an element
+ * with data-modal-footer is moved next to the Close button. Every value
+ * from the database is escaped (h()).
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -88,18 +91,8 @@ switch ($view) {
         include __DIR__ . '/../includes/modals/search.php';
         break;
 
-    case 'reminders':
-        if (!in_array($me['role'], ['admin', 'program_chair', 'dean'], true)) {
-            modal_fail(403, 'You do not have access to this list.');
-        }
-        include __DIR__ . '/../includes/modals/reminders.php';
-        break;
-
-    case 'expiring':
-        if (!$is_admin) {
-            modal_fail(403, 'You do not have access to this list.');
-        }
-        include __DIR__ . '/../includes/modals/expiring.php';
+    case 'list':
+        include __DIR__ . '/../includes/modals/list.php';   // checks the role for its category
         break;
 
     default:
