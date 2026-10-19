@@ -74,7 +74,7 @@ function is_logged_in() {
 
 function require_login() {
     if (!is_logged_in()) {
-        header('Location: ' . BASE_URL . '/login.php');
+        header('Location: ' . BASE_URL . '/index.php');   // the login form is on the landing page
         exit;
     }
     // A temporary password (set by the Admin) must be changed before anything else

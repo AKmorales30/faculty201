@@ -1,74 +1,191 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 if (is_logged_in()) { redirect_to_dashboard(); }
+
+// Logo files live in assets/img/ (any of these extensions). Until one is
+// added, a round initials badge is shown in its place.
+function landing_logo(string $basename): ?string {
+    foreach (['png', 'webp', 'jpg', 'jpeg', 'svg'] as $ext) {
+        if (is_file(__DIR__ . "/assets/img/$basename.$ext")) {
+            return BASE_URL . "/assets/img/$basename.$ext";
+        }
+    }
+    return null;
+}
+$udm_logo = landing_logo('udm-logo');
+$ccs_logo = landing_logo('ccs-logo');
+
+$icons = [
+    'monitor' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>',
+    'shield'  => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>',
+    'arrow'   => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+    'back'    => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>',
+    'eye'     => '<svg class="ld-eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg>',
+    'eye_off' => '<svg class="ld-eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="2" x2="22" y1="2" y2="22"/></svg>',
+    'alert'   => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>',
+];
+
+// The two roles. The key is what login_process.php expects in its "portal"
+// field; it re-checks there that the account really has that role.
+$roles = [
+    'faculty' => ['label' => 'Faculty',                      'icon' => 'monitor', 'tone' => 'teal'],
+    'admin'   => ['label' => 'Program Chair / Dean / Admin', 'icon' => 'shield',  'tone' => 'blue'],
+];
+
+// ?role=... opens straight to that role's login form (also where a failed
+// login comes back to). Anything else shows the role choice.
+$role = $_GET['role'] ?? '';
+if (!is_string($role) || !isset($roles[$role])) {
+    $role = '';
+}
+
+// Flash from login_process.php: the error, the email typed, and whether the
+// email / password were wrong (only then are the boxes outlined in red).
+$error = $role !== '' ? ($_SESSION['login_error_' . $role] ?? null) : null;
+$general_error = $_SESSION['login_error'] ?? null;   // e.g. the form came without a role
+$email = $role !== '' ? (string)($_SESSION['login_email'] ?? '') : '';
+$bad_fields = $error && !empty($_SESSION['login_bad_fields']);
+unset($_SESSION['login_error_faculty'], $_SESSION['login_error_admin'], $_SESSION['login_error'],
+      $_SESSION['login_email'], $_SESSION['login_bad_fields']);
+
+$active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the form starts with
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faculty 201-File Repository — CCS, Universidad de Manila</title>
-<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
-<link href="<?= BASE_URL ?>/assets/css/style.css" rel="stylesheet">
+<title>Faculty 201-Files Management System — CCS, Universidad de Manila</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Public+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="<?= BASE_URL ?>/assets/css/landing.css" rel="stylesheet">
+<script src="<?= BASE_URL ?>/assets/js/landing.js" defer></script>
 </head>
-<body>
+<body class="landing">
 
-<header class="hero-banner text-center text-white">
-  <div class="container py-5">
-    <div class="text-uppercase fw-semibold small text-accent-gold mb-2">Universidad de Manila</div>
-    <h1 class="fw-bold display-5">College of Computing Studies</h1>
-    <h2 class="fw-semibold h4 mb-4">Faculty 201-File Repository</h2>
-    <p class="mx-auto hero-lead">
-      A secure, centralized system for uploading, storing, and monitoring faculty 201-file
-      documents — Transcripts of Records, Diplomas, Certificates, and other supporting documents.
-    </p>
-  </div>
+<header class="ld-header">
+  <?php if ($udm_logo): ?>
+    <img class="ld-logo" src="<?= h($udm_logo) ?>" alt="Universidad de Manila seal" width="90" height="90">
+  <?php else: ?>
+    <span class="ld-logo ld-logo-fallback" role="img" aria-label="Universidad de Manila seal">UdM</span>
+  <?php endif; ?>
+
+  <h1 class="ld-university">Universidad de Manila</h1>
+
+  <?php if ($ccs_logo): ?>
+    <img class="ld-logo ld-logo-contain" src="<?= h($ccs_logo) ?>" alt="College of Computing Studies logo" width="90" height="90">
+  <?php else: ?>
+    <span class="ld-logo ld-logo-fallback" role="img" aria-label="College of Computing Studies logo">CCS</span>
+  <?php endif; ?>
 </header>
 
-<main class="container py-5">
-  <h3 class="fw-bold text-center mb-4">Select Your Login Portal</h3>
+<main class="ld-main">
 
-  <div class="row g-4 justify-content-center">
+  <section class="ld-hero" aria-labelledby="ld-title">
+    <p class="ld-eyebrow">College of Computing Studies</p>
+    <h2 class="ld-title" id="ld-title">
+      <span class="ld-nowrap">Faculty 201-Files</span>
+      <span>Management System</span>
+    </h2>
+    <hr class="ld-rule">
+    <p class="ld-lead">
+      A secure, centralized system for uploading, storing, and monitoring faculty 201-file documents.
+    </p>
+  </section>
 
-    <div class="col-md-6 col-lg-4">
-      <div class="card portal-card h-100 text-center p-4">
-        <div class="portal-icon portal-icon-teal mx-auto mb-3">
-          <i class="fa-solid fa-chalkboard-user"></i>
-        </div>
-        <h5 class="fw-bold">Faculty</h5>
-        <p class="text-muted small flex-grow-1">
-          For all CCS faculty members, full-time and part-time, submitting and tracking 201-file documents.
-        </p>
-        <a href="login_faculty.php" target="_blank" rel="noopener" class="fw-semibold text-brand">
-          Login <i class="fa-solid fa-arrow-right"></i>
-        </a>
+  <div class="ld-panel" id="ld-panel" data-view="<?= $role !== '' ? 'login' : 'roles' ?>">
+
+    <!-- State a: choose a role. Each card is a real link (?role=...), so this works without JavaScript too. -->
+    <section class="ld-pane ld-pane-roles" aria-labelledby="ld-roles-title">
+      <div class="ld-pane-inner">
+        <h2 class="ld-heading" id="ld-roles-title">Log in as:</h2>
+        <p class="ld-sub">Choose your role to continue.</p>
+
+        <?php if ($general_error): ?>
+          <div class="ld-alert" role="alert">
+            <?= $icons['alert'] ?>
+            <span><?= h($general_error) ?></span>
+          </div>
+        <?php endif; ?>
+
+        <ul class="ld-cards">
+          <?php foreach ($roles as $key => $r): ?>
+            <li>
+              <a class="role-card" href="<?= BASE_URL ?>/index.php?role=<?= h($key) ?>" data-role="<?= h($key) ?>">
+                <span class="role-icon role-icon-<?= h($r['tone']) ?>"><?= $icons[$r['icon']] ?></span>
+                <span class="role-label"><?= h($r['label']) ?></span>
+                <span class="role-arrow"><?= $icons['arrow'] ?></span>
+              </a>
+            </li>
+          <?php endforeach; ?>
+        </ul>
       </div>
-    </div>
+    </section>
 
-    <div class="col-md-6 col-lg-4">
-      <div class="card portal-card h-100 text-center p-4">
-        <div class="portal-icon portal-icon-navy mx-auto mb-3">
-          <i class="fa-solid fa-user-shield"></i>
-        </div>
-        <h5 class="fw-bold">Admin</h5>
-        <p class="text-muted small flex-grow-1">
-          For the Admin, Program Chairs, and Deans — managing accounts and records, and staying notified of faculty document uploads.
-        </p>
-        <a href="login_admin.php" target="_blank" rel="noopener" class="fw-semibold text-brand">
-          Login <i class="fa-solid fa-arrow-right"></i>
+    <!-- State b: the login form for the chosen role. -->
+    <section class="ld-pane ld-pane-login" aria-labelledby="ld-login-title">
+      <div class="ld-pane-inner">
+        <a class="ld-back" href="<?= BASE_URL ?>/index.php" id="ld-back">
+          <?= $icons['back'] ?> Change role
         </a>
+
+        <h2 class="ld-heading" id="ld-login-title">Logging in as:</h2>
+        <p class="ld-pill-row">
+          <?php foreach ($roles as $key => $r): ?>
+            <span class="ld-pill ld-pill-<?= h($r['tone']) ?>" data-role="<?= h($key) ?>"<?= $key === $active ? '' : ' hidden' ?>>
+              <span class="ld-pill-icon"><?= $icons[$r['icon']] ?></span>
+              <?= h($r['label']) ?>
+            </span>
+          <?php endforeach; ?>
+        </p>
+
+        <form class="ld-form" id="ld-form" action="<?= BASE_URL ?>/login_process.php" method="POST">
+          <?= csrf_field() ?>
+          <input type="hidden" name="portal" id="ld-portal" value="<?= h($active) ?>">
+
+          <div class="ld-alert" id="ld-error" role="alert" aria-live="assertive"<?= $error ? '' : ' hidden' ?>>
+            <?= $icons['alert'] ?>
+            <span id="ld-error-text"><?= h($error ?? '') ?></span>
+          </div>
+
+          <div class="ld-field">
+            <label for="ld-email">Email</label>
+            <input type="email" id="ld-email" name="email" class="ld-input<?= $bad_fields ? ' is-invalid' : '' ?>"
+                   value="<?= h($email) ?>" placeholder="name@ccs.udm.edu.ph" maxlength="150"
+                   autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" required
+                   <?= $bad_fields ? 'aria-invalid="true" aria-describedby="ld-error"' : '' ?>
+                   <?= $role !== '' && $email === '' ? 'autofocus' : '' ?>>
+          </div>
+
+          <div class="ld-field">
+            <label for="ld-password">Password</label>
+            <div class="ld-password">
+              <input type="password" id="ld-password" name="password" class="ld-input<?= $bad_fields ? ' is-invalid' : '' ?>"
+                     placeholder="Enter your password" autocomplete="current-password" required
+                     <?= $bad_fields ? 'aria-invalid="true" aria-describedby="ld-error"' : '' ?>
+                     <?= $role !== '' && $email !== '' ? 'autofocus' : '' ?>>
+              <button type="button" class="ld-toggle" id="ld-toggle" aria-label="Show password" aria-pressed="false" aria-controls="ld-password" hidden>
+                <?= $icons['eye'] ?><?= $icons['eye_off'] ?>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="ld-submit" id="ld-submit">
+            <span class="ld-spinner" aria-hidden="true"></span>
+            <span class="ld-submit-text">Log In</span>
+          </button>
+        </form>
       </div>
-    </div>
+    </section>
 
   </div>
+
 </main>
 
-<footer class="app-footer text-center text-white-50 py-4">
-  <div class="container small">
-    <div><?= date('Y') ?> © Universidad de Manila — College of Computing Studies</div>
-    <div>Developed by Arnesto, Austria, Morales</div>
-  </div>
+<footer class="ld-footer">
+  <p><?= date('Y') ?> © Universidad de Manila — College of Computing Studies</p>
+  <p>Developed by Arnesto, Austria, Morales</p>
 </footer>
 
 </body>

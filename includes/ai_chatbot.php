@@ -374,7 +374,7 @@ function chatbot_system_instruction(PDO $pdo, array $user): string {
     $u = user_row($pdo, (int)$user['user_id']);
     $role_label = user_position_line($u);
     $guide = "HOW-TO GUIDE (the actual features of this system):\n"
-        . "- Log in: from the home page choose a portal -- Faculty for faculty members; Admin for the Admin, Program Chairs and Deans. After " . (int)MAX_FAILED_ATTEMPTS . " failed attempts a login is locked for " . (int)LOCKOUT_MINUTES . " minutes.\n"
+        . "- Log in: on the home page choose a role -- Faculty for faculty members; Program Chair / Dean / Admin for the Admin, Program Chairs and Deans -- then enter your email and password on the same page. After " . (int)MAX_FAILED_ATTEMPTS . " failed attempts a login is locked for " . (int)LOCKOUT_MINUTES . " minutes.\n"
         . "- Change password: sidebar > Account > Change Password. Enter the current password and a new one with at least 8 characters, an uppercase letter, a lowercase letter and a number. Forgot it? Ask the Admin to reset it; the temporary password must be changed at the next login.\n"
         . "- Profile Preference (sidebar > Account, or the initials avatar in the top bar): profile picture (JPG/PNG up to 2 MB), specialization and contact number. Academic rank and employee ID are set by the Admin.\n"
         . "- Search: the magnifier icon in the top bar searches documents by title, faculty or document type (faculty: their own documents only).\n"
