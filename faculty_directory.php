@@ -16,8 +16,8 @@ $stmt = $pdo->prepare(
     "SELECT u.user_id, u.full_name, u.role, u.employment_type, u.program, u.college, u.academic_rank, u.profile_picture, u.is_active,
             (SELECT COUNT(*) FROM documents d WHERE d.faculty_id = u.user_id AND d.status = 'archived') AS archived
      FROM users u
-     WHERE $scope AND u.role IN ('faculty', 'program_chair', 'dean') AND u.user_id <> ?
-     ORDER BY FIELD(u.role, 'dean', 'program_chair', 'faculty'), u.full_name"
+     WHERE $scope AND u.role IN ('faculty', 'program_chair', 'dean') AND u.user_id <> ? AND u.deleted_at IS NULL
+     ORDER BY CASE u.role WHEN 'dean' THEN 1 WHEN 'program_chair' THEN 2 ELSE 3 END, u.full_name"
 );
 $stmt->execute([...$params, (int)$me['user_id']]);
 $people = $stmt->fetchAll();

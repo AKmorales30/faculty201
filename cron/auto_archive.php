@@ -7,6 +7,9 @@
  *   2. Recently Deleted cleanup (run_daily_deleted_cleanup()): documents
  *      deleted more than DELETED_RETENTION_DAYS ago are permanently deleted,
  *      and owners are warned DELETED_PURGE_WARNING_DAYS days before
+ *   3. Deleted accounts cleanup (run_daily_account_cleanup()): accounts
+ *      deleted in Manage Faculty more than DELETED_RETENTION_DAYS ago are
+ *      deleted permanently; their documents move to Archived Docs
  * Each step is recorded as done for the day only once it finished; a
  * failed step is tried again on the next run / page load.
  * Safe to run any number of times. Command line only.
@@ -51,5 +54,13 @@ if ($result === null) {
     echo date('Y-m-d H:i:s') . " Recently Deleted: {$result['purged']} document(s) deleted more than " . (int)DELETED_RETENTION_DAYS
        . ' days ago permanently deleted' . ($result['document_ids'] ? ': #' . implode(', #', $result['document_ids']) : '')
        . "; {$result['warned']} owner warning(s) sent.\n";
+}
+$result = run_daily_account_cleanup($pdo, true);
+if ($result === null) {
+    fwrite(STDERR, date('Y-m-d H:i:s') . " Deleted accounts cleanup failed -- see the PHP error log.\n");
+    $failed = true;
+} else {
+    echo date('Y-m-d H:i:s') . " Deleted accounts: {$result['purged']} account(s) deleted more than " . (int)DELETED_RETENTION_DAYS
+       . ' days ago deleted permanently' . ($result['user_ids'] ? ': #' . implode(', #', $result['user_ids']) : '') . " (their documents moved to Archived Docs).\n";
 }
 exit($failed ? 1 : 0);

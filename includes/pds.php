@@ -460,16 +460,16 @@ function pds_snapshot(PDO $pdo, int $faculty_id, string $reason): void {
 /** Write Parts I-VI, VIII etc. (creates the record if needed). */
 function pds_write_data(PDO $pdo, int $faculty_id, array $data, ?int $source_document_id = null): void {
     $pdo->prepare(
-        "INSERT INTO pds_records (faculty_id, data, source_document_id) VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE data = VALUES(data), source_document_id = COALESCE(VALUES(source_document_id), source_document_id), updated_at = CURRENT_TIMESTAMP"
+        "INSERT INTO pds_records (faculty_id, data, source_document_id) VALUES (?, ?, ?) "
+        . sql_on_duplicate('faculty_id', 'data = ' . sql_inserted('data') . ', source_document_id = COALESCE(' . sql_inserted('source_document_id')
+                                         . ', pds_records.source_document_id), updated_at = CURRENT_TIMESTAMP')
     )->execute([$faculty_id, json_encode($data), $source_document_id]);
 }
 
 /** Mark the PDS as updated (e.g. after an L&D entry was added). */
 function pds_touch(PDO $pdo, int $faculty_id): void {
     $pdo->prepare(
-        "INSERT INTO pds_records (faculty_id, data) VALUES (?, '{}')
-         ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP"
+        "INSERT INTO pds_records (faculty_id, data) VALUES (?, '{}') " . sql_on_duplicate('faculty_id', 'updated_at = CURRENT_TIMESTAMP')
     )->execute([$faculty_id]);
 }
 
@@ -540,7 +540,7 @@ function pds_clean_ld_row(array $row): ?array {
  * deleted -- a row missing from the submission is left alone -- and new
  * rows are added. The previous version is snapshotted first.
  */
-function pds_save(PDO $pdo, int $faculty_id, array $data_input, array $ld_input): void {
+function pds_save(PDO $pdo, int $faculty_id, array $data_input, array $ld_input, ?int $changed_by = null): ?array {
     $data = pds_clean_input($data_input);
 
     $pdo->beginTransaction();
@@ -569,11 +569,13 @@ function pds_save(PDO $pdo, int $faculty_id, array $data_input, array $ld_input)
                 pds_insert_ld($pdo, $faculty_id, $clean, null);
             }
         }
+        $version = pds_record_version($pdo, $faculty_id, 'manual edit', null, $changed_by ?? $faculty_id);   // only if something changed
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
         throw $e;
     }
+    return $version;
 }
 
 function pds_insert_ld(PDO $pdo, int $faculty_id, array $clean, ?int $source_document_id): int {
@@ -596,6 +598,7 @@ function pds_add_training(PDO $pdo, int $faculty_id, array $entry, int $document
     if ($clean === null) { return null; }
     pds_insert_ld($pdo, $faculty_id, $clean, $document_id);
     pds_touch($pdo, $faculty_id);
+    pds_record_version($pdo, $faculty_id, 'upload', $document_id, $faculty_id);   // a new PDS version: Section VI from the certificate
     $count = count(pds_ld_rows($pdo, $faculty_id));
     return pds_ld_sheet_label(count(pds_part7_pages(array_fill(0, $count, []))));
 }
@@ -630,7 +633,7 @@ function pds_status(PDO $pdo, int $faculty_id): array {
     $stmt->execute([$faculty_id]);
     $updated = $stmt->fetchColumn() ?: null;
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' AND (period_year = ? OR YEAR(filed_at) = ?)");
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' AND (period_year = ? OR EXTRACT(YEAR FROM filed_at) = ?)");
     $stmt->execute([$faculty_id, $year, $year]);
     $uploaded_this_year = (int)$stmt->fetchColumn() > 0;
 
@@ -646,3 +649,5 @@ function pds_snapshots(PDO $pdo, int $faculty_id): array {
     $stmt->execute([$faculty_id]);
     return $stmt->fetchAll();
 }
+
+require_once __DIR__ . '/pds_versions.php';   // version history of the PDS

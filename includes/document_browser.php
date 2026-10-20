@@ -24,7 +24,7 @@ $active_sub = $_GET['sub'] ?? '';
 if ($active_type === '' || !isset($all_categories[$active_type]['subtypes'][$active_sub])) { $active_sub = ''; }
 $q = trim($_GET['q'] ?? '');
 
-// Posted documents only -- For Review ones are in the Pending review tab / Manage Document, archived ones in
+// Posted documents (flagged ones included, with a badge) -- archived ones in
 // the faculty member's archive (archive.php), deleted ones on the Admin's Archived Docs page
 $stmt = $pdo->prepare("SELECT d.*, " . delete_window_sql('d') . " AS delete_seconds_left, ? AS full_name
                        FROM documents d WHERE d.faculty_id = ? AND d.status = 'active'");
@@ -57,6 +57,8 @@ foreach ($all_docs as $d) {
     }
 }
 include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + confirmation dialog
+require_once __DIR__ . '/pds.php';                 // the digital PDS's version (PDS folder)
+$pds_latest = pds_latest_version($pdo, (int)$faculty['user_id']);
 $show_all_url = rtrim($link_base, '?&') ?: '?';
 ?>
 
@@ -70,6 +72,7 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
           <div class="min-w-0">
             <div class="fw-semibold text-charcoal folder-title"><?= h($meta['short']) ?></div>
             <div class="text-muted small"><?= (int)($counts[$key] ?? 0) ?> file<?= ($counts[$key] ?? 0) === 1 ? '' : 's' ?></div>
+            <?php if ($key === 'PDS' && $pds_latest): ?><div class="text-muted small">Digital PDS: Version <?= (int)$pds_latest['version_number'] ?> · <?= h(date('M j, Y', strtotime($pds_latest['created_at']))) ?></div><?php endif; ?>
           </div>
         </div>
       </div>
@@ -78,6 +81,9 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
   <?php endforeach; ?>
 </div>
 
+<?php if ($active_type === 'PDS'): /* "Personal Data Sheet — Version 4 · Last updated ..." with the version history */ ?>
+  <?= pds_version_card($pdo, (int)$faculty['user_id'], current_user()) ?>
+<?php endif; ?>
 <section class="ui-card" aria-label="Documents">
   <form class="ui-toolbar" method="GET" role="search">
     <?php foreach (['id' => $_GET['id'] ?? null, 'type' => $active_type ?: null, 'sub' => $active_sub ?: null] as $k => $v): if ($v === null) continue; ?>
@@ -128,6 +134,9 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
                 <span class="badge bg-success">Latest</span>
               <?php else: ?>
                 <span class="badge bg-light text-muted border">Previous version</span>
+              <?php endif; ?>
+              <?php if (document_is_flagged($d)): ?>
+                <span class="badge bg-review doc-flag-badge" data-tooltip title="<?= h(ucfirst(document_flag_text($d['flag_reason']))) ?>. It stays in 201-Files; the Admin may correct its type or details.">Flagged for checking</span>
               <?php endif; ?>
             </div>
           </td>

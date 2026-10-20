@@ -12,10 +12,11 @@
 -- half the packet size (document_files keeps the type and size, with an
 -- empty data column). Files saved before keep working as they are.
 --
--- Not applied automatically. Apply it once:
+-- Applied automatically by run_pending_migrations() (includes/functions.php),
+-- and safe to run again by hand:
 --   mysql -u root faculty201_repository < database/migration_document_file_chunks.sql
--- Until then, files that fit in one packet still save; bigger ones are
--- refused with a clear "file too large" message.
+-- With it, any file up to MAX_UPLOAD_BYTES (10 MB) is saved, whatever
+-- max_allowed_packet is.
 -- =====================================================================
 
 USE faculty201_repository;

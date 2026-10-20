@@ -8,7 +8,8 @@
  * and printed on Long bond paper (8.5" x 13") with each sheet's own margins and scale, one sheet
  * per page. Use the browser's Print -> "Save as PDF" to generate the file.
  *
- * Faculty: their own PDS (?snapshot=ID for an earlier version).
+ * Faculty: their own PDS (?version=ID for an earlier version, from the
+ * version history -- read-only; ?snapshot=ID for an older backup).
  * Admin: any faculty member's (?faculty_id=ID). Program Chairs and Deans
  * can open only their own PDS, like faculty.
  */
@@ -21,6 +22,16 @@ require_role(['faculty', 'admin', 'program_chair', 'dean']);
 $me = current_user();
 // Only the Admin may open someone else's PDS; everyone else sees only their own.
 $faculty_id = $me['role'] === 'admin' ? (int)($_GET['faculty_id'] ?? 0) : (int)$me['user_id'];
+// A version from the version history: its owner or the Admin (pds_can_view_version_content())
+$version = null;
+if (!empty($_GET['version'])) {
+    $version = pds_version($pdo, (int)$_GET['version']);
+    if (!$version || !pds_can_view_version_content($me, (int)$version['user_id'])) {
+        http_response_code(404);
+        exit('That PDS version could not be found.');
+    }
+    $faculty_id = (int)$version['user_id'];
+}
 
 $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ? AND role IN ('faculty', 'program_chair', 'dean')");
 $stmt->execute([$faculty_id]);
@@ -31,7 +42,12 @@ if (!$faculty) {
 }
 
 $snapshot = null;
-if (!empty($_GET['snapshot'])) {
+if ($version) {
+    $saved = json_decode($version['snapshot'], true) ?: [];
+    $data = $saved['data'] ?? [];
+    $ld = $saved['ld'] ?? [];
+    $updated_at = $version['created_at'];
+} elseif (!empty($_GET['snapshot'])) {
     $stmt = $pdo->prepare("SELECT * FROM pds_snapshots WHERE snapshot_id = ? AND faculty_id = ?");
     $stmt->execute([(int)$_GET['snapshot'], $faculty_id]);
     $snapshot = $stmt->fetch();
@@ -81,8 +97,10 @@ $extra = count($pages) - 4;
   <button type="button" onclick="window.print()">Print / Save as PDF</button>
   <span class="note">
     CS Form No. 212 (Revised 2026) &middot; Long bond paper 8.5" &times; 13" &middot;
-    <?= $snapshot ? 'Earlier version: ' . h($snapshot['reason']) : 'Current version' ?>
-    <?= $updated_at ? ' &middot; ' . date('M j, Y g:ia', strtotime($updated_at)) : '' ?>
+    <?php $latest = $version ?? ($snapshot ? null : pds_latest_version($pdo, $faculty_id)); ?>
+    <?= $version ? 'Version ' . (int)$version['version_number'] . ' (read-only) &middot; ' . h(pds_version_source_label($version)) . ($version['changed_by_name'] ? ' by ' . h($version['changed_by_name']) : '')
+        : ($snapshot ? 'Earlier version: ' . h($snapshot['reason']) : 'Current version' . ($latest ? ' (Version ' . (int)$latest['version_number'] . ')' : '')) ?>
+    <?= $updated_at ? ' &middot; ' . h(pds_version_date($updated_at)) : '' ?>
     &middot; <?= count($pages) ?> pages<?= $extra > 0 ? ' (incl. ' . $extra . ' continuation sheet' . ($extra > 1 ? 's' : '') . ')' : '' ?>
   </span>
 </div>

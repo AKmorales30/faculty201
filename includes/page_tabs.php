@@ -37,7 +37,7 @@ function profile_tabs(string $active): string {
 function my_docs_tabs(PDO $pdo, string $active): string {
     return page_tabs([
         'posted'  => ['Posted', 'faculty/my_documents.php', 'fa-folder-open'],
-        'pending' => ['Pending review', 'faculty/my_documents.php?tab=pending', 'fa-hourglass-half', documents_for_review_count($pdo, (int)current_user()['user_id'])],
+        'flagged' => ['Flagged', 'faculty/my_documents.php?tab=flagged', 'fa-flag', documents_flagged_count($pdo, (int)current_user()['user_id'])],
         'history' => ['Upload history', 'faculty/my_requests.php', 'fa-clock-rotate-left'],
     ], $active);
 }

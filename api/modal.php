@@ -7,13 +7,15 @@
  *
  *   view=document&id=N   preview + details of a document     can_access_document():
  *                                                            its owner, or the Admin
- *   view=review&id=N     classification review of a For      Admin
- *                        Review document (edit, then Post)
+ *   view=review&id=N     check / correct a document's type   Admin
+ *                        and details (flagged or not)
  *   view=search&q=...    header search by title, faculty or  everyone; the Admin all
  *                        document type                       documents, others their own
  *   view=list&category=  ONE category of records -- the one  per category, see
  *                        clicked (PDS for update, expired,   includes/modals/list.php
- *                        for review, recent uploads, ...)    (scope by role / ownership)
+ *                        flagged, recent uploads, ...)    (scope by role / ownership)
+ *   view=pds_versions&user=N  the PDS version history       pds_can_view_versions(): own,
+ *                        (open a version: owner / Admin)     Admin, Chair / Dean in scope
  *   view=person&id=N     a faculty member's profile summary  can_view_profile(): Admin,
  *                        (Faculty Profiles, Chair/Dean Home) Dean (college), Chair (program)
  *
@@ -76,14 +78,14 @@ switch ($view) {
 
     case 'review':
         if (!$is_admin) {
-            modal_fail(403, 'Only the Admin reviews documents.');
+            modal_fail(403, 'Only the Admin corrects document types.');
         }
         $doc = modal_document($pdo, (int)($_GET['id'] ?? 0));
         if (!$doc) {
             modal_fail(404, 'That document could not be found.');
         }
-        if ($doc['status'] !== 'for_review') {
-            include __DIR__ . '/../includes/modals/document.php';   // already posted (or removed): show it instead
+        if (!in_array($doc['status'], ['active', 'archived', 'for_review'], true)) {
+            include __DIR__ . '/../includes/modals/document.php';   // in Recently Deleted: show it instead
             break;
         }
         include __DIR__ . '/../includes/modals/review.php';
@@ -95,6 +97,16 @@ switch ($view) {
 
     case 'list':
         include __DIR__ . '/../includes/modals/list.php';   // checks the role for its category
+        break;
+
+    case 'pds_versions':
+        require_once __DIR__ . '/../includes/pds.php';
+        require_once __DIR__ . '/../includes/admin_ui.php';   // admin_empty(), admin_icon_link()
+        $owner = user_row($pdo, (int)($_GET['user'] ?? 0));
+        if (!$owner || !in_array($owner['role'], ['faculty', 'program_chair', 'dean'], true) || !pds_can_view_versions($pdo, $me, (int)$owner['user_id'])) {
+            modal_fail(403, 'You do not have access to that PDS.');
+        }
+        include __DIR__ . '/../includes/modals/pds_versions.php';
         break;
 
     case 'person':

@@ -2,10 +2,35 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/pds.php';
+require_once __DIR__ . '/../includes/pds_import.php';
 require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
 
 $page_title = 'Profile Preference';   // the top bar; My PDS is a tab of it
 $me = current_user();
+
+// Undo an automatic update from an uploaded PDS (within PDS_UNDO_DAYS): a new version restores the earlier values
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'undo_update') {
+    if (!csrf_valid()) {
+        $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
+    } else {
+        $v = pds_version($pdo, (int)($_POST['version_id'] ?? 0));
+        $result = $v && (int)$v['user_id'] === (int)$me['user_id'] ? pds_undo_auto_update($pdo, (int)$v['version_id'], $me) : 'That update could not be found.';
+        if (is_string($result)) {
+            $_SESSION['flash_error'] = $result;
+        } else {
+            log_my_activity($pdo, 'PDS_UNDO', "Undid the automatic PDS update of version {$v['version_number']} (from uploaded document #" . (int)$v['source_document_id'] . ') -- '
+                . "{$result['restored']} value(s) restored, {$result['removed']} entr(ies) removed"
+                . ($result['kept'] ? ", {$result['kept']} value(s) changed since kept" : '')
+                . ($result['version'] ? "; saved as version {$result['version']['version_number']}." : '.'));
+            $_SESSION['flash_success'] = 'The update was undone: ' . $result['restored'] . ' value' . ($result['restored'] === 1 ? '' : 's') . ' restored, '
+                . $result['removed'] . ' entr' . ($result['removed'] === 1 ? 'y' : 'ies') . ' removed.'
+                . ($result['kept'] ? " {$result['kept']} value" . ($result['kept'] === 1 ? ' you changed since was' : 's you changed since were') . ' kept.' : '')
+                . ($result['version'] ? ' Saved as version ' . $result['version']['version_number'] . '.' : '');
+        }
+    }
+    header('Location: ' . BASE_URL . '/faculty/pds.php');
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save') {
     // form_complete is the form's last field. PHP silently drops fields past
@@ -23,14 +48,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         header('Location: ' . BASE_URL . '/faculty/pds.php');
         exit;
     }
-    pds_save($pdo, $me['user_id'], (array)($_POST['data'] ?? []), (array)($_POST['ld'] ?? []));
+    $version = pds_save($pdo, $me['user_id'], (array)($_POST['data'] ?? []), (array)($_POST['ld'] ?? []), (int)$me['user_id']);
     // The profile's contact number follows the PDS Mobile No. (profile_save_contact() copies the other way)
     $mobile = trim((string)($_POST['data']['mobile_no'] ?? ''));
     if ($mobile !== '' && !pds_is_na_text($mobile)) {
         $pdo->prepare("UPDATE users SET contact_number = ? WHERE user_id = ?")->execute([mb_substr($mobile, 0, 30), $me['user_id']]);
     }
-    log_my_activity($pdo, 'PDS_UPDATE', 'Edited and saved their digital PDS (previous version kept in the version history).');
-    $_SESSION['flash_success'] = 'Your PDS has been saved. The previous version was kept in the version history.';
+    if ($version) {
+        log_my_activity($pdo, 'PDS_UPDATE', "Edited and saved their digital PDS -- version {$version['version_number']} (" . pds_sections_text($version['changed_sections']) . ').');
+        $_SESSION['flash_success'] = "Your PDS has been saved as version {$version['version_number']}. Earlier versions are kept in the version history.";
+    } else {
+        $_SESSION['flash_success'] = 'Your PDS has been saved. Nothing had changed, so no new version was made.';
+    }
     header('Location: ' . BASE_URL . '/faculty/pds.php');
     exit;
 }
@@ -39,7 +68,15 @@ $pds = pds_load($pdo, $me['user_id']);
 $data = $pds['data'];
 if (!$pds['exists'] && empty($data['email'])) { $data['email'] = $me['email']; }
 $status = pds_status($pdo, $me['user_id']);
-$snapshots = pds_snapshots($pdo, $me['user_id']);
+$versions = pds_versions($pdo, (int)$me['user_id']);
+// The latest automatic update from an uploaded PDS, while it's recent: its summary, what to check, and Undo
+$recent_update = null;
+foreach ($versions as $v) {
+    if ($v['source'] === 'upload' && $v['changes'] !== null) {
+        if (strtotime($v['created_at']) >= time() - PDS_UNDO_DAYS * 86400) { $recent_update = pds_version($pdo, (int)$v['version_id']); }
+        break;
+    }
+}
 
 // Archived documents too: an L&D entry keeps its link to a certificate that moved to the archive
 $stmt = $pdo->prepare("SELECT document_id, document_type, file_path, period_year, filed_at FROM documents WHERE faculty_id = ? AND status IN ('active', 'archived') ORDER BY filed_at DESC");
@@ -56,7 +93,7 @@ function pds_source_badge(?int $document_id, array $doc_types): string {
          . ($pds ? 'Imported from uploaded PDS' : 'Added automatically from an uploaded certificate') . '"><i class="fa-solid '
          . ($pds ? 'fa-file-import' : 'fa-certificate') . '"></i></a>';
 }
-$stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' ORDER BY COALESCE(period_year, YEAR(filed_at)) DESC, filed_at DESC");
+$stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' ORDER BY COALESCE(period_year, EXTRACT(YEAR FROM filed_at)) DESC, filed_at DESC");
 $stmt->execute([$me['user_id']]);
 $pds_files = $stmt->fetchAll();
 
@@ -129,8 +166,10 @@ include __DIR__ . '/../includes/header.php';
     <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-file-circle-plus"></i> Upload PDS / Certificate</a>
   </div>
 </div>
+<?= pds_version_card($pdo, (int)$me['user_id'], $me, false, false) ?>
+<?php if ($recent_update): ?><?= pds_update_summary_html($recent_update, $me) ?><?php endif; ?>
 <p class="text-muted mb-3">CS Form No. 212. Edit any part below and save. Seminar and training certificates you upload are added to Section VI (Learning and Development) automatically,
-  and an uploaded PDS file (the Excel soft copy, a PDF, or scans of some pages) can be imported -- you review what was read before it's added.
+  and an uploaded PDS file (the Excel soft copy, a PDF, or a photo of some pages) updates the parts it contains automatically -- you can undo that for <?= (int)PDS_UNDO_DAYS ?> days.
   Fields marked <span class="text-danger">*</span> are required -- tick <b>N/A</b> where it doesn't apply to you. Complete each part to move on to the next.</p>
 
 <?php if ($status['current']): ?>
@@ -301,13 +340,17 @@ include __DIR__ . '/../includes/header.php';
   </div>
   <div class="col-lg-6">
     <div class="card stat-card h-100">
-      <div class="card-header bg-white fw-semibold">Version History</div>
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
+        <span>Version History</span>
+        <?php if ($versions): ?><button type="button" class="btn btn-sm btn-outline-brand" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=pds_versions&user=' . (int)$me['user_id']) ?>" data-app-modal-size="lg" data-app-modal-title="PDS version history">See all (<?= count($versions) ?>)</button><?php endif; ?>
+      </div>
       <div class="list-group list-group-flush">
-        <?php if (!$snapshots): ?><div class="list-group-item small text-muted">Earlier versions will appear here after you make changes.</div><?php endif; ?>
-        <?php foreach ($snapshots as $s): ?>
-          <a href="<?= BASE_URL ?>/faculty/pds_print.php?snapshot=<?= (int)$s['snapshot_id'] ?>" target="_blank" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center small">
-            <span><i class="fa-solid fa-clock-rotate-left text-muted"></i> <?= h($s['reason']) ?></span>
-            <span class="text-muted text-nowrap ms-2">View</span>
+        <?php if (!$versions): ?><div class="list-group-item small text-muted">Each change to your PDS is saved as a new version here.</div><?php endif; ?>
+        <?php foreach (array_slice($versions, 0, 5) as $v): ?>
+          <a href="<?= BASE_URL ?>/faculty/pds_print.php?version=<?= (int)$v['version_id'] ?>" target="_blank" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2 small">
+            <span><strong>Version <?= (int)$v['version_number'] ?></strong> · <?= h(pds_version_source_label($v)) ?><?= $v['undone_at'] ? ' <span class="badge bg-secondary">Undone</span>' : '' ?>
+              <span class="d-block text-muted"><?= h(pds_version_date($v['created_at'])) ?> · <?= h(pds_sections_text($v['changed_sections'])) ?></span></span>
+            <span class="text-muted text-nowrap">View</span>
           </a>
         <?php endforeach; ?>
       </div>
@@ -316,6 +359,14 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+// A link to a section (faculty/pds.php#partLD) opens it
+window.addEventListener('DOMContentLoaded', function () {
+  var target = location.hash && document.querySelector('.pds-section' + location.hash.replace(/[^#A-Za-z0-9_-]/g, ''));
+  if (target && window.bootstrap) {
+    bootstrap.Collapse.getOrCreateInstance(target, { toggle: false }).show();
+    setTimeout(function () { target.closest('.accordion-item').scrollIntoView({ block: 'start' }); }, 350);
+  }
+});
 (function () {
   var FIRST = <?= (int)$ld_first ?>, CONT = <?= (int)$ld_cont ?>;
   var counter = 100000;

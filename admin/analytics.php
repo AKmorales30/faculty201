@@ -23,9 +23,9 @@ $by_employment = $pdo->query("SELECT employment_type, COUNT(*) c FROM users WHER
 
 // Posted documents over the last 6 months, by upload month (uploads still For Review aren't counted)
 $monthly = $pdo->query(
-    "SELECT DATE_FORMAT(filed_at, '%Y-%m') ym, COUNT(*) c
+    "SELECT " . sql_year_month('filed_at') . " ym, COUNT(*) c
      FROM documents
-     WHERE status = 'active' AND filed_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+     WHERE status = 'active' AND filed_at >= CURRENT_DATE - INTERVAL '6' MONTH
      GROUP BY ym ORDER BY ym"
 )->fetchAll(PDO::FETCH_KEY_PAIR);
 

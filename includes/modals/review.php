@@ -1,11 +1,12 @@
 <?php
 /**
- * Classification review pop-up (Admin; api/modal.php?view=review): the
- * file, the detected type and its confidence, the details read from it,
- * and a form to correct them and Post. The form posts to
- * admin/manage_documents.php (CSRF token), which checks everything again
- * (review_save_document()). Expects $doc (modal_document(), status
- * 'for_review') and $me.
+ * Check / correct pop-up (Admin; api/modal.php?view=review): the file, the
+ * detected type and its confidence, why it was flagged, the details read
+ * from it, and a form to correct them -- Save corrections, or Save & mark
+ * as checked (off the Flagged for checking list). The document is in
+ * 201-Files either way. The form posts to admin/manage_documents.php (CSRF
+ * token), which checks everything again (review_save_document()). Expects
+ * $doc (modal_document(), status active or archived) and $me.
  *
  * Fields that apply only to some document types are switched by
  * assets/js/app.js ([data-type-switch] / [data-types]); hidden ones are
@@ -29,9 +30,10 @@ if (!in_array($ay_sel, $ay_list, true)) { array_unshift($ay_list, $ay_sel); }
 $types_with = fn(string $frequency): string => implode(' ', array_keys(array_filter(document_categories(), fn($c) => $c['frequency'] === $frequency)));
 $other_types = implode(' ', array_diff(array_keys(document_categories()), ['Certificate']));
 $return = (string)($_GET['return'] ?? '');
-if (!preg_match('#^admin/manage_documents\.php(\?[A-Za-z0-9_.%=&\-]*)?$#', $return)) { $return = 'admin/manage_documents.php'; }
+if (!preg_match('#^(admin/[a-z_]+|archive|profile)\.php(\?[A-Za-z0-9_.%=&\-\[\]+]*)?$#', $return)) { $return = 'admin/manage_documents.php'; }
 ?>
-<div data-modal-title="Review: <?= h(document_title($doc)) ?>"></div>
+<?php $flagged = document_is_flagged($doc) || $doc['status'] === 'for_review'; ?>
+<div data-modal-title="<?= $flagged ? 'Check' : 'Correct' ?>: <?= h(document_title($doc)) ?>"></div>
 <div class="row g-3">
   <div class="col-lg-6">
     <?php include __DIR__ . '/preview.php'; ?>
@@ -63,6 +65,11 @@ if (!preg_match('#^admin/manage_documents\.php(\?[A-Za-z0-9_.%=&\-]*)?$#', $retu
         Chosen by the uploader: <strong><?= h(document_type_label($chosen, $chosen === $doc['document_type'] ? $doc['document_subtype'] : null)) ?></strong>
         · <?= h(entry_method_label($doc['entry_method'])) ?>
       </div>
+      <?php if ($flagged && $doc['flag_reason']): ?>
+        <div class="small mt-2"><span class="badge bg-review"><i class="fa-solid fa-flag" aria-hidden="true"></i> Flagged for checking</span> <?= h(ucfirst(document_flag_text($doc['flag_reason']))) ?>.</div>
+      <?php elseif ($doc['reviewed_at']): ?>
+        <div class="small text-muted mt-2"><i class="fa-solid fa-circle-check text-success" aria-hidden="true"></i> Checked <?= h(date('M j, Y, g:i A', strtotime($doc['reviewed_at']))) ?><?= $doc['reviewed_by_name'] ? ' by ' . h($doc['reviewed_by_name']) : '' ?></div>
+      <?php endif; ?>
       <?php if ($doc['is_low_confidence']): ?>
         <div class="small text-warning-emphasis mt-1"><i class="fa-solid fa-triangle-exclamation"></i> Low confidence (below <?= h(confidence_label(CONFIDENCE_THRESHOLD)) ?>) -- please check the document type carefully.</div>
       <?php endif; ?>
@@ -126,10 +133,12 @@ if (!preg_match('#^admin/manage_documents\.php(\?[A-Za-z0-9_.%=&\-]*)?$#', $retu
       <?php unset($detail_attr); ?>
 
       <div class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
-        <button type="submit" name="do" value="post" class="btn btn-brand"><i class="fa-solid fa-check"></i> Post to 201-Files</button>
-        <button type="submit" name="do" value="save" class="btn btn-outline-brand"><i class="fa-solid fa-floppy-disk"></i> Save corrections</button>
+        <?php if ($flagged): ?>
+          <button type="submit" name="do" value="checked" class="btn btn-brand"><i class="fa-solid fa-check"></i> Save &amp; mark as checked</button>
+        <?php endif; ?>
+        <button type="submit" name="do" value="save" class="btn <?= $flagged ? 'btn-outline-brand' : 'btn-brand' ?>"><i class="fa-solid fa-floppy-disk"></i> Save corrections</button>
       </div>
-      <div class="form-text">Posting saves the type and details shown here, moves the document to 201-Files and notifies <?= h($doc['full_name']) ?>.</div>
+      <div class="form-text">The document stays in <?= h($doc['full_name']) ?>'s <?= $doc['status'] === 'archived' ? 'Archived Docs' : '201-Files' ?>. <?= $flagged ? 'Marking it as checked takes it off the Flagged for checking list. ' : '' ?><?= h($doc['full_name']) ?> is notified only if you change the document type.</div>
     </form>
   </div>
 </div>

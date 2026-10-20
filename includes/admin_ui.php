@@ -6,8 +6,6 @@
  * behaviour: assets/js/admin.js.
  */
 
-const ADMIN_SYSTEM_NAME = 'Faculty-201 File Management System';
-
 /** The signed-in user's Home page, relative to BASE_URL. */
 function portal_home_path(): string {
     return match (current_user()['role'] ?? '') {

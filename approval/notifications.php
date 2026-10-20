@@ -52,7 +52,7 @@ include __DIR__ . '/../includes/header.php';
         <button type="submit" class="list-group-item list-group-item-action notif-item text-start w-100 <?= $n['is_read'] ? '' : 'notif-unread' ?>"
                 <?= $n['is_read'] ? 'disabled' : 'title="Mark as read"' ?>>
           <div class="d-flex justify-content-between">
-            <div class="notif-message"><?= h($n['message']) ?></div>
+            <div class="notif-message"><?= h(greeting_with_name($n['message'], person_first_name($me))) ?></div>
             <div class="text-muted small text-nowrap ms-3"><?= time_ago($n['created_at']) ?></div>
           </div>
         </button>

@@ -136,8 +136,14 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
             : ''), true);
 }
 
-// Deactivated (users.is_active = 0, set in Manage Faculty): right password, but no session. Logged as a
-// blocked attempt -- blocked attempts don't count toward the brute-force lockout.
+// Deleted from Manage Faculty (restorable for DELETED_RETENTION_DAYS) or deactivated (users.is_active = 0):
+// right password, but no session. Logged as a blocked attempt -- blocked attempts don't count toward the
+// brute-force lockout. (After the permanent deletion the email no longer exists: a normal failed login.)
+if (!empty($user['deleted_at'])) {
+    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip, true));
+    log_activity($pdo, $user_id, 'LOGIN_BLOCKED', 'Login refused: the account is deleted.', $user['role']);
+    login_fail(ACCOUNT_DELETED_MESSAGE);
+}
 if ((int)$user['is_active'] !== 1) {
     login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip, true));
     log_activity($pdo, $user_id, 'LOGIN_BLOCKED', 'Login refused: the account is deactivated.', $user['role']);
@@ -171,6 +177,7 @@ $_SESSION['user'] = [
     'user_id'   => (int)$user['user_id'],
     'role'      => $user['role'],
     'full_name' => $user['full_name'],
+    'first_name' => $user['first_name'] ?? null,   // greetings: person_first_name()
     'email'     => $user['email'],
     'profile_picture' => $user['profile_picture'] ?? null,   // header picture; updated when it's changed on My Profile
     // Temporary password from the Admin: require_login() allows only Change Password until it's replaced

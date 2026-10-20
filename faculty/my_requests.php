@@ -18,7 +18,7 @@ $requests = $stmt->fetchAll();
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<?= admin_intro('Every document you\'ve uploaded, newest first, with where it is now: For Review, Posted, Archived or Deleted.',
+<?= admin_intro('Every document you\'ve uploaded, newest first, with where it is now: Posted, Archived or Deleted. Uploads are posted to your 201-Files right away.',
     '<a href="' . BASE_URL . '/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> Upload Document</a>') ?>
 <?= my_docs_tabs($pdo, 'history') ?>
 

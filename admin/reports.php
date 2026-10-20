@@ -43,8 +43,8 @@ if (!isset($faculty_names[$faculty_id])) { $faculty_id = 0; }
 
 $status_sql = "CASE
                  WHEN d.expiration_date IS NULL THEN 'none'
-                 WHEN d.expiration_date < CURDATE() THEN 'expired'
-                 WHEN d.expiration_date <= DATE_ADD(CURDATE(), INTERVAL 60 DAY) THEN 'expiring'
+                 WHEN d.expiration_date < CURRENT_DATE THEN 'expired'
+                 WHEN d.expiration_date <= CURRENT_DATE + INTERVAL '60' DAY THEN 'expiring'
                  ELSE 'active'
                END";
 
@@ -61,7 +61,7 @@ if ($from !== '') {
     $params[] = $from . ' 00:00:00';
 }
 if ($to !== '') {
-    $sql .= " AND d.filed_at < DATE_ADD(?, INTERVAL 1 DAY)";
+    $sql .= " AND d.filed_at < CAST(? AS DATE) + INTERVAL '1' DAY";
     $params[] = $to;
 }
 if ($category !== '') {
@@ -151,7 +151,7 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- Shown only when printing / saving as PDF -->
 <div class="report-print-header d-none d-print-block">
-  <div class="fw-bold">CCS Faculty 201-File Repository</div>
+  <div class="fw-bold"><?= h(SYSTEM_NAME) ?></div>
   <div class="small">College of Computing Studies, Universidad de Manila</div>
   <h4 class="fw-bold mt-2 mb-1">Faculty 201-File Documents Report</h4>
   <div class="small">Filters: <?= $applied ? h(implode('; ', $applied)) : 'None (all documents)' ?></div>

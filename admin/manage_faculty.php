@@ -13,11 +13,12 @@ $action = $_POST['action'] ?? '';
 // The list's filters (role, status) are kept across every action: forms post to the same URL.
 $role_filter = in_array($_GET['role'] ?? '', ['admin', 'faculty', 'program_chair', 'dean'], true) ? $_GET['role'] : '';
 $status_filter = in_array($_GET['status'] ?? '', ['active', 'deactivated'], true) ? $_GET['status'] : '';
-$list_query = http_build_query(array_filter(['role' => $role_filter, 'status' => $status_filter]));
+$view = ($_GET['view'] ?? '') === 'deleted' ? 'deleted' : 'accounts';   // Deleted accounts: restorable for DELETED_RETENTION_DAYS
+$list_query = http_build_query(array_filter(['view' => $view === 'deleted' ? 'deleted' : null, 'role' => $role_filter, 'status' => $status_filter]));
 $list_url = BASE_URL . '/admin/manage_faculty.php' . ($list_query !== '' ? '?' . $list_query : '');
 
 // Every action is a POST with the CSRF token (create / reset / unlock also say so in their own messages)
-if (in_array($action, ['assign', 'toggle_active', 'pause', 'resume', 'profile_details'], true) && !csrf_valid()) {
+if (in_array($action, ['edit_account', 'toggle_active', 'pause', 'resume', 'delete_account', 'restore_account'], true) && !csrf_valid()) {
     $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
     header('Location: ' . $list_url);
     exit;
@@ -50,95 +51,101 @@ function account_log_name(array $u): string {
 
 /** users row for an activity-log entry, or null. */
 function account_for_log(PDO $pdo, int $user_id): ?array {
-    $stmt = $pdo->prepare("SELECT user_id, full_name, role, email, is_active FROM users WHERE user_id = ?");
+    $stmt = $pdo->prepare("SELECT user_id, full_name, role, email, is_active, deleted_at FROM users WHERE user_id = ?");
     $stmt->execute([$user_id]);
     return $stmt->fetch() ?: null;
 }
 
-// ---------------------------------------------------------------------
-// Set program / college (and employment type for Chairs / Deans) of an
-// existing account
-// ---------------------------------------------------------------------
-if ($action === 'assign') {
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
-    $stmt->execute([(int)($_POST['user_id'] ?? 0)]);
-    $target = $stmt->fetch();
-    if ($target && $target['role'] !== 'admin') {
-        $in = $_POST;
-        if ($target['role'] === 'faculty') { $in['employment_type'] = $target['employment_type']; }  // unchanged here
-        $result = account_assignment($target['role'], $in);
-        if (is_string($result)) {
-            $_SESSION['flash_error'] = $result;
-        } else {
-            [$emp, $program, $college] = $result;
-            $pdo->prepare("UPDATE users SET employment_type = ?, program = ?, college = ? WHERE user_id = ?")
-                ->execute([$emp, $program, $college, $target['user_id']]);
-            log_my_activity($pdo, 'ACCOUNT_UPDATE', 'Updated ' . account_log_name($target) . ' -- ' . describe_filters([
-                'Employment type' => employment_type_label($emp), 'Program' => PROGRAMS[$program]['label'] ?? '', 'College' => COLLEGES[$college] ?? '',
-            ]) . '.');
-            $_SESSION['flash_success'] = "Updated {$target['full_name']}.";
-        }
-    }
-    header('Location: ' . $list_url);
-    exit;
+/** Admin accounts not deleted -- the last one can't be deleted. */
+function remaining_admin_count(PDO $pdo): int {
+    return (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND deleted_at IS NULL")->fetchColumn();
 }
 
 // ---------------------------------------------------------------------
-// Profile details only the Admin sets: employment type (the position of a
-// faculty member: full-time / part-time), academic rank, date hired and
-// employee ID. Shown read-only on the account's own profile.
+// Edit an account (the Edit account pop-up): name (title, first, middle,
+// last, suffix), email, employment type, program / college, academic rank,
+// date hired and employee ID. users.full_name is rebuilt from the name
+// parts (person_full_name()); every page joins users by user_id, so the new
+// name shows everywhere at once -- the account holder's own top bar too
+// (includes/auth.php refreshes it on every request). Logged with old ->
+// new values; the account holder is notified.
 // ---------------------------------------------------------------------
-if ($action === 'profile_details') {
+if ($action === 'edit_account') {
     $target = user_row($pdo, (int)($_POST['user_id'] ?? 0));
-    $back = $list_url;
-    if (!$target) {
+    if (!$target || !empty($target['deleted_at'])) {
         $_SESSION['flash_error'] = 'That account could not be found.';
-        header('Location: ' . $back);
+        header('Location: ' . $list_url);
         exit;
     }
-    $emp = $_POST['employment_type'] ?? '';
-    $emp = $target['role'] === 'admin' ? null : (in_array($emp, ['full_time', 'part_time'], true) ? $emp : null);
+    $name = person_name_input($_POST);
+    $email = mb_strtolower(trim((string)($_POST['email'] ?? '')));
+    $in = $_POST;
+    if ($target['role'] === 'admin') { $in['employment_type'] = ''; }
+    $assignment = account_assignment($target['role'], $in);
     $rank = trim((string)($_POST['academic_rank'] ?? ''));
     $hired = trim((string)($_POST['date_engaged'] ?? ''));
     $hired_dt = DateTime::createFromFormat('!Y-m-d', $hired);
     $employee_id = mb_substr(trim(preg_replace('/\s+/', ' ', (string)($_POST['employee_id'] ?? ''))), 0, 30);
+    $dupe = $pdo->prepare("SELECT 1 FROM users WHERE email = ? AND user_id <> ?");
+    $dupe->execute([$email, $target['user_id']]);
 
-    $error = null;
-    if ($target['role'] === 'faculty' && $emp === null) {
-        $error = 'Please select an employment type for a faculty account.';
-    } elseif ($rank !== '' && !in_array($rank, academic_rank_options($pdo, $target['academic_rank']), true)) {
-        $error = 'Please choose an academic rank from the list.';
-    } elseif ($hired !== '' && (!$hired_dt || $hired_dt->format('Y-m-d') !== $hired || $hired > date('Y-m-d', strtotime('+1 year')))) {
-        $error = 'Please enter a valid date hired.';
-    } elseif ($employee_id !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9 -]*$/', $employee_id)) {
-        $error = 'The employee ID may only contain letters, digits, spaces and hyphens.';
-    }
+    $error = match (true) {
+        is_string($name)                                         => $name,
+        $email === '' || mb_strlen($email) > 150 || !filter_var($email, FILTER_VALIDATE_EMAIL) => 'Please enter a valid email address.',
+        (bool)$dupe->fetchColumn()                               => 'Another account already uses that email address.',
+        is_string($assignment)                                   => $assignment,
+        $rank !== '' && !in_array($rank, academic_rank_options($pdo, $target['academic_rank']), true) => 'Please choose an academic rank from the list.',
+        $hired !== '' && (!$hired_dt || $hired_dt->format('Y-m-d') !== $hired || $hired > date('Y-m-d', strtotime('+1 year'))) => 'Please enter a valid date hired.',
+        $employee_id !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9 -]*$/', $employee_id) => 'The employee ID may only contain letters, digits, spaces and hyphens.',
+        default                                                  => null,
+    };
     if ($error !== null) {
         $_SESSION['flash_error'] = $error;
-        header('Location: ' . $back);
+        header('Location: ' . $list_url);
         exit;
     }
-
-    $new = ['employment_type' => $emp, 'academic_rank' => $rank !== '' ? $rank : null,
-            'date_engaged' => $hired !== '' ? $hired : null, 'employee_id' => $employee_id !== '' ? $employee_id : null];
-    $labels = ['employment_type' => 'Employment type', 'academic_rank' => 'Academic rank', 'date_engaged' => 'Date hired', 'employee_id' => 'Employee ID'];
+    [$emp, $program, $college] = $assignment;
+    $new = $name + ['full_name' => person_full_name($name), 'email' => $email, 'employment_type' => $emp, 'program' => $program, 'college' => $college,
+                    'academic_rank' => $rank !== '' ? $rank : null, 'date_engaged' => $hired !== '' ? $hired : null,
+                    'employee_id' => $employee_id !== '' ? $employee_id : null];
+    // What changed, old -> new, for the activity log and the notification
+    $old_parts = person_name_parts($target);
+    $labels = ['full_name' => 'Name', 'email' => 'Email', 'employment_type' => 'Employment type', 'program' => 'Program', 'college' => 'College',
+               'academic_rank' => 'Academic rank', 'date_engaged' => 'Date hired', 'employee_id' => 'Employee ID'];
+    $show = fn(string $col, $v) => $v === null || $v === '' ? '(none)' : match ($col) {
+        'employment_type' => employment_type_label($v), 'program' => PROGRAMS[$v]['label'] ?? $v, 'college' => COLLEGES[$v] ?? $v, default => (string)$v,
+    };
     $changes = [];
-    foreach ($new as $col => $value) {
-        if ((string)$target[$col] !== (string)$value) {
-            $show = fn($v) => $v === null || $v === '' ? '(none)' : ($col === 'employment_type' ? employment_type_label($v) : $v);
-            $changes[$labels[$col]] = $show($target[$col]) . ' -> ' . $show($value);
+    foreach ($labels as $col => $label) {
+        if ((string)$target[$col] !== (string)$new[$col]) {
+            $changes[$label] = [$show($col, $target[$col]), $show($col, $new[$col])];
         }
     }
-    if ($changes) {
-        $pdo->prepare("UPDATE users SET employment_type = ?, academic_rank = ?, date_engaged = ?, employee_id = ? WHERE user_id = ?")
-            ->execute([...array_values($new), $target['user_id']]);
-        log_my_activity($pdo, 'ACCOUNT_UPDATE', 'Updated the profile details of ' . account_log_name($target) . ' -- ' . describe_filters($changes) . '.');
-        notify($pdo, (int)$target['user_id'], 'The Admin updated your profile: ' . implode('; ', array_map(fn($k, $v) => "{$k}: " . explode(' -> ', $v)[1], array_keys($changes), $changes)) . '.');
-        $_SESSION['flash_success'] = "Updated the profile details of {$target['full_name']}.";
-    } else {
-        $_SESSION['flash_success'] = 'Nothing was changed.';
+    if ($old_parts['middle_name'] !== $name['middle_name'] && !isset($changes['Name'])) {   // e.g. "S." -> "Santos": same initial
+        $changes['Middle name'] = [$old_parts['middle_name'] ?: '(none)', $name['middle_name'] ?: '(none)'];
     }
-    header('Location: ' . $back);
+    $parts_saved = trim((string)($target['first_name'] ?? '')) !== '';
+    if (!$changes && $parts_saved) {
+        $_SESSION['flash_success'] = 'Nothing was changed.';
+        header('Location: ' . $list_url);
+        exit;
+    }
+    $pdo->prepare(
+        "UPDATE users SET name_title = ?, first_name = ?, middle_name = ?, last_name = ?, name_suffix = ?, full_name = ?, email = ?,
+                          employment_type = ?, program = ?, college = ?, academic_rank = ?, date_engaged = ?, employee_id = ?
+         WHERE user_id = ?"
+    )->execute([
+        $name['name_title'] ?: null, $name['first_name'], $name['middle_name'] ?: null, $name['last_name'], $name['name_suffix'] ?: null,
+        $new['full_name'], $email, $emp, $program, $college, $new['academic_rank'], $new['date_engaged'], $new['employee_id'], $target['user_id'],
+    ]);
+    if ($changes) {
+        log_my_activity($pdo, 'ACCOUNT_UPDATE', 'Updated ' . account_log_name($target) . ' -- '
+            . describe_filters(array_map(fn($c) => $c[0] . ' -> ' . $c[1], $changes)) . '.');
+        notify($pdo, (int)$target['user_id'], 'The Admin updated your account details: '
+            . implode('; ', array_map(fn($k, $c) => "{$k}: {$c[1]}", array_keys($changes), $changes)) . '.');
+    }
+    $_SESSION['flash_success'] = 'Updated ' . $new['full_name'] . '.';
+    header('Location: ' . $list_url);
     exit;
 }
 
@@ -146,8 +153,9 @@ if ($action === 'profile_details') {
 // Create account -- "Accounts are created by the Admin" (every login page)
 // ---------------------------------------------------------------------
 if ($action === 'create') {
-    $full_name = trim($_POST['full_name'] ?? '');
-    $email     = trim($_POST['email'] ?? '');
+    $name      = person_name_input($_POST);
+    $full_name = is_array($name) ? person_full_name($name) : '';
+    $email     = mb_strtolower(trim($_POST['email'] ?? ''));
     $role      = $_POST['role'] ?? '';
     $emp_type  = $_POST['employment_type'] ?? null;
     $password  = $_POST['password'] ?? '';
@@ -156,8 +164,12 @@ if ($action === 'create') {
     $assignment = in_array($role, $valid_roles, true) ? account_assignment($role, $_POST) : null;
     if (!csrf_valid()) {
         $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
-    } elseif ($full_name === '' || $email === '' || !in_array($role, $valid_roles, true) || $password === '') {
+    } elseif (is_string($name)) {
+        $_SESSION['flash_error'] = $name;
+    } elseif ($email === '' || !in_array($role, $valid_roles, true) || $password === '') {
         $_SESSION['flash_error'] = 'Please fill in all fields.';
+    } elseif (mb_strlen($email) > 150 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $_SESSION['flash_error'] = 'Please enter a valid email address.';
     } elseif ($rules = password_rule_errors($password)) {
         $_SESSION['flash_error'] = 'Temporary password: ' . lcfirst(password_rule_message($rules));
     } elseif (is_string($assignment)) {
@@ -172,11 +184,13 @@ if ($action === 'create') {
             // A temporary password: the user must replace it at their first login
             $hash = password_hash($password, PASSWORD_DEFAULT);
             $stmt = $pdo->prepare(
-                "INSERT INTO users (role, full_name, email, password_hash, must_change_password, employment_type, program, college, employment_status, date_engaged)
-                 VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)"
+                "INSERT INTO users (role, full_name, name_title, first_name, middle_name, last_name, name_suffix, email, password_hash, must_change_password,
+                                    employment_type, program, college, employment_status, date_engaged)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)"
             );
             $stmt->execute([
-                $role, $full_name, $email, $hash,
+                $role, $full_name, $name['name_title'] ?: null, $name['first_name'], $name['middle_name'] ?: null, $name['last_name'], $name['name_suffix'] ?: null,
+                $email, $hash,
                 $emp_type, $program, $college,
                 $role === 'faculty' ? 'active' : null,
                 $role === 'faculty' ? date('Y-m-d') : null,
@@ -187,7 +201,7 @@ if ($action === 'create') {
                     'Employment type' => employment_type_label($emp_type), 'Program' => PROGRAMS[$program]['label'] ?? '', 'College' => COLLEGES[$college] ?? '',
                 ])) . '.');
             if ($role === 'faculty') {
-                $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, 'engaged', CURDATE(), 'Account created by Admin')")
+                $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, 'engaged', CURRENT_DATE, 'Account created by Admin')")
                     ->execute([$new_id]);
             }
             $_SESSION['flash_success'] = "Account created for {$full_name}.";
@@ -255,7 +269,7 @@ if ($action === 'toggle_active') {
     // Active / Deactivated is users.is_active everywhere: the login and every page check it (includes/auth.php).
     $uid = (int)($_POST['user_id'] ?? 0);
     $activate = ($_POST['active'] ?? '') === '1';
-    $stmt = $pdo->prepare("SELECT user_id, role, is_active FROM users WHERE user_id = ?");
+    $stmt = $pdo->prepare("SELECT user_id, role, is_active FROM users WHERE user_id = ? AND deleted_at IS NULL");
     $stmt->execute([$uid]);
     $target = $stmt->fetch();
     if (!$target) {
@@ -263,7 +277,7 @@ if ($action === 'toggle_active') {
     } elseif (!$activate && $uid === (int)$me['user_id']) {
         $_SESSION['flash_error'] = 'You cannot deactivate your own account.';
     } elseif (!$activate && $target['role'] === 'admin'
-              && (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")->fetchColumn() <= 1) {
+              && (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1 AND deleted_at IS NULL")->fetchColumn() <= 1) {
         $_SESSION['flash_error'] = 'You cannot deactivate the last active Admin account.';
     } elseif ((int)$target['is_active'] === ($activate ? 1 : 0)) {
         $_SESSION['flash_success'] = 'The account is already ' . ($activate ? 'active' : 'deactivated') . '.';
@@ -281,6 +295,64 @@ if ($action === 'toggle_active') {
 }
 
 // ---------------------------------------------------------------------
+// Delete an account (soft delete, like documents): deactivated at once --
+// it can't log in and its open sessions end (includes/auth.php) -- and
+// listed under Deleted accounts, where it can be restored for
+// DELETED_RETENTION_DAYS days. Then the daily cleanup deletes it for good
+// (purge_deleted_account(): the login is removed; its 201-file documents
+// move to Archived Docs under the former faculty member's name). Needs a
+// reason and the typed confirmation (DELETE or the person's name). The
+// Admin can't delete their own account or the last Admin account.
+// ---------------------------------------------------------------------
+if ($action === 'delete_account') {
+    $target = account_for_log($pdo, (int)($_POST['user_id'] ?? 0));
+    $reason = mb_substr(trim(preg_replace('/\s+/u', ' ', (string)($_POST['reason'] ?? ''))), 0, 300);
+    $typed = trim(preg_replace('/\s+/u', ' ', (string)($_POST['confirm_text'] ?? '')));
+    $error = match (true) {
+        !$target || !empty($target['deleted_at'])                          => 'That account could not be found.',
+        (int)$target['user_id'] === (int)$me['user_id']                    => 'You cannot delete your own account.',
+        $target['role'] === 'admin' && remaining_admin_count($pdo) <= 1    => 'You cannot delete the last Admin account.',
+        mb_strlen($reason) < 5 || mb_strlen($reason) > 255                 => 'Please give the reason for deleting the account (5 to 255 characters).',
+        $typed !== 'DELETE' && mb_strtolower($typed) !== mb_strtolower($target['full_name']) => 'To confirm, type DELETE or the account holder\'s full name exactly.',
+        default                                                            => null,
+    };
+    if ($error === null) {
+        $pdo->prepare("UPDATE users SET active_before_delete = is_active, is_active = 0, deleted_at = NOW(), deleted_by = ?, delete_reason = ?
+                       WHERE user_id = ? AND deleted_at IS NULL")
+            ->execute([(int)$me['user_id'], $reason, (int)$target['user_id']]);
+        $until = deleted_purge_at(date('Y-m-d H:i:s'))->format('F j, Y');
+        log_my_activity($pdo, 'ACCOUNT_DELETE', 'Deleted ' . account_log_name($target) . ' -- Reason: ' . $reason
+            . ". Signed out and can't log in; restorable until {$until}, then deleted permanently (their 201-file documents move to Archived Docs).");
+        $_SESSION['flash_success'] = "{$target['full_name']}'s account was deleted and signed out. You can restore it under Deleted accounts until {$until}.";
+    } else {
+        $_SESSION['flash_error'] = $error;
+    }
+    header('Location: ' . $list_url);
+    exit;
+}
+
+// Restore a deleted account within DELETED_RETENTION_DAYS: back to how it was (active or deactivated)
+if ($action === 'restore_account') {
+    $stmt = $pdo->prepare("SELECT user_id, full_name, role, email, deleted_at, active_before_delete FROM users
+                           WHERE user_id = ? AND deleted_at IS NOT NULL AND purged_at IS NULL");
+    $stmt->execute([(int)($_POST['user_id'] ?? 0)]);
+    $target = $stmt->fetch();
+    if (!$target || deleted_purge_at($target['deleted_at']) <= new DateTimeImmutable()) {
+        $_SESSION['flash_error'] = 'That account can no longer be restored.';
+    } else {
+        $active = $target['active_before_delete'] === null ? 1 : (int)$target['active_before_delete'];
+        $pdo->prepare("UPDATE users SET is_active = ?, deleted_at = NULL, deleted_by = NULL, delete_reason = NULL, active_before_delete = NULL WHERE user_id = ?")
+            ->execute([$active, (int)$target['user_id']]);
+        log_my_activity($pdo, 'ACCOUNT_RESTORE', 'Restored ' . account_log_name($target) . ' (deleted on '
+            . date('F j, Y', strtotime($target['deleted_at'])) . ') -- ' . ($active ? 'active again, can log in.' : 'restored as deactivated, as it was.'));
+        notify($pdo, (int)$target['user_id'], 'Your account was restored by the Admin on ' . date('F j, Y') . '.');
+        $_SESSION['flash_success'] = "Restored {$target['full_name']}'s account" . ($active ? '. They can log in again.' : ' (still deactivated, as it was before).');
+    }
+    header('Location: ' . BASE_URL . '/admin/manage_faculty.php?view=deleted');
+    exit;
+}
+
+// ---------------------------------------------------------------------
 // Pause / resume employment (faculty only) -- keeps continuity within
 // one existing record instead of creating a new row (Ch.1 requirement)
 // ---------------------------------------------------------------------
@@ -288,7 +360,7 @@ if ($action === 'pause' || $action === 'resume') {
     $uid = (int)($_POST['user_id'] ?? 0);
     $new_status = $action === 'pause' ? 'paused' : 'active';
     $pdo->prepare("UPDATE users SET employment_status = ? WHERE user_id = ? AND role = 'faculty'")->execute([$new_status, $uid]);
-    $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, ?, CURDATE(), ?)")
+    $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, ?, CURRENT_DATE, ?)")
         ->execute([$uid, $action === 'pause' ? 'paused' : 'resumed', $_POST['remarks'] ?? null]);
     $target = account_for_log($pdo, $uid);
     if ($target) {
@@ -300,23 +372,30 @@ if ($action === 'pause' || $action === 'resume') {
     exit;
 }
 
-$where = [];
+$where = ['deleted_at IS NULL'];   // deleted accounts are listed under Deleted accounts
 $params = [];
 if ($role_filter !== '') {
     $where[] = "role = ?";
     $params[] = $role_filter;
 }
 // Counts for the status filter, within the role filter
-$stmt = $pdo->prepare("SELECT is_active, COUNT(*) FROM users" . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . " GROUP BY is_active");
+$stmt = $pdo->prepare("SELECT is_active, COUNT(*) FROM users WHERE " . implode(' AND ', $where) . " GROUP BY is_active");
 $stmt->execute($params);
 $status_counts = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 if ($status_filter !== '') {
     $where[] = "is_active = ?";
     $params[] = $status_filter === 'active' ? 1 : 0;
 }
-$stmt = $pdo->prepare("SELECT * FROM users" . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . " ORDER BY role, full_name");
+$stmt = $pdo->prepare("SELECT * FROM users WHERE " . implode(' AND ', $where) . " ORDER BY role, full_name");
 $stmt->execute($params);
 $users = $stmt->fetchAll();
+
+// Deleted accounts that can still be restored, the ones deleted permanently soonest first
+$deleted = $pdo->query(
+    "SELECT u.*, d.full_name AS deleted_by_name FROM users u LEFT JOIN users d ON d.user_id = u.deleted_by
+     WHERE u.deleted_at IS NOT NULL AND u.purged_at IS NULL ORDER BY u.deleted_at"
+)->fetchAll();
+$admins_left = remaining_admin_count($pdo);
 
 /** This page with the role / status filter changed, the other kept. */
 $filter_url = fn(array $change): string => '?' . http_build_query(array_filter(array_merge(['role' => $role_filter, 'status' => $status_filter], $change)));
@@ -332,9 +411,14 @@ foreach (active_login_locks($pdo) as $lock) {
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<?= admin_intro('Accounts are created by the Admin. Deactivated accounts can\'t log in, but their 201 files stay in the system. Pausing a faculty member\'s employment only stops the FTA / IPCR reminders; the account can still log in.',
+<?= admin_intro('Accounts are created by the Admin. <strong>Deactivate</strong> someone to remove them for a while: they can\'t log in, and everything stays. <strong>Delete</strong> only accounts created by mistake or of people who have left: a deleted account can be restored for ' . (int)DELETED_RETENTION_DAYS . ' days, then it is removed for good and its 201 files move to Archived Docs. Pausing a faculty member\'s employment only stops the FTA / IPCR reminders.',
     '<a href="' . BASE_URL . '/admin/academic_ranks.php" class="btn btn-outline-brand"><i class="fa-solid fa-list-ol" aria-hidden="true"></i> Academic Ranks</a>'
   . '<button type="button" class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#createModal"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Add account</button>') ?>
+
+<?= page_tabs([
+    'accounts' => ['Accounts', 'admin/manage_faculty.php', 'fa-users'],
+    'deleted'  => ['Deleted accounts', 'admin/manage_faculty.php?view=deleted', 'fa-user-xmark', count($deleted)],
+], $view) ?>
 
 <?php if (!empty($_SESSION['temp_password_notice'])):
   // Temporary password from the last create / reset: shown this once, then removed from the session
@@ -358,6 +442,50 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
 </script>
 <?php endif; ?>
 
+<?php if ($view === 'deleted'): ?>
+<section class="ui-card" aria-label="Deleted accounts">
+  <div class="ui-toolbar">
+    <span class="ui-filter-note">Deleted accounts can't log in. Restore one within <?= (int)DELETED_RETENTION_DAYS ?> days of deleting it; after that it is removed for good and its 201-file documents move to Archived Docs under the person's name.</span>
+    <span class="ui-count"><?= count($deleted) ?> account<?= count($deleted) === 1 ? '' : 's' ?></span>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead><tr><th>Name</th><th>Role</th><th>Deleted</th><th>Reason</th><th>Removed in</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+        <?php if (!$deleted): ?><?= admin_empty_row(6, 'No deleted accounts', 'Deleted accounts stay here for ' . (int)DELETED_RETENTION_DAYS . ' days, so they can be restored.', null, 'fa-user-xmark') ?><?php endif; ?>
+        <?php foreach ($deleted as $u): $days = deleted_days_left($u['deleted_at']); ?>
+        <tr>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <?= user_avatar($u, 32) ?>
+              <div class="min-w-0">
+                <a href="<?= BASE_URL ?>/profile.php?id=<?= (int)$u['user_id'] ?>" class="text-body fw-semibold"><?= h($u['full_name']) ?></a>
+                <div class="text-muted small"><?= h($u['email']) ?></div>
+              </div>
+            </div>
+          </td>
+          <td><?= h(user_position_label($u)) ?></td>
+          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($u['deleted_at']))) ?>
+            <div class="ui-cell-sub"><?= $u['deleted_by_name'] ? 'by ' . h($u['deleted_by_name']) : '' ?></div></td>
+          <td class="text-break" style="max-width:18rem"><?= h((string)$u['delete_reason']) ?></td>
+          <td><span class="badge <?= $days <= 7 ? 'bg-danger' : 'bg-secondary' ?>" title="Deleted permanently on <?= h(deleted_purge_at($u['deleted_at'])->format('F j, Y')) ?>"><?= $days <= 0 ? 'Today' : $days . ' day' . ($days === 1 ? '' : 's') ?></span></td>
+          <td><div class="ui-actions">
+            <form method="POST" action="?view=deleted" data-confirm="<?= h($u['full_name'] . '\'s account comes back as it was before it was deleted' . ($u['active_before_delete'] === '0' || $u['active_before_delete'] === 0 ? ' (deactivated).' : ': they can log in again.')) ?>"
+                  data-confirm-title="Restore account?" data-confirm-ok="Restore">
+              <?= csrf_field() ?>
+              <input type="hidden" name="action" value="restore_account">
+              <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
+              <button class="btn btn-sm btn-outline-success" data-tooltip title="Restore account" aria-label="Restore account <?= h($u['full_name']) ?>"><i class="fa-solid fa-rotate-left"></i></button>
+            </form>
+          </div></td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<?php else: ?>
 <section class="ui-card" aria-label="All accounts">
       <form method="GET" class="ui-toolbar" data-autosubmit>
         <label for="fRole" class="visually-hidden">Role</label>
@@ -381,7 +509,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
           <thead><tr><th>Name</th><th>Role</th><th>Program / College</th><th>Status</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr></thead>
           <tbody>
             <?php if (!$users): ?><?= admin_empty_row(5, 'No accounts match', 'Try a different filter, or clear the filters to see everyone.', 'manage_faculty.php', 'fa-users') ?><?php endif; ?>
-            <?php foreach ($users as $u): ?>
+            <?php foreach ($users as $u): $parts = person_name_parts($u); ?>
             <tr>
               <td>
                 <div class="d-flex align-items-center gap-2">
@@ -400,40 +528,16 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <?php endif; ?>
               </td>
               <td>
-                <?php if ($u['role'] !== 'admin'): ?>
-                <form method="POST" action="?<?= h($list_query) ?>" class="d-flex gap-1 align-items-center">
-                  <?= csrf_field() ?>
-                  <input type="hidden" name="action" value="assign">
-                  <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
-                  <?php if ($u['role'] === 'dean'): ?>
-                    <select name="college" class="form-select form-select-sm" style="min-width:120px" aria-label="College">
-                      <option value="">-- College --</option>
-                      <?php foreach (COLLEGES as $key => $label): ?>
-                        <option value="<?= h($key) ?>" <?= $u['college'] === $key ? 'selected' : '' ?>><?= h($key) ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  <?php else: ?>
-                    <select name="program" class="form-select form-select-sm" style="min-width:120px" aria-label="Program">
-                      <option value="">-- Program --</option>
-                      <?php foreach (PROGRAMS as $key => $p): ?>
-                        <option value="<?= h($key) ?>" <?= $u['program'] === $key ? 'selected' : '' ?>><?= h($key) ?> (<?= h($p['college']) ?>)</option>
-                      <?php endforeach; ?>
-                    </select>
-                  <?php endif; ?>
-                  <?php if ($u['role'] !== 'faculty'): ?>
-                    <select name="employment_type" class="form-select form-select-sm" style="min-width:105px" aria-label="Employment type">
-                      <option value="">-- Type --</option>
-                      <option value="full_time" <?= $u['employment_type'] === 'full_time' ? 'selected' : '' ?>>Full-Time</option>
-                      <option value="part_time" <?= $u['employment_type'] === 'part_time' ? 'selected' : '' ?>>Part-Time</option>
-                    </select>
-                  <?php endif; ?>
-                  <?php $save_label = 'Save ' . ($u['role'] === 'dean' ? 'college' : 'program') . ($u['role'] !== 'faculty' ? ' & employment type' : ''); ?>
-                  <button class="btn btn-sm btn-outline-brand" data-tooltip title="<?= h($save_label) ?>" aria-label="<?= h($save_label) ?>"><i class="fa-solid fa-floppy-disk"></i></button>
-                </form>
-                <?php if (($u['role'] === 'dean' && !$u['college']) || ($u['role'] !== 'dean' && !$u['program'])): ?>
-                  <div class="small text-danger mt-1">Not set — no upload notifications</div>
+                <?php if ($u['role'] === 'admin'): ?>
+                  <span class="text-muted small">—</span>
+                <?php elseif ($u['role'] === 'dean'): ?>
+                  <?= $u['college'] ? h(COLLEGES[$u['college']] ?? $u['college']) : '' ?>
+                <?php else: ?>
+                  <?= $u['program'] ? h($u['program']) . ' <span class="text-muted small">(' . h(PROGRAMS[$u['program']]['college'] ?? '') . ')</span>' : '' ?>
                 <?php endif; ?>
-                <?php else: ?><span class="text-muted small">—</span><?php endif; ?>
+                <?php if (($u['role'] === 'dean' && !$u['college']) || (in_array($u['role'], ['faculty', 'program_chair'], true) && !$u['program'])): ?>
+                  <div class="small text-danger">Not set — no upload notifications</div>
+                <?php endif; ?>
               </td>
               <td>
                 <span class="badge <?= $u['is_active'] ? 'bg-success' : 'bg-secondary' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
@@ -461,6 +565,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   // Tooltip / screen-reader text of each icon button. Pause only marks the employment as paused
                   // (the account can still log in); Deactivate is what blocks the login.
                   $self = (int)$u['user_id'] === (int)$me['user_id'];
+                  $last_admin = $u['role'] === 'admin' && $admins_left <= 1;
                   $pause_label = $u['employment_status'] === 'active' ? 'Pause employment (account stays active)' : 'Resume employment';
                   $active_label = $u['is_active'] ? 'Deactivate account (cannot log in)' : 'Activate account (can log in again)';
                 ?>
@@ -474,9 +579,12 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                     </button>
                   </form>
                 <?php endif; ?>
-                <button type="button" class="btn btn-sm btn-outline-brand" data-tooltip title="Edit profile details" aria-label="Edit profile details"
-                        data-bs-toggle="modal" data-bs-target="#detailsModal" data-edit-id="<?= (int)$u['user_id'] ?>"
-                        data-name="<?= h($u['full_name']) ?>" data-role="<?= h($u['role']) ?>" data-emp="<?= h((string)$u['employment_type']) ?>"
+                <button type="button" class="btn btn-sm btn-outline-brand" data-tooltip title="Edit account" aria-label="Edit account of <?= h($u['full_name']) ?>"
+                        data-bs-toggle="modal" data-bs-target="#editModal" data-edit-id="<?= (int)$u['user_id'] ?>"
+                        data-name="<?= h($u['full_name']) ?>" data-role="<?= h($u['role']) ?>" data-role-label="<?= h(user_position_label(['role' => $u['role'], 'employment_type' => null])) ?>"
+                        data-title="<?= h($parts['name_title']) ?>" data-first="<?= h($parts['first_name']) ?>" data-middle="<?= h($parts['middle_name']) ?>"
+                        data-last="<?= h($parts['last_name']) ?>" data-suffix="<?= h($parts['name_suffix']) ?>" data-email="<?= h($u['email']) ?>"
+                        data-emp="<?= h((string)$u['employment_type']) ?>" data-program="<?= h((string)$u['program']) ?>" data-college="<?= h((string)$u['college']) ?>"
                         data-rank="<?= h((string)$u['academic_rank']) ?>" data-hired="<?= h((string)$u['date_engaged']) ?>" data-empid="<?= h((string)$u['employee_id']) ?>">
                   <i class="fa-solid fa-user-pen"></i>
                 </button>
@@ -500,6 +608,14 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   </button>
                   <?php if ($self): ?></span><?php endif; ?>
                 </form>
+                <?php $no_delete = $self ? 'You cannot delete your own account' : ($last_admin ? 'You cannot delete the last Admin account' : ''); ?>
+                <?php if ($no_delete): ?><span class="d-inline-block" tabindex="0" data-tooltip title="<?= h($no_delete) ?>"><?php endif; ?>
+                <button type="button" class="btn btn-sm btn-outline-danger" <?= $no_delete ? 'disabled' : 'data-tooltip' ?> title="Delete account" aria-label="Delete account of <?= h($u['full_name']) ?>"
+                        data-bs-toggle="modal" data-bs-target="#deleteAccountModal"
+                        data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-email="<?= h($u['email']) ?>" data-role-label="<?= h(user_position_label($u)) ?>">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+                <?php if ($no_delete): ?></span><?php endif; ?>
               </div></td>
             </tr>
             <?php endforeach; ?>
@@ -507,6 +623,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
         </table>
       </div>
 </section>
+<?php endif; ?>
 
 <!-- Add account (the create form) -->
 <div class="modal fade" id="createModal" tabindex="-1" aria-labelledby="createTitle" aria-hidden="true">
@@ -519,10 +636,38 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
       <div class="modal-body">
           <?= csrf_field() ?>
           <input type="hidden" name="action" value="create">
-          <div class="mb-3">
-            <label class="form-label">Full Name</label>
-            <input type="text" name="full_name" class="form-control" required>
-          </div>
+          <fieldset class="mb-3">
+            <legend class="form-label mb-2">Name</legend>
+            <div class="row g-2">
+              <div class="col-4 col-sm-3">
+                <label for="cNameTitle" class="form-label small">Title</label>
+                <select name="name_title" id="cNameTitle" class="form-select" data-name-part>
+                  <option value="">—</option>
+                  <?php foreach (NAME_TITLES as $t): ?><option><?= h($t) ?></option><?php endforeach; ?>
+                </select>
+              </div>
+              <div class="col-8 col-sm-9">
+                <label for="cNameFirst" class="form-label small">First name <span class="text-danger">*</span></label>
+                <input type="text" name="first_name" id="cNameFirst" class="form-control" maxlength="60" required autocomplete="off" data-name-part>
+              </div>
+              <div class="col-sm-5">
+                <label for="cNameMiddle" class="form-label small">Middle name</label>
+                <input type="text" name="middle_name" id="cNameMiddle" class="form-control" maxlength="60" autocomplete="off" data-name-part>
+              </div>
+              <div class="col-8 col-sm-5">
+                <label for="cNameLast" class="form-label small">Last name <span class="text-danger">*</span></label>
+                <input type="text" name="last_name" id="cNameLast" class="form-control" maxlength="60" required autocomplete="off" data-name-part>
+              </div>
+              <div class="col-4 col-sm-2">
+                <label for="cNameSuffix" class="form-label small">Suffix</label>
+                <select name="name_suffix" id="cNameSuffix" class="form-select" data-name-part>
+                  <option value="">—</option>
+                  <?php foreach (NAME_SUFFIXES as $t): ?><option><?= h($t) ?></option><?php endforeach; ?>
+                </select>
+              </div>
+            </div>
+            <div class="form-text">Shown as: <strong data-name-preview>—</strong></div>
+          </fieldset>
           <div class="mb-3">
             <label class="form-label">Email</label>
             <input type="email" name="email" class="form-control" required>
@@ -582,51 +727,144 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
   </div>
 </div>
 
-<!-- Profile details only the Admin sets -->
-<div class="modal fade" id="detailsModal" tabindex="-1" aria-labelledby="detailsTitle" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+<!-- Edit account: name, email, assignment and profile details only the Admin sets -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
     <form method="POST" action="?<?= h($list_query) ?>" class="modal-content">
       <?= csrf_field() ?>
-      <input type="hidden" name="action" value="profile_details">
-      <input type="hidden" name="user_id" id="detailsUserId">
+      <input type="hidden" name="action" value="edit_account">
+      <input type="hidden" name="user_id" id="editUserId">
       <div class="modal-header">
-        <h5 class="modal-title" id="detailsTitle">Edit Profile Details</h5>
+        <h2 class="modal-title" id="editTitle">Edit account</h2>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p class="fw-semibold mb-3" id="detailsUserName"></p>
-        <div class="mb-2" id="detailsEmpWrap">
-          <label for="detailsEmp" class="form-label small fw-semibold">Employment Type</label>
-          <select name="employment_type" id="detailsEmp" class="form-select form-select-sm">
-            <option value="">-- Not set --</option>
-            <option value="full_time">Full-Time</option>
-            <option value="part_time">Part-Time</option>
-          </select>
-          <div class="form-text">For faculty this is their position (Full-time / Part-time Faculty).</div>
+          <fieldset class="mb-3">
+            <legend class="form-label mb-2">Name</legend>
+            <div class="row g-2">
+              <div class="col-4 col-sm-3">
+                <label for="eNameTitle" class="form-label small">Title</label>
+                <select name="name_title" id="eNameTitle" class="form-select" data-name-part>
+                  <option value="">—</option>
+                  <?php foreach (NAME_TITLES as $t): ?><option><?= h($t) ?></option><?php endforeach; ?>
+                </select>
+              </div>
+              <div class="col-8 col-sm-9">
+                <label for="eNameFirst" class="form-label small">First name <span class="text-danger">*</span></label>
+                <input type="text" name="first_name" id="eNameFirst" class="form-control" maxlength="60" required autocomplete="off" data-name-part>
+              </div>
+              <div class="col-sm-5">
+                <label for="eNameMiddle" class="form-label small">Middle name</label>
+                <input type="text" name="middle_name" id="eNameMiddle" class="form-control" maxlength="60" autocomplete="off" data-name-part>
+              </div>
+              <div class="col-8 col-sm-5">
+                <label for="eNameLast" class="form-label small">Last name <span class="text-danger">*</span></label>
+                <input type="text" name="last_name" id="eNameLast" class="form-control" maxlength="60" required autocomplete="off" data-name-part>
+              </div>
+              <div class="col-4 col-sm-2">
+                <label for="eNameSuffix" class="form-label small">Suffix</label>
+                <select name="name_suffix" id="eNameSuffix" class="form-select" data-name-part>
+                  <option value="">—</option>
+                  <?php foreach (NAME_SUFFIXES as $t): ?><option><?= h($t) ?></option><?php endforeach; ?>
+                </select>
+              </div>
+            </div>
+            <div class="form-text">Shown as: <strong data-name-preview>—</strong></div>
+          </fieldset>
+        <div class="row g-2 mb-2">
+          <div class="col-sm-8">
+            <label for="editEmail" class="form-label small fw-semibold">Email <span class="text-danger">*</span></label>
+            <input type="email" name="email" id="editEmail" class="form-control" maxlength="150" required>
+            <div class="form-text">Used to log in. It can't be the email of another account.</div>
+          </div>
+          <div class="col-sm-4">
+            <span class="form-label small fw-semibold d-block">Role</span>
+            <div class="form-control-plaintext" id="editRole"></div>
+          </div>
         </div>
-        <div class="mb-2">
-          <label for="detailsRank" class="form-label small fw-semibold">Academic Rank</label>
-          <select name="academic_rank" id="detailsRank" class="form-select form-select-sm">
-            <option value="">-- Not set --</option>
-            <?php foreach (academic_rank_options($pdo) as $rank): ?><option><?= h($rank) ?></option><?php endforeach; ?>
-          </select>
-          <div class="form-text"><a href="<?= BASE_URL ?>/admin/academic_ranks.php">Add a rank to this list</a></div>
+        <div class="row g-2 mb-2">
+          <div class="col-sm-6" id="editEmpWrap">
+            <label for="editEmp" class="form-label small fw-semibold">Employment type <span class="text-danger" id="editEmpReq">*</span></label>
+            <select name="employment_type" id="editEmp" class="form-select">
+              <option value="">-- Not set --</option>
+              <option value="full_time">Full-Time</option>
+              <option value="part_time">Part-Time</option>
+            </select>
+            <div class="form-text">For faculty this is their position (Full-time / Part-time Faculty).</div>
+          </div>
+          <div class="col-sm-6" id="editProgramWrap">
+            <label for="editProgram" class="form-label small fw-semibold">Program <span class="text-danger">*</span></label>
+            <select name="program" id="editProgram" class="form-select">
+              <option value="">-- Select program --</option>
+              <?php foreach (PROGRAMS as $key => $p): ?><option value="<?= h($key) ?>"><?= h($p['label']) ?> (<?= h($p['college']) ?>)</option><?php endforeach; ?>
+            </select>
+            <div class="form-text">Its Program Chair is notified of this person's uploads.</div>
+          </div>
+          <div class="col-sm-6" id="editCollegeWrap">
+            <label for="editCollege" class="form-label small fw-semibold">College <span class="text-danger">*</span></label>
+            <select name="college" id="editCollege" class="form-select">
+              <option value="">-- Select college --</option>
+              <?php foreach (COLLEGES as $key => $label): ?><option value="<?= h($key) ?>"><?= h($label) ?></option><?php endforeach; ?>
+            </select>
+          </div>
         </div>
         <div class="row g-2">
-          <div class="col-6">
-            <label for="detailsHired" class="form-label small fw-semibold">Date Hired</label>
-            <input type="date" name="date_engaged" id="detailsHired" class="form-control form-control-sm">
+          <div class="col-sm-6">
+            <label for="editRank" class="form-label small fw-semibold">Academic rank</label>
+            <select name="academic_rank" id="editRank" class="form-select">
+              <option value="">-- Not set --</option>
+              <?php foreach (academic_rank_options($pdo) as $rank): ?><option><?= h($rank) ?></option><?php endforeach; ?>
+            </select>
+            <div class="form-text"><a href="<?= BASE_URL ?>/admin/academic_ranks.php">Add a rank to this list</a></div>
           </div>
-          <div class="col-6">
-            <label for="detailsEmpId" class="form-label small fw-semibold">Employee ID</label>
-            <input type="text" name="employee_id" id="detailsEmpId" class="form-control form-control-sm" maxlength="30">
+          <div class="col-6 col-sm-3">
+            <label for="editHired" class="form-label small fw-semibold">Date hired</label>
+            <input type="date" name="date_engaged" id="editHired" class="form-control">
+          </div>
+          <div class="col-6 col-sm-3">
+            <label for="editEmpId" class="form-label small fw-semibold">Employee ID</label>
+            <input type="text" name="employee_id" id="editEmpId" class="form-control" maxlength="30">
           </div>
         </div>
-        <p class="small text-muted mt-3 mb-0">Program / college are set in the table; employment status with pause / resume. The account holder is notified of changes.</p>
+        <p class="small text-muted mt-3 mb-0">Employment status is set with Pause / Resume, and access with Deactivate. The new name shows everywhere right away, and the account holder is notified of the changes.</p>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-brand"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="submit" class="btn btn-brand"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Delete account: explains what happens, needs a reason and the typed confirmation -->
+<div class="modal fade" id="deleteAccountModal" tabindex="-1" aria-labelledby="deleteAccountTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <form method="POST" action="?<?= h($list_query) ?>" class="modal-content" id="deleteAccountForm">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="delete_account">
+      <input type="hidden" name="user_id" id="deleteUserId">
+      <div class="modal-header">
+        <h2 class="modal-title" id="deleteAccountTitle">Delete account?</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1"><strong id="deleteUserName"></strong> <span class="text-muted small" id="deleteUserRole"></span></p>
+        <p class="small text-muted" id="deleteUserEmail"></p>
+        <ul class="small ps-3">
+          <li>They are signed out and can't log in from now on.</li>
+          <li>The account moves to <strong>Deleted accounts</strong>, where you can restore it within <?= (int)DELETED_RETENTION_DAYS ?> days.</li>
+          <li>After <?= (int)DELETED_RETENTION_DAYS ?> days it is deleted for good. Their 201-file documents are kept as official records and move to <strong>Archived Docs</strong> under their name.</li>
+        </ul>
+        <div class="alert alert-warning small py-2"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+          Only removing someone for a while? Use <strong>Deactivate</strong> instead. Delete only accounts created by mistake or of people who have left.</div>
+        <label for="deleteReason" class="form-label small fw-semibold">Reason <span class="text-danger">*</span></label>
+        <textarea name="reason" id="deleteReason" class="form-control mb-3" rows="2" minlength="5" maxlength="255" required placeholder="e.g. Created by mistake (duplicate account); Resigned in June 2026"></textarea>
+        <label for="deleteConfirm" class="form-label small fw-semibold">Type <strong>DELETE</strong> or their full name to confirm</label>
+        <input type="text" name="confirm_text" id="deleteConfirm" class="form-control" autocomplete="off" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="submit" class="btn btn-danger" id="deleteAccountBtn" disabled><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Delete account</button>
       </div>
     </form>
   </div>
@@ -679,28 +917,70 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
   document.querySelectorAll('.pw-generate').forEach(function (btn) {
     btn.addEventListener('click', function () { document.getElementById(btn.dataset.target).value = generatePassword(12); });
   });
-  var detailsModal = document.getElementById('detailsModal');
-  detailsModal.addEventListener('show.bs.modal', function (e) {
-    var b = e.relatedTarget, rank = document.getElementById('detailsRank');
-    document.getElementById('detailsUserId').value = b.dataset.editId;
-    document.getElementById('detailsUserName').textContent = b.dataset.name;
-    document.getElementById('detailsEmpWrap').hidden = b.dataset.role === 'admin';
-    document.getElementById('detailsEmp').value = b.dataset.emp;
-    if (b.dataset.rank && !Array.prototype.some.call(rank.options, function (o) { return o.value === b.dataset.rank; })) {
-      rank.add(new Option(b.dataset.rank + ' (hidden)', b.dataset.rank));   // a rank no longer offered stays selectable for its holder
+  // Name parts -> "Shown as" (the same format as person_full_name() on the server)
+  function namePreview(form) {
+    var v = function (n) { var el = form.querySelector('[name="' + n + '"]'); return el ? el.value.trim().replace(/\s+/g, ' ') : ''; };
+    var middle = v('middle_name');
+    var full = [v('name_title'), v('first_name'), middle ? middle.charAt(0).toUpperCase() + '.' : '', v('last_name'), v('name_suffix')]
+      .filter(Boolean).join(' ');
+    form.querySelector('[data-name-preview]').textContent = full || '—';
+  }
+  document.querySelectorAll('form').forEach(function (form) {
+    if (!form.querySelector('[data-name-preview]')) return;
+    form.addEventListener('input', function () { namePreview(form); });
+    form.addEventListener('change', function () { namePreview(form); });
+  });
+
+  var editModal = document.getElementById('editModal');
+  editModal.addEventListener('show.bs.modal', function (e) {
+    var b = e.relatedTarget, d = b.dataset, rank = document.getElementById('editRank'), role = d.role;
+    document.getElementById('editUserId').value = d.editId;
+    document.getElementById('editTitle').textContent = 'Edit account — ' + d.name;
+    ['Title', 'First', 'Middle', 'Last', 'Suffix'].forEach(function (k) { document.getElementById('eName' + k).value = d[k.toLowerCase()] || ''; });
+    document.getElementById('editEmail').value = d.email;
+    document.getElementById('editRole').textContent = d.roleLabel;
+    document.getElementById('editEmpWrap').hidden = role === 'admin';
+    document.getElementById('editEmpReq').hidden = role !== 'faculty';
+    document.getElementById('editProgramWrap').hidden = !(role === 'faculty' || role === 'program_chair');
+    document.getElementById('editCollegeWrap').hidden = role !== 'dean';
+    document.getElementById('editEmp').value = d.emp;
+    document.getElementById('editProgram').value = d.program;
+    document.getElementById('editCollege').value = d.college;
+    if (d.rank && !Array.prototype.some.call(rank.options, function (o) { return o.value === d.rank; })) {
+      rank.add(new Option(d.rank + ' (hidden)', d.rank));   // a rank no longer offered stays selectable for its holder
     }
-    rank.value = b.dataset.rank;
-    document.getElementById('detailsHired').value = b.dataset.hired;
-    document.getElementById('detailsEmpId').value = b.dataset.empid;
+    rank.value = d.rank;
+    document.getElementById('editHired').value = d.hired;
+    document.getElementById('editEmpId').value = d.empid;
+    namePreview(editModal.querySelector('form'));
   });
   // "Edit in Manage Faculty" on a profile links here with ?edit=ID (Bootstrap loads in the footer, hence DOMContentLoaded)
   var editBtn = document.querySelector('[data-edit-id="' + parseInt(new URLSearchParams(location.search).get('edit'), 10) + '"]');
   if (editBtn) {
     window.addEventListener('DOMContentLoaded', function () {
       editBtn.scrollIntoView({ block: 'center' });
-      bootstrap.Modal.getOrCreateInstance(detailsModal).show(editBtn);
+      bootstrap.Modal.getOrCreateInstance(editModal).show(editBtn);
     });
   }
+
+  // Delete: the button works once DELETE or the full name is typed (the server checks it again)
+  var delModal = document.getElementById('deleteAccountModal'), delName = '';
+  var delConfirm = document.getElementById('deleteConfirm'), delReason = document.getElementById('deleteReason'), delBtn = document.getElementById('deleteAccountBtn');
+  function delReady() {
+    var typed = delConfirm.value.trim().replace(/\s+/g, ' ');
+    delBtn.disabled = !((typed === 'DELETE' || typed.toLowerCase() === delName.toLowerCase()) && delReason.value.trim().length >= 5);
+  }
+  delModal.addEventListener('show.bs.modal', function (e) {
+    var d = e.relatedTarget.dataset;
+    delName = d.name;
+    document.getElementById('deleteUserId').value = d.id;
+    document.getElementById('deleteUserName').textContent = d.name;
+    document.getElementById('deleteUserRole').textContent = d.roleLabel;
+    document.getElementById('deleteUserEmail').textContent = d.email;
+    delConfirm.value = ''; delReason.value = ''; delReady();
+  });
+  delConfirm.addEventListener('input', delReady);
+  delReason.addEventListener('input', delReady);
   document.getElementById('resetPasswordModal').addEventListener('show.bs.modal', function (e) {
     var b = e.relatedTarget;
     document.getElementById('resetUserId').value = b.dataset.id;

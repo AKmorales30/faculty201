@@ -10,7 +10,7 @@ require_role('admin');
 $page_title = 'Activity Logs';
 $actions = activity_actions();
 $roles = ['admin' => 'Admin', 'faculty' => 'Faculty', 'program_chair' => 'Program Chair', 'dean' => 'Dean'];
-$results = ['success' => 'Successful', 'failed' => 'Failed', 'blocked' => 'Blocked (locked out or deactivated)'];
+$results = ['success' => 'Successful', 'failed' => 'Failed', 'blocked' => 'Blocked (locked out, deactivated or deleted)'];
 const LOGS_PER_PAGE = 25;
 
 // Filters (all optional). Anything invalid is ignored rather than erroring.
@@ -50,7 +50,7 @@ if ($tab === 'activity') {
     if ($user_id) { $where[] = 'a.user_id = ?';   $params[] = $user_id; }
     if ($role_filter) { $where[] = 'a.user_role = ?'; $params[] = $role_filter; }
     if ($action)  { $where[] = 'a.action = ?';    $params[] = $action; }
-    if ($q !== '') { $where[] = '(a.details LIKE ? OR a.ip_address LIKE ?)'; array_push($params, "%$q%", "%$q%"); }
+    if ($q !== '') { $where[] = '(a.details ' . sql_like() . ' ? OR a.ip_address ' . sql_like() . ' ?)'; array_push($params, "%$q%", "%$q%"); }
     $from_sql = "FROM activity_logs a LEFT JOIN users u ON u.user_id = a.user_id";
     $select = "SELECT a.created_at, a.user_role, a.action, a.details, a.ip_address, u.full_name";
     $order = "ORDER BY a.created_at DESC, a.id DESC";
@@ -59,13 +59,13 @@ if ($tab === 'activity') {
     if ($user_id) { $where[] = 'la.user_id = ?'; $params[] = $user_id; }
     if ($role_filter) { $where[] = 'u.role = ?';     $params[] = $role_filter; }
     if ($result)  { $where[] = ['success' => 'la.was_successful = 1', 'failed' => 'la.was_successful = 0 AND la.was_blocked = 0', 'blocked' => 'la.was_blocked = 1'][$result]; }
-    if ($q !== '') { $where[] = '(la.email LIKE ? OR la.ip_address LIKE ?)'; array_push($params, "%$q%", "%$q%"); }
+    if ($q !== '') { $where[] = '(la.email ' . sql_like() . ' ? OR la.ip_address ' . sql_like() . ' ?)'; array_push($params, "%$q%", "%$q%"); }
     $from_sql = "FROM login_attempts la LEFT JOIN users u ON u.user_id = la.user_id";
     $select = "SELECT la.attempted_at, la.email, la.was_successful, la.was_blocked, la.ip_address, u.full_name, u.role";
     $order = "ORDER BY la.attempted_at DESC, la.attempt_id DESC";
 }
 if ($from !== '') { $where[] = "$date_col >= ?"; $params[] = $from . ' 00:00:00'; }
-if ($to !== '')   { $where[] = "$date_col < DATE_ADD(?, INTERVAL 1 DAY)"; $params[] = $to; }
+if ($to !== '')   { $where[] = "$date_col < CAST(? AS DATE) + INTERVAL '1' DAY"; $params[] = $to; }
 $where_sql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 /** Prepare + execute with integer params bound as integers (needed for LIMIT / OFFSET). */

@@ -4,7 +4,7 @@
  * uploads/ are blocked by the web server, so this is the only way to open
  * a filed document.
  *
- * Allowed: the document's owner while it's posted, For Review or archived
+ * Allowed: the document's owner while it's posted or archived
  * (Archived Docs), or the Admin -- also deleted ones, to review them
  * (can_access_document()).
  * The file is read from the database (document_files). Every opening --

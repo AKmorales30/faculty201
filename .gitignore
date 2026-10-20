@@ -3,3 +3,6 @@ __pycache__/
 
 # AI settings with the real Gemini API key (template: config/ai.example.php)
 config/ai.php
+
+# Database settings with the real Supabase password (template: config/database.example.php)
+config/database.php

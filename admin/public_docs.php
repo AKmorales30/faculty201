@@ -62,8 +62,9 @@ $use_dates = $date_error === null;
 $where = [$include_archived ? "d.status IN ('active', 'archived')" : "d.status = 'active'"];
 $params = [];
 if ($q !== '') {
-    $where[] = "(u.full_name LIKE ? OR d.ocr_extracted_text LIKE ? OR d.ocr_matched_name LIKE ? OR d.file_path LIKE ?
-                 OR d.title LIKE ? OR d.conducted_by LIKE ? OR d.venue LIKE ?)";
+    $like = sql_like();
+    $where[] = "(u.full_name $like ? OR d.ocr_extracted_text $like ? OR d.ocr_matched_name $like ? OR d.file_path $like ?
+                 OR d.title $like ? OR d.conducted_by $like ? OR d.venue $like ?)";
     array_push($params, "%$q%", "%$q%", "%$q%", "%$q%", "%$q%", "%$q%", "%$q%");
 }
 if ($type !== '') {
@@ -71,14 +72,14 @@ if ($type !== '') {
     $params[] = $type;
 }
 if ($expiring_only) {
-    $where[] = "d.expiration_date IS NOT NULL AND d.expiration_date <= DATE_ADD(CURDATE(), INTERVAL 60 DAY)";
+    $where[] = "d.expiration_date IS NOT NULL AND d.expiration_date <= CURRENT_DATE + INTERVAL '60' DAY";
 }
 if ($use_dates && $from !== '') {
     $where[] = "d.filed_at >= ?";
     $params[] = $from . ' 00:00:00';
 }
 if ($use_dates && $to !== '') {
-    $where[] = "d.filed_at < DATE_ADD(?, INTERVAL 1 DAY)";
+    $where[] = "d.filed_at < CAST(? AS DATE) + INTERVAL '1' DAY";
     $params[] = $to;
 }
 if ($program !== '') {
@@ -157,9 +158,9 @@ include __DIR__ . '/../includes/header.php';
 include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delete buttons + confirmation dialog
 ?>
 
-<?php $review_n = documents_for_review_count($pdo); ?>
-<?= admin_intro('Every faculty member\'s posted documents — uploads that passed the classification review in Manage Document. Open a row to preview the file and its details.',
-    '<a href="' . BASE_URL . '/admin/manage_documents.php" class="btn btn-outline-brand"><i class="fa-solid fa-list-check" aria-hidden="true"></i> Manage Document' . ($review_n ? ' (' . $review_n . ' for review)' : '') . '</a>') ?>
+<?php $flagged_n = documents_flagged_count($pdo); ?>
+<?= admin_intro('Every faculty member\'s documents — uploads are posted here right away. Documents marked <span class="badge bg-review">Flagged</span> are also listed in Manage Document for checking. Open a row to preview the file and its details, or to correct its type.',
+    '<a href="' . BASE_URL . '/admin/manage_documents.php" class="btn btn-outline-brand"><i class="fa-solid fa-flag" aria-hidden="true"></i> Manage Document' . ($flagged_n ? ' (' . $flagged_n . ' flagged)' : '') . '</a>') ?>
 <?= admin_docs_tabs('list') ?>
 
 <?php if ($date_error): ?>
@@ -247,7 +248,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
       <tbody>
         <?php if (!$documents): ?>
           <?= admin_empty_row(6, $active ? 'No documents match' : 'No posted documents yet',
-                $active ? 'Try a different search, or clear the filters to see everything.' : 'Documents appear here once they are posted from Manage Document.',
+                $active ? 'Try a different search, or clear the filters to see everything.' : 'Documents appear here as soon as they are uploaded.',
                 $active ? 'public_docs.php' : null) ?>
         <?php endif; ?>
         <?php foreach ($documents as $d):
@@ -260,6 +261,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
             <?php if (trim((string)$d['title']) !== ''): ?><div class="ui-cell-sub"><?= h(basename($d['file_path'])) ?></div><?php endif; ?>
             <?php if ($d['ocr_matched_name']): ?><div class="ui-cell-sub">Name read: <?= h($d['ocr_matched_name']) ?></div><?php endif; ?>
             <?php if ($d['status'] === 'archived'): ?><div class="mt-1"><span class="badge bg-light">Archived</span></div><?php endif; ?>
+            <?php if (document_is_flagged($d)): ?><div class="mt-1"><span class="badge bg-review" title="<?= h(ucfirst(document_flag_text($d['flag_reason']))) ?>"><i class="fa-solid fa-flag" aria-hidden="true"></i> Flagged for checking</span></div><?php endif; ?>
           </td>
           <td>
             <a href="faculty_documents.php?id=<?= (int)$d['faculty_id'] ?>" class="text-body fw-semibold"><?= h($d['full_name']) ?></a>

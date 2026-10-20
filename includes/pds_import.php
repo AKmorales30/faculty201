@@ -891,7 +891,7 @@ function pds_import_confirmed_value(string $rule_key, array $def, string $raw, i
  * is snapshotted first.
  * @return array{sections: array<string, array{fields: int, rows: int}>, invalid: int, over: int}
  */
-function pds_import_apply(PDO $pdo, int $faculty_id, int $document_id, array $post): array {
+function pds_import_apply(PDO $pdo, int $faculty_id, int $document_id, array $post, ?int $changed_by = null, string $source = 'upload'): array {
     $defs = pds_import_field_defs();
     $section_of = pds_import_field_sections();
     $pds = pds_load($pdo, $faculty_id);
@@ -947,6 +947,7 @@ function pds_import_apply(PDO $pdo, int $faculty_id, int $document_id, array $po
             $clean = pds_clean_ld_row($cells);
             if ($clean !== null) { pds_insert_ld($pdo, $faculty_id, $clean, $document_id); }
         }
+        pds_record_version($pdo, $faculty_id, $source, $document_id, $changed_by ?? $faculty_id);
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -968,4 +969,268 @@ function pds_import_summary(array $sections): string {
         $parts[] = $labels[$skey]['label'] . ' (' . implode(', ', $what) . ')';
     }
     return implode(', ', $parts);
+}
+
+// =====================================================================
+// Automatic update from an uploaded PDS (no review step), and its Undo
+// =====================================================================
+
+/**
+ * ID numbers too sensitive to save from a scan: OCR can misread a digit and
+ * still pass the format check, so from a photo / scanned PDF these are
+ * never saved automatically -- they are flagged for the faculty member to
+ * type in. (From the Excel workbook or a PDF's own text they are exact.)
+ */
+function pds_sensitive_fields(): array {
+    return ['umid_id', 'pagibig_id', 'philhealth_no', 'philsys_pcn', 'tin_no', 'agency_employee_no', 'gov_id_number', 'q40b_id', 'q40c_id'];
+}
+
+/**
+ * Save what was read from an uploaded PDS ($ex, pds_import_extract_file())
+ * into the faculty member's digital PDS, without a review step:
+ *   - only the sections found in the file are touched;
+ *   - an empty field is filled in (a value the reader wasn't sure of is
+ *     filled in and flagged to check);
+ *   - a field that already has a different value is replaced only when the
+ *     read is certain; otherwise the current value is kept and flagged;
+ *   - table rows (education, eligibility, work, L&D, ...) are added, rows
+ *     already in the PDS or repeated in the file are skipped;
+ *   - sensitive ID numbers read by OCR are never saved -- flagged instead.
+ * The changes are saved as a new PDS version (source 'upload'), with what
+ * was changed -- old and new values, rows added -- for Undo, and the flags.
+ * @return array{version: ?array, counts: array, flags: array, duplicates: int}
+ */
+function pds_import_auto_apply(PDO $pdo, int $faculty_id, int $document_id, array $ex, int $changed_by): array {
+    $defs = pds_import_field_defs();
+    $section_of = pds_import_field_sections();
+    $sensitive = array_flip(pds_sensitive_fields());
+    $pds = pds_load($pdo, $faculty_id);
+    $data = $pds['data'];
+    $changes = ['document_id' => $document_id, 'source' => $ex['source'], 'fields' => [], 'rows' => [], 'ld_ids' => [], 'flags' => [], 'counts' => []];
+    $flag = function (string $section, string $label, string $read, string $current, string $why) use (&$changes) {
+        $changes['flags'][] = ['section' => $section, 'label' => $label, 'read' => $read, 'current' => $current, 'why' => $why];
+    };
+    $count = function (string $section, string $what) use (&$changes) {
+        $changes['counts'][$section][$what] = ($changes['counts'][$section][$what] ?? 0) + 1;
+    };
+
+    foreach ($ex['fields'] as $key => $f) {
+        if (!isset($defs[$key], $section_of[$key])) { continue; }
+        $section = $section_of[$key];
+        $label = $defs[$key][0];
+        $new = (string)$f['value'];
+        $sure = !empty($f['sure']);
+        $cur = trim((string)($data[$key] ?? ''));
+        if (mb_strtolower($cur) === mb_strtolower($new)) { continue; }
+        if (!$sure && pds_import_is_label_text($new)) { continue; }   // e.g. "k/Lot No.": the scan caught the form's own label
+        if (isset($sensitive[$key]) && ($ex['source'] === 'ocr' || !$sure)) {
+            $flag($section, $label, $new, $cur, 'ID number read from a scan -- not saved. Type it in yourself if it is right.');
+            continue;
+        }
+        if ($cur === '' || pds_is_na_text($cur) && !$sure) {
+            if ($cur !== '') { continue; }   // "N/A" in the PDS and an unsure read: keep N/A
+            $changes['fields'][$key] = ['old' => (string)($data[$key] ?? ''), 'new' => $new];
+            $data[$key] = $new;
+            $count($section, 'fields');
+            if (!$sure) { $flag($section, $label, $new, '', 'Filled in from a part of the file that was hard to read -- please check it.'); }
+            continue;
+        }
+        if ($sure) {
+            $changes['fields'][$key] = ['old' => $cur, 'new' => $new];
+            $data[$key] = $new;
+            $count($section, 'fields');
+        } else {
+            $flag($section, $label, $new, $cur, 'Your current value was kept: the file was hard to read here. Update it if the file is right.');
+        }
+    }
+
+    $existing = pds_import_existing_keys($pds);
+    $seen = [];
+    $ld_new = [];
+    $duplicates = 0;
+    foreach ($ex['tables'] as $tkey => $rows) {
+        $section = pds_import_table_section($tkey);
+        foreach ($rows as $r) {
+            $cells = $r['cells'];
+            $k = pds_import_row_key($tkey, $cells);
+            if (isset($existing[$k]) || isset($seen[$k])) { $duplicates++; continue; }   // already in the PDS / twice in the file
+            $seen[$k] = true;
+            $label = pds_import_table_label($tkey) . ': ' . (array_values(array_filter($cells, fn($c) => $c !== ''))[0] ?? '');
+            if ($tkey === 'references' && count((array)($data['references'] ?? [])) >= 3) {
+                $flag($section, $label, '', '', 'The form has room for 3 references -- not added.');
+                continue;
+            }
+            if ($tkey === 'ld') {
+                $ld_new[] = $cells;
+            } else {
+                if (!empty($data[$tkey . '_na']) && !isset($changes['fields'][$tkey . '_na'])) {
+                    $changes['fields'][$tkey . '_na'] = ['old' => (string)$data[$tkey . '_na'], 'new' => ''];
+                }
+                $data[$tkey][] = $cells + ['_source' => $document_id];
+                $data[$tkey . '_na'] = '';
+                $changes['rows'][$tkey][] = $k;
+            }
+            $count($section, 'rows');
+            if (empty($r['sure'])) { $flag($section, $label, '', '', 'Added -- part of this entry was hard to read, please check it.'); }
+        }
+    }
+    if ($ld_new && !empty($data['ld_na'])) {
+        $changes['fields']['ld_na'] = ['old' => (string)$data['ld_na'], 'new' => ''];
+        $data['ld_na'] = '';
+    }
+
+    $version = null;
+    if ($changes['fields'] || $changes['rows'] || $ld_new) {
+        $pdo->beginTransaction();
+        try {
+            pds_snapshot($pdo, $faculty_id, "Before automatic update from uploaded PDS (document #{$document_id})");
+            pds_write_data($pdo, $faculty_id, $data, $document_id);
+            foreach ($ld_new as $cells) {
+                $clean = pds_clean_ld_row($cells);
+                if ($clean !== null) { $changes['ld_ids'][] = pds_insert_ld($pdo, $faculty_id, $clean, $document_id); }
+            }
+            $version = pds_record_version($pdo, $faculty_id, 'upload', $document_id, $changed_by, $changes);
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+    $order = array_keys(pds_section_labels());
+    uksort($changes['counts'], fn($a, $b) => array_search($a, $order, true) <=> array_search($b, $order, true));
+    return ['version' => $version, 'counts' => $changes['counts'], 'flags' => $changes['flags'], 'duplicates' => $duplicates];
+}
+
+/** Whether a value read from a scan is only a piece of the form's printed labels ("k/Lot No.", "SURNAME"). */
+function pds_import_is_label_text(string $value): bool {
+    static $labels = null;
+    $norm = fn(string $t): string => preg_replace('/[^a-z0-9]/', '', mb_strtolower($t));
+    if ($labels === null) {
+        $labels = array_map(fn($d) => $norm($d[0]), pds_import_field_defs());
+    }
+    $v = $norm($value);
+    if (strlen($v) < 4) { return false; }
+    foreach ($labels as $l) {
+        if (str_contains($l, $v)) { return true; }
+    }
+    return false;
+}
+
+/** "Personal Information (8 fields), Learning and Development (3 entries added)" for counts per section. */
+function pds_update_summary(array $counts): string {
+    $labels = pds_section_labels();
+    $parts = [];
+    foreach ($counts as $section => $c) {
+        $what = [];
+        if (!empty($c['fields'])) { $what[] = $c['fields'] . ' field' . ($c['fields'] === 1 ? '' : 's'); }
+        if (!empty($c['rows'])) { $what[] = $c['rows'] . ' entr' . ($c['rows'] === 1 ? 'y' : 'ies') . ' added'; }
+        $parts[] = ($labels[$section] ?? $section) . ' (' . implode(', ', $what) . ')';
+    }
+    return implode(', ', $parts);
+}
+
+/** Whether an automatic update (a version with source 'upload' and its changes) can still be undone, and by $viewer. */
+function pds_update_undoable(array $v, array $viewer): bool {
+    return $v['source'] === 'upload' && $v['changes'] !== null && $v['undone_at'] === null
+        && ((int)$v['user_id'] === (int)$viewer['user_id'] || $viewer['role'] === 'admin')
+        && strtotime($v['created_at']) >= time() - PDS_UNDO_DAYS * 86400
+        && !empty(json_decode((string)$v['changes'], true)['counts']);
+}
+
+/**
+ * Undo an automatic update: every field it changed goes back to its earlier
+ * value -- unless it was edited again since (then the newer value is kept)
+ * -- and the rows it added are removed. Saved as a new version (source
+ * 'undo'); no version is deleted. Returns the counts, or an error message.
+ * @return array{restored: int, removed: int, kept: int, version: ?array}|string
+ */
+function pds_undo_auto_update(PDO $pdo, int $version_id, array $viewer): array|string {
+    $v = pds_version($pdo, $version_id);
+    if (!$v || !pds_update_undoable($v, $viewer)) {
+        return 'This update can no longer be undone (it was undone already, or it is more than ' . PDS_UNDO_DAYS . ' days old).';
+    }
+    $faculty_id = (int)$v['user_id'];
+    $changes = json_decode($v['changes'], true) ?: [];
+    $doc_id = (int)($changes['document_id'] ?? $v['source_document_id']);
+    $data = pds_load($pdo, $faculty_id)['data'];
+    $restored = $removed = $kept = 0;
+    foreach ((array)($changes['fields'] ?? []) as $key => $c) {
+        if ((string)($data[$key] ?? '') === (string)$c['new']) {
+            $data[$key] = $c['old'];
+            if (!str_ends_with($key, '_na')) { $restored++; }
+        } elseif (!str_ends_with($key, '_na')) {
+            $kept++;   // changed again since the update: the newer value stays
+        }
+    }
+    foreach ((array)($changes['rows'] ?? []) as $tkey => $keys) {
+        $keys = array_flip($keys);
+        $before = count((array)($data[$tkey] ?? []));
+        $data[$tkey] = array_values(array_filter((array)($data[$tkey] ?? []), fn($r) => !(is_array($r)
+            && (int)($r['_source'] ?? 0) === $doc_id && isset($keys[pds_import_row_key($tkey, $r)]))));
+        $removed += $before - count($data[$tkey]);
+    }
+    $pdo->beginTransaction();
+    try {
+        pds_snapshot($pdo, $faculty_id, "Before undoing the automatic update of version {$v['version_number']}");
+        pds_write_data($pdo, $faculty_id, $data);
+        $ids = array_map('intval', (array)($changes['ld_ids'] ?? []));
+        if ($ids) {
+            $stmt = $pdo->prepare("DELETE FROM pds_learning_development WHERE faculty_id = ? AND ld_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")");
+            $stmt->execute([$faculty_id, ...$ids]);
+            $removed += $stmt->rowCount();
+        }
+        $new = pds_record_version($pdo, $faculty_id, 'undo', $doc_id ?: null, (int)$viewer['user_id'], null, (int)$v['version_id']);
+        $pdo->prepare("UPDATE pds_versions SET undone_at = ?, undone_by = ? WHERE version_id = ?")
+            ->execute([(new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d H:i:s'), (int)$viewer['user_id'], (int)$v['version_id']]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return ['restored' => $restored, 'removed' => $removed, 'kept' => $kept, 'version' => $new];
+}
+
+/**
+ * The summary of an automatic update (a version with source 'upload'):
+ * "Your PDS was updated: Personal Information (8 fields), Learning and
+ * Development (3 entries added). 2 fields need checking." with links to the
+ * sections on the PDS page, the values to check, and -- while it can be
+ * undone -- "Undo this update" (POST to faculty/pds.php with the CSRF token).
+ */
+function pds_update_summary_html(array $v, array $viewer): string {
+    $c = json_decode((string)$v['changes'], true) ?: [];
+    $labels = pds_section_labels();
+    $flags = (array)($c['flags'] ?? []);
+    $links = [];
+    foreach ((array)($c['counts'] ?? []) as $section => $n) {
+        $what = [];
+        if (!empty($n['fields'])) { $what[] = $n['fields'] . ' field' . ($n['fields'] === 1 ? '' : 's'); }
+        if (!empty($n['rows'])) { $what[] = $n['rows'] . ' entr' . ($n['rows'] === 1 ? 'y' : 'ies') . ' added'; }
+        $links[] = '<a href="' . BASE_URL . '/faculty/pds.php#' . h(pds_section_anchor($section)) . '">' . h($labels[$section] ?? $section) . '</a> (' . h(implode(', ', $what)) . ')';
+    }
+    $undone = $v['undone_at'] !== null;
+    $html = '<div class="pds-update' . ($undone ? ' is-undone' : '') . '">'
+          . '<div class="pds-update-head"><span class="ui-head-icon ' . ($undone ? 'tone-gray' : 'tone-teal') . '" aria-hidden="true"><i class="fa-solid ' . ($undone ? 'fa-rotate-left' : 'fa-id-card') . '"></i></span>'
+          . '<div><div class="fw-bold">' . ($undone ? 'This PDS update was undone' : 'Your PDS was updated') . ' <span class="ui-cell-sub d-inline">· Version ' . (int)$v['version_number'] . ', ' . h(pds_version_date($v['created_at'])) . '</span></div>'
+          . '<div class="pds-update-text">' . ($links ? implode(', ', $links) . '.' : 'Nothing was changed.')
+          . ($flags ? ' <strong>' . count($flags) . ' ' . (count($flags) === 1 ? 'value needs' : 'values need') . ' checking.</strong>' : '') . '</div></div></div>';
+    if ($flags && !$undone) {
+        $html .= '<ul class="pds-update-flags">';
+        foreach ($flags as $f) {
+            $html .= '<li><a href="' . BASE_URL . '/faculty/pds.php#' . h(pds_section_anchor($f['section'])) . '" class="fw-semibold">' . h($f['label']) . '</a>'
+                   . ($f['read'] !== '' ? ' — the file shows <q>' . h($f['read']) . '</q>' : '')
+                   . ($f['current'] !== '' ? ', your PDS has <q>' . h($f['current']) . '</q>' : '')
+                   . '<div class="ui-cell-sub">' . h($f['why']) . '</div></li>';
+        }
+        $html .= '</ul>';
+    }
+    if (pds_update_undoable($v, $viewer)) {
+        $until = (new DateTimeImmutable($v['created_at'], new DateTimeZone('Asia/Manila')))->modify('+' . PDS_UNDO_DAYS . ' days')->format('F j, Y');
+        $html .= '<form method="POST" action="' . BASE_URL . '/faculty/pds.php" class="pds-update-undo" data-confirm="Every value this upload changed goes back to what it was, and the entries it added are removed. Values you changed since are kept. A new version is saved."'
+               . ' data-confirm-title="Undo this PDS update?" data-confirm-ok="Undo update">'
+               . csrf_field() . '<input type="hidden" name="action" value="undo_update"><input type="hidden" name="version_id" value="' . (int)$v['version_id'] . '">'
+               . '<button class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Undo this update</button>'
+               . '<span class="ui-cell-sub">Available until ' . h($until) . '</span></form>';
+    }
+    return $html . '</div>';
 }

@@ -4,14 +4,14 @@
  * (POST + CSRF token only).
  *
  *   Faculty (and Program Chairs / Deans, for their own 201 file):
- *     delete  -- their own posted or For Review document, within
+ *     delete  -- their own posted document, within
  *                FACULTY_DELETE_WINDOW_HOURS of uploading it; the reason is
  *                optional. It goes to Recently Deleted.
  *     restore -- a document of theirs in Recently Deleted that they deleted
  *                themselves, within DELETED_RETENTION_DAYS (can_restore_deleted())
  *   Admin:
  *     archive -- move a posted document to its owner's archive
- *     delete  -- move a posted, For Review or archived document to Recently Deleted
+ *     delete  -- move a posted or archived document to Recently Deleted
  *     restore -- bring an archived document back, or a deleted one back to
  *                where it was (within DELETED_RETENTION_DAYS)
  *     purge   -- "Delete permanently now": a document in Recently Deleted,
@@ -122,14 +122,14 @@ if (!change_document_status($pdo, $doc, $action, (int)$me['user_id'], $stored_re
     $back('flash_error', "That can't be done: the document is currently " . strtolower(document_status_badge($doc['status'])[0]) . '.');
 }
 
-// Where a restored document went back to (201-Files / Archived Docs / For Review)
+// Where a restored document went back to (201-Files / Archived Docs)
 $now_status = null;
 if ($action === 'restore') {
     $stmt = $pdo->prepare("SELECT status FROM documents WHERE document_id = ?");
     $stmt->execute([$doc['document_id']]);
     $now_status = $stmt->fetchColumn();
 }
-$place = ['active' => '201-Files', 'archived' => 'Archived Docs', 'for_review' => 'For Review (Manage Document)'][$now_status] ?? '';
+$place = ['active' => '201-Files', 'archived' => 'Archived Docs'][$now_status] ?? '';
 $until = $action === 'delete' ? deleted_purge_at(date('Y-m-d H:i:s'))->format('F j, Y') : '';
 
 // Activity log: document, file, owner, action, reason

@@ -9,7 +9,6 @@
  * Certificates uploaded before these details existed show "Not specified"
  * in the report. "Pre-fill from scanned text" re-reads the OCR text already
  * stored with the document (no new scan) to fill in the empty fields.
- * The owner can also edit while the document is still For Review.
  */
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/functions.php';

@@ -4,7 +4,8 @@
 # photos before OCR) and Python + OpenCV (document crop / perspective
 # fix), heif-convert (libheif-examples: iPhone HEIC photos -> JPG). The gd and exif extensions crop / resize profile pictures
 # (square_jpeg() in includes/profile.php); zip reads the Excel PDS soft
-# copy (xlsx_read_sheets() in includes/pds_import.php). This is what a normal XAMPP install gives you "for free" locally
+# copy (xlsx_read_sheets() in includes/pds_import.php); pdo_pgsql (with
+# libpq) connects to Supabase's PostgreSQL (config/db.php). This is what a normal XAMPP install gives you "for free" locally
 # (except OpenCV) -- on Render, we have to install it ourselves.
 FROM php:8.2-apache
 
@@ -17,11 +18,12 @@ RUN apt-get update && apt-get install -y \
         python3-venv \
         libglib2.0-0 \
         libzip-dev \
+        libpq-dev \
         libpng-dev \
         libjpeg62-turbo-dev \
         unzip \
     && docker-php-ext-configure gd --with-jpeg \
-    && docker-php-ext-install pdo pdo_mysql gd exif zip \
+    && docker-php-ext-install pdo pdo_mysql pdo_pgsql gd exif zip \
     && a2enmod rewrite \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 

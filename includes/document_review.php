@@ -1,18 +1,19 @@
 <?php
 /**
- * Classification review (Admin > Files > Manage Document). Loaded by
- * includes/functions.php.
+ * Checking a document's type and details (Admin > Files > Manage Document).
+ * Loaded by includes/functions.php.
  *
- * Every new upload is saved For Review (documents.status 'for_review').
- * The Admin opens it in the review pop-up (api/modal.php?view=review),
- * checks the detected document type, confidence and extracted details,
- * corrects them if needed, and posts it: status 'active' (Posted), with
- * posted_at / posted_by. Only posted documents appear in 201-Files,
- * searches, reports and analytics. The owner is notified when it's posted.
+ * Every new upload is posted to 201-Files right away. The system flags the
+ * ones worth checking (documents.flag_reason: low confidence, no text
+ * read, entered manually, type changed by the uploader); Manage Document
+ * lists them. The Admin opens one in the pop-up (api/modal.php?view=review),
+ * corrects the type and details if needed and marks it checked
+ * (reviewed_at / reviewed_by), which takes it off the list. The Admin can
+ * correct any posted or archived document the same way, flagged or not.
+ * The owner is notified only when the document type is corrected.
  *
- * This is a classification check only -- not the old Program Chair / Dean
- * approval, which stays removed: nothing is rejected here (a wrong file is
- * deleted with the normal Delete action, with a reason).
+ * Nothing is rejected here (a wrong file is deleted with the normal Delete
+ * action, with a reason), and a flag never hides a document.
  */
 
 /** Select options for a document's category, "Type|Subtype" => label, limited to what applies to the owner. */
@@ -43,16 +44,18 @@ function confidence_badge_class($score): string {
 }
 
 /**
- * Save the Admin's corrections to a For Review document and, when $post is
- * true, post it. $doc: documents row joined with the owner's full_name and
- * employment_type. $in: the review form (category "Type|Subtype",
- * academic_year, semester, period_year, expiration_date, details[...]).
- * Every value is checked here; returns [ok, message for the flash].
+ * Save the Admin's corrections to a document and, when $mark_checked is
+ * true, mark it checked (off the Flagged for checking list). $doc:
+ * documents row joined with the owner's full_name and employment_type.
+ * $in: the form (category "Type|Subtype", academic_year, semester,
+ * period_year, expiration_date, details[...]). Every value is checked
+ * here; returns [ok, message for the flash].
  */
-function review_save_document(PDO $pdo, array $doc, array $in, array $admin, bool $post): array {
-    if ($doc['status'] !== 'for_review') {
-        return [false, 'That document is no longer waiting for review.'];
+function review_save_document(PDO $pdo, array $doc, array $in, array $admin, bool $mark_checked): array {
+    if (!in_array($doc['status'], ['active', 'archived', 'for_review'], true)) {
+        return [false, 'That document is in Recently Deleted. Restore it first to correct it.'];
     }
+    $was_flagged = document_is_flagged($doc) || $doc['status'] === 'for_review';
 
     // Category, limited to what applies to the owner
     [$type, $sub] = array_pad(explode('|', (string)($in['category'] ?? ''), 2), 2, '');
@@ -108,23 +111,31 @@ function review_save_document(PDO $pdo, array $doc, array $in, array $admin, boo
         ? (move_to_repository((int)$doc['faculty_id'], $type, $doc['file_path'], $sub) ?? $doc['file_path'])
         : $doc['file_path'];
 
-    $sets = ['file_path = ?', 'reviewed_at = NOW()', 'reviewed_by = ?'];
-    $params = [$file_path, (int)$admin['user_id']];
+    if (!$changes && !($mark_checked && $was_flagged)) {
+        return [true, 'Nothing was changed.'];
+    }
+
+    $sets = ['file_path = ?'];
+    $params = [$file_path];
     foreach ($new as $col => $value) {
         $sets[] = "$col = ?";
         $params[] = $value;
     }
-    if ($post) {
-        $sets[] = "status = 'active'";
-        $sets[] = 'posted_at = NOW()';
-        $sets[] = 'posted_by = ?';
+    // Checked: off the flagged list. A document that wasn't flagged counts as checked once the Admin corrects it.
+    if ($mark_checked || !$was_flagged) {
+        $sets[] = 'reviewed_at = NOW()';
+        $sets[] = 'reviewed_by = ?';
         $params[] = (int)$admin['user_id'];
     }
+    if ($doc['status'] === 'for_review') {   // left over from the old review step: post it now
+        $sets[] = "status = 'active'";
+        $sets[] = 'posted_at = COALESCE(posted_at, filed_at)';
+    }
     $params[] = (int)$doc['document_id'];
-    $stmt = $pdo->prepare("UPDATE documents SET " . implode(', ', $sets) . " WHERE document_id = ? AND status = 'for_review'");
+    $stmt = $pdo->prepare("UPDATE documents SET " . implode(', ', $sets) . " WHERE document_id = ? AND status IN ('active', 'archived', 'for_review')");
     $stmt->execute($params);
-    if ($stmt->rowCount() === 0 && $post) {
-        return [false, 'That document is no longer waiting for review.'];
+    if ($stmt->rowCount() === 0) {
+        return [false, 'That document could not be updated -- it may have been deleted just now.'];
     }
 
     $label = document_type_label($type, $sub);
@@ -134,17 +145,19 @@ function review_save_document(PDO $pdo, array $doc, array $in, array $admin, boo
             . document_type_label($doc['document_type'], $doc['document_subtype']) . " to {$label} in Manage Document.");
     }
     $change_text = $changes ? ' -- ' . describe_filters($changes) : ' without changes';
-    if ($post) {
-        log_my_activity($pdo, 'DOCUMENT_POST', "Reviewed and posted {$what} as {$label}{$change_text}.");
-        $owner_link = 'faculty/my_documents.php?type=' . rawurlencode($type);
-        notify($pdo, (int)$doc['faculty_id'], 'Your ' . document_title(['title' => $details['title'] ?? $doc['title'], 'file_path' => $file_path])
-            . " ({$label}) was reviewed and posted to your 201-Files."
-            . ($type_changed ? ' Its document type was corrected from ' . document_type_label($doc['document_type'], $doc['document_subtype']) . '.' : ''),
-            null, $owner_link);
-        return [true, "Posted {$doc['full_name']}'s {$label} to 201-Files. {$doc['full_name']} has been notified."];
+    if ($mark_checked && $was_flagged) {
+        log_my_activity($pdo, 'DOCUMENT_CHECKED', "Checked {$what} as {$label}{$change_text} (flagged: " . (document_flag_text($doc['flag_reason'] ?? null) ?: 'old review step') . ').');
+    } else {
+        log_my_activity($pdo, 'DOCUMENT_REVIEW_EDIT', "Corrected {$what} in Manage Document{$change_text}.");
     }
-    if ($changes) {
-        log_my_activity($pdo, 'DOCUMENT_REVIEW_EDIT', "Corrected {$what} in Manage Document (still For Review){$change_text}.");
+    // The owner hears about it only when the type was corrected (their document is in 201-Files either way)
+    if ($type_changed) {
+        $place = $doc['status'] === 'archived' ? 'archive.php' : 'faculty/my_documents.php?type=' . rawurlencode($type);
+        notify($pdo, (int)$doc['faculty_id'], 'The Admin corrected the document type of your '
+            . document_title(['title' => $details['title'] ?? $doc['title'], 'file_path' => $file_path])
+            . ' from ' . document_type_label($doc['document_type'], $doc['document_subtype']) . " to {$label}.",
+            null, $place);
     }
-    return [true, $changes ? 'Your corrections were saved. The document is still For Review.' : 'Nothing was changed.'];
+    $msg = $changes ? 'Your corrections were saved' . ($type_changed ? " and {$doc['full_name']} has been notified of the new type" : '') . '.' : 'No changes.';
+    return [true, $mark_checked && $was_flagged ? $msg . ' The document is marked as checked.' : $msg];
 }

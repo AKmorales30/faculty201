@@ -44,7 +44,8 @@ $sql = "SELECT d.*, " . document_date_sql('d') . " AS doc_date, u.full_name, r.f
 $params = [$target_id];
 if ($category !== '') { $sql .= " AND d.document_type = ?"; $params[] = $category; }
 if ($q !== '') {
-    $sql .= " AND (d.title LIKE ? OR d.file_path LIKE ? OR d.conducted_by LIKE ? OR d.venue LIKE ?)";
+    $like = sql_like();
+    $sql .= " AND (d.title $like ? OR d.file_path $like ? OR d.conducted_by $like ? OR d.venue $like ?)";
     array_push($params, "%$q%", "%$q%", "%$q%", "%$q%");
 }
 $stmt = $pdo->prepare($sql . " ORDER BY doc_date DESC, d.document_id DESC");
@@ -118,7 +119,9 @@ if ($is_admin) { include_once __DIR__ . '/includes/document_actions.php'; }   //
             <div class="ui-cell-sub">last opened <?= h(date('M j, Y', strtotime($d['last_viewed_at'] ?? $d['filed_at']))) ?></div>
           </td>
           <td>
-            <?php if ($d['archived_by_name']): ?>
+            <?php if (!$d['archived_by_name'] && !empty($owner['purged_at'])): ?>
+              <span class="badge bg-secondary">Former faculty</span>
+            <?php elseif ($d['archived_by_name']): ?>
               <span class="badge bg-info">Archived by <?= (int)$d['archived_by'] === (int)$d['faculty_id'] ? 'owner' : 'Admin' ?></span>
             <?php else: ?>
               <span class="badge bg-secondary">Auto-archived</span>

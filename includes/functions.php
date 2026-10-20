@@ -2,6 +2,62 @@
 require_once __DIR__ . '/auth.php';   // config, session, h()
 require_once __DIR__ . '/../config/db.php';
 
+// ---------------------------------------------------------------------
+// SQL that differs between MySQL / MariaDB (XAMPP, SkySQL) and PostgreSQL
+// (Supabase), so the same queries run on both (config/db.php picks the
+// database). Everything else is written in SQL both understand: CURRENT_DATE,
+// INTERVAL '60' DAY, CASE, EXTRACT(YEAR FROM ...).
+// ---------------------------------------------------------------------
+
+/** Whether the database is PostgreSQL (Supabase) rather than MySQL / MariaDB. */
+function db_is_pgsql(): bool {
+    return DB_DRIVER === 'pgsql';
+}
+
+/** Case-insensitive LIKE: MySQL's LIKE already ignores case, PostgreSQL's needs ILIKE. */
+function sql_like(): string {
+    return db_is_pgsql() ? 'ILIKE' : 'LIKE';
+}
+
+/** $a equals $b, two NULLs counting as equal (MySQL's <=>). */
+function sql_same(string $a, string $b): string {
+    return db_is_pgsql() ? "{$a} IS NOT DISTINCT FROM {$b}" : "{$a} <=> {$b}";
+}
+
+/** Whole seconds from now until timestamp expression $expr (negative once it has passed). */
+function sql_seconds_until(string $expr): string {
+    return db_is_pgsql() ? "CAST(FLOOR(EXTRACT(EPOCH FROM (({$expr}) - LOCALTIMESTAMP))) AS INTEGER)" : "TIMESTAMPDIFF(SECOND, NOW(), {$expr})";
+}
+
+/** "2026-10" from date / timestamp expression $expr. */
+function sql_year_month(string $expr): string {
+    return db_is_pgsql() ? "to_char({$expr}, 'YYYY-MM')" : "DATE_FORMAT({$expr}, '%Y-%m')";
+}
+
+/** INSERT that skips a row whose key is already taken: sql_insert_ignore("t (a, b) VALUES (?, ?)"). */
+function sql_insert_ignore(string $into): string {
+    return db_is_pgsql() ? "INSERT INTO {$into} ON CONFLICT DO NOTHING" : "INSERT IGNORE INTO {$into}";
+}
+
+/**
+ * The end of an INSERT that updates the existing row instead when the key
+ * $key (the conflicting column(s)) is taken; $set as in an UPDATE, with
+ * sql_inserted('col') for the value the INSERT tried to write.
+ */
+function sql_on_duplicate(string $key, string $set): string {
+    return db_is_pgsql() ? "ON CONFLICT ({$key}) DO UPDATE SET {$set}" : "ON DUPLICATE KEY UPDATE {$set}";
+}
+
+/** In sql_on_duplicate()'s $set: the value the INSERT tried to write to $column. */
+function sql_inserted(string $column): string {
+    return db_is_pgsql() ? "EXCLUDED.{$column}" : "VALUES({$column})";
+}
+
+/** A binary column's value as a string (PostgreSQL hands bytea back as a stream). */
+function db_blob($value): string {
+    return is_resource($value) ? (string)stream_get_contents($value) : (string)$value;
+}
+
 /**
  * Apply any database migration in database/ that hasn't run yet, so a
  * deploy doesn't depend on someone running SQL by hand. Applied files
@@ -14,15 +70,22 @@ require_once __DIR__ . '/../config/db.php';
  * Each file is applied on its own: one that fails is logged and retried
  * later, without holding back the ones after it (a failure there once left
  * later tables -- login_lockouts -- missing, which broke every login).
+ * MySQL / MariaDB only: these files are MySQL SQL, and a PostgreSQL
+ * (Supabase) database gets all of them at once from
+ * database/supabase/01_schema.sql.
  */
 function run_pending_migrations(PDO $pdo): void {
+    if (db_is_pgsql()) {
+        return;
+    }
     $migrations = ['migration_add_expiration.sql', 'migration_add_security_alerts.sql',
                    'migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
                    'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
                    'migration_search_indexes.sql', 'migration_profile_reports_archive.sql', 'migration_ai_features.sql',
                    'migration_reminder_checks.sql', 'migration_review_archive_views.sql',
-                   'migration_recently_deleted.sql'];
+                   'migration_recently_deleted.sql', 'migration_account_names_delete.sql', 'migration_document_file_chunks.sql',
+                   'migration_flags_pds_versions.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -53,7 +116,7 @@ function run_pending_migrations(PDO $pdo): void {
                     }
                 }
             }
-            $pdo->prepare("INSERT IGNORE INTO schema_migrations (name) VALUES (?)")->execute([$file]);
+            $pdo->prepare(sql_insert_ignore("schema_migrations (name) VALUES (?)"))->execute([$file]);
         } catch (Throwable $e) {
             error_log("Database migration {$file} failed (retried on the next request; database/repair_schema.sql adds everything by hand): " . $e->getMessage());
         }
@@ -131,8 +194,9 @@ function status_badge(string $status): array {
 
 /**
  * status_badge() for an upload-log row that also has document_status
- * (documents.status): For Review until the Admin posts it, then Posted;
- * a document later archived or deleted says so.
+ * (documents.status): Posted (uploads go to 201-Files right away); a
+ * document later archived or deleted says so. 'for_review' is the old
+ * review step, kept for documents not yet moved on by the migration.
  */
 function upload_status_badge(array $row): array {
     return match ($row['document_status'] ?? null) {
@@ -187,15 +251,17 @@ function move_to_repository(int $faculty_id, string $document_type, string $sour
  * faculty member uploaded a document to their 201 file. $extra_lines
  * are appended (e.g. that the upload also updated their PDS).
  */
-function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false): void {
+function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false, ?string $flag_reason = null): void {
     $when = new DateTime('now', new DateTimeZone('Asia/Manila'));
 
-    // Admin: full details, as before -- and the upload now waits for their classification review
+    // Admin: full details, as before. The upload is in 201-Files already; a flagged one is also in Manage Document.
     $msg = "New Document Uploaded\n"
          . "Faculty: {$uploader['full_name']}\n"
          . "Document Type: " . document_type_label($document_type, $subtype) . "\n"
          . "Date Uploaded: " . $when->format('F j, Y, g:i A') . "\n"
-         . "It is waiting For Review in Manage Document: check its document type and details, then post it to 201-Files.";
+         . ($flag_reason !== null
+             ? 'It is in 201-Files, and flagged for checking in Manage Document: ' . document_flag_text($flag_reason) . '.'
+             : 'It is in 201-Files.');
     foreach ($extra_lines as $line) {
         $msg .= "\n" . $line;
     }
@@ -264,7 +330,7 @@ function document_file_chunks_ready(PDO $pdo): bool {
     static $ready = null;
     if ($ready === null) {
         try {
-            $ready = (bool)$pdo->query("SHOW TABLES LIKE 'document_file_chunks'")->fetchColumn();
+            $ready = (bool)$pdo->query(db_is_pgsql() ? "SELECT to_regclass('document_file_chunks') IS NOT NULL" : "SHOW TABLES LIKE 'document_file_chunks'")->fetchColumn();
         } catch (PDOException $e) {
             $ready = false;
         }
@@ -291,7 +357,8 @@ function store_document_file(PDO $pdo, int $document_id, string $abs_path, strin
         throw new RuntimeException("Could not read $abs_path to store it");
     }
     $size = strlen($bytes);
-    $limit = (int)$pdo->query("SELECT @@max_allowed_packet")->fetchColumn();
+    // PostgreSQL has no packet limit: 0 = none (pieces of 8 MB below)
+    $limit = db_is_pgsql() ? 0 : (int)$pdo->query("SELECT @@max_allowed_packet")->fetchColumn();
     $chunked = document_file_chunks_ready($pdo);
     if (!$chunked) {
         // Room for the rest of the query: 1 MB, or an eighth of a small limit
@@ -304,8 +371,9 @@ function store_document_file(PDO $pdo, int $document_id, string $abs_path, strin
     if ($own) { $pdo->beginTransaction(); }
     try {
         $stmt = $pdo->prepare(
-            "INSERT INTO document_files (document_id, mime_type, file_size, data) VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_size = VALUES(file_size), data = VALUES(data)"
+            "INSERT INTO document_files (document_id, mime_type, file_size, data) VALUES (?, ?, ?, ?) "
+            . sql_on_duplicate('document_id', 'mime_type = ' . sql_inserted('mime_type') . ', file_size = ' . sql_inserted('file_size')
+                                              . ', data = ' . sql_inserted('data'))
         );
         $stmt->bindValue(1, $document_id, PDO::PARAM_INT);
         $stmt->bindValue(2, document_mime_type($file_path));
@@ -346,7 +414,7 @@ function document_file_each(PDO $pdo, int $document_id, array $info, callable $o
     if ((int)$info['inline_size'] > 0) {   // saved in one row (before files were stored in pieces)
         $stmt = $pdo->prepare("SELECT data FROM document_files WHERE document_id = ?");
         $stmt->execute([$document_id]);
-        $out((string)$stmt->fetchColumn());
+        $out(db_blob($stmt->fetchColumn()));
         return;
     }
     if (!document_file_chunks_ready($pdo)) {
@@ -355,7 +423,7 @@ function document_file_each(PDO $pdo, int $document_id, array $info, callable $o
     $stmt = $pdo->prepare("SELECT data FROM document_file_chunks WHERE document_id = ? ORDER BY seq");
     $stmt->execute([$document_id]);
     while (($piece = $stmt->fetchColumn()) !== false) {
-        $out((string)$piece);
+        $out(db_blob($piece));
     }
 }
 
@@ -422,7 +490,7 @@ function document_removal_reasons(): array {
  * Asia/Manila (delete_deadline_label()).
  */
 function delete_window_sql(string $alias = 'd'): string {
-    return "TIMESTAMPDIFF(SECOND, NOW(), {$alias}.filed_at + INTERVAL " . (int)FACULTY_DELETE_WINDOW_HOURS . " HOUR)";
+    return sql_seconds_until("{$alias}.filed_at + INTERVAL '" . (int)FACULTY_DELETE_WINDOW_HOURS . "' HOUR");
 }
 
 /**
@@ -471,11 +539,11 @@ function move_document_file(string $from, string $to): string {
 
 /**
  * Archive, delete or restore one document. $doc is its documents row;
- * $action 'archive' (posted only), 'delete' (posted, for review or
- * archived -> Recently Deleted) or 'restore':
- *   archived -> posted (or For Review if it was never posted)
+ * $action 'archive' (posted only), 'delete' (posted or archived ->
+ * Recently Deleted) or 'restore':
+ *   archived -> posted
  *   deleted  -> back where it was when deleted (status_before_delete:
- *               201-Files, Archived Docs or For Review), with its details;
+ *               201-Files or Archived Docs), with its details;
  *               only within DELETED_RETENTION_DAYS (deleted_restore_open())
  * Deleting moves the local file into uploads/_deleted/; restoring moves it
  * back. Restoring to 201-Files counts as a view (last_viewed_at), so the
@@ -504,25 +572,25 @@ function change_document_status(PDO $pdo, array $doc, string $action, int $actor
         }
         $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
         // MySQL applies SET left to right: work out the place it returns to before clearing status_before_delete
+        // (PostgreSQL reads every value from before the update, which gives the same result)
         $pdo->prepare(
-            "UPDATE documents d SET
-                    d.last_viewed_at = IF(d.status_before_delete = 'archived', d.last_viewed_at, NOW()),
-                    d.status = IF(d.status_before_delete IN ('active', 'for_review', 'archived'), d.status_before_delete,
-                                  IF(d.posted_at IS NULL, 'for_review', 'active')),
-                    d.file_path = ?, d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
-                    d.status_before_delete = NULL, d.purge_warned_at = NULL
-             WHERE d.document_id = ? AND d.status = 'deleted'"
+            "UPDATE documents SET
+                    last_viewed_at = CASE WHEN status_before_delete = 'archived' THEN last_viewed_at ELSE NOW() END,
+                    status = CASE WHEN status_before_delete = 'archived' THEN 'archived' ELSE 'active' END,
+                    file_path = ?, deleted_at = NULL, deleted_by = NULL, delete_reason = NULL,
+                    status_before_delete = NULL, purge_warned_at = NULL
+             WHERE document_id = ? AND status = 'deleted'"
         )->execute([$path, $doc['document_id']]);
         return true;
     }
     if ($action === 'restore' && $status === 'archived') {
         $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
         $pdo->prepare(
-            "UPDATE documents d SET d.status = IF(d.posted_at IS NULL, 'for_review', 'active'), d.file_path = ?,
-                    d.archived_at = NULL, d.archived_by = NULL, d.archive_reason = NULL,
-                    d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
-                    d.last_viewed_at = NOW()
-             WHERE d.document_id = ?"
+            "UPDATE documents SET status = 'active', posted_at = COALESCE(posted_at, filed_at), file_path = ?,
+                    archived_at = NULL, archived_by = NULL, archive_reason = NULL,
+                    deleted_at = NULL, deleted_by = NULL, delete_reason = NULL,
+                    last_viewed_at = NOW()
+             WHERE document_id = ?"
         )->execute([$path, $doc['document_id']]);
         return true;
     }
@@ -580,7 +648,7 @@ function can_restore_deleted(array $user, array $doc): bool {
 
 /** SQL condition: deleted documents whose restore window is over. */
 function deleted_expired_sql(string $alias = 'd'): string {
-    return "{$alias}.status = 'deleted' AND {$alias}.deleted_at < NOW() - INTERVAL " . (int)DELETED_RETENTION_DAYS . " DAY";
+    return "{$alias}.status = 'deleted' AND {$alias}.deleted_at < NOW() - INTERVAL '" . (int)DELETED_RETENTION_DAYS . "' DAY";
 }
 
 /**
@@ -665,9 +733,10 @@ function cleanup_recently_deleted(PDO $pdo): array {
             "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title, d.deleted_at, d.deleted_by
              FROM documents d
              WHERE d.status = 'deleted' AND d.purge_warned_at IS NULL
-               AND d.deleted_at < NOW() - INTERVAL ? DAY AND NOT (" . deleted_expired_sql('d') . ")"
+               AND d.deleted_at < NOW() - INTERVAL '" . ((int)DELETED_RETENTION_DAYS - (int)DELETED_PURGE_WARNING_DAYS) . "' DAY
+               AND NOT (" . deleted_expired_sql('d') . ")"
         );
-        $stmt->execute([(int)DELETED_RETENTION_DAYS - (int)DELETED_PURGE_WARNING_DAYS]);
+        $stmt->execute();
         $claim = $pdo->prepare("UPDATE documents SET purge_warned_at = NOW() WHERE document_id = ? AND purge_warned_at IS NULL");
         foreach ($stmt->fetchAll() as $d) {
             $claim->execute([$d['document_id']]);
@@ -691,6 +760,82 @@ function run_daily_deleted_cleanup(PDO $pdo, bool $force = false): ?array {
     return run_once_a_day($pdo, 'deleted_cleanup_last_run', 'cleanup_recently_deleted', $force);
 }
 
+// ---------------------------------------------------------------------
+// Deleted accounts (Manage Faculty > Delete). A deleted account can't log
+// in and can be restored for DELETED_RETENTION_DAYS. After that the daily
+// cleanup deletes it permanently: the login is removed for good (email
+// released, password replaced by an unusable one, picture and contact
+// number removed, its notifications and reminders deleted) and its posted
+// and For Review documents move to Archived Docs, labeled with the former
+// faculty member's name. The users row stays (purged_at): documents, the
+// PDS and the activity log point to it, and deleting it would delete those
+// official 201-file records with it (ON DELETE CASCADE).
+// ---------------------------------------------------------------------
+
+/** Permanently delete one account past its restore window. Returns how many documents moved to Archived Docs, or null if it doesn't qualify. */
+function purge_deleted_account(PDO $pdo, int $user_id): ?int {
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT user_id, full_name, role, email, deleted_at, delete_reason FROM users
+             WHERE user_id = ? AND deleted_at IS NOT NULL AND purged_at IS NULL
+               AND deleted_at < NOW() - INTERVAL '" . (int)DELETED_RETENTION_DAYS . "' DAY FOR UPDATE"
+        );
+        $stmt->execute([$user_id]);
+        $u = $stmt->fetch();
+        if (!$u) {
+            $pdo->rollBack();
+            return null;
+        }
+        $reason = mb_substr("Former faculty: {$u['full_name']}. The account was deleted permanently on " . date('F j, Y')
+            . '; the document is kept as an official 201-file record.', 0, 255);
+        $stmt = $pdo->prepare("UPDATE documents SET status = 'archived', archived_at = NOW(), archived_by = NULL, archive_reason = ?
+                               WHERE faculty_id = ? AND status IN ('active', 'for_review')");
+        $stmt->execute([$reason, $user_id]);
+        $moved = $stmt->rowCount();
+        foreach (['notifications', 'ai_reminders', 'ai_reminder_checks', 'profile_pictures'] as $table) {
+            $pdo->prepare("DELETE FROM {$table} WHERE user_id = ?")->execute([$user_id]);
+        }
+        $pdo->prepare(
+            "UPDATE users SET email = ?, password_hash = ?, profile_picture = NULL, contact_number = NULL, must_change_password = 0,
+                              is_active = 0, purged_at = NOW() WHERE user_id = ?"
+        )->execute(['deleted-' . $user_id . '-' . bin2hex(random_bytes(4)) . '@deleted.invalid',
+                    password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $user_id]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        throw $e;
+    }
+    log_activity($pdo, null, 'ACCOUNT_PURGE', "Deleted account #{$user_id} {$u['full_name']} (" . str_replace('_', ' ', $u['role']) . ", {$u['email']}) permanently -- "
+        . (int)DELETED_RETENTION_DAYS . ' days after it was deleted (' . date('F j, Y', strtotime($u['deleted_at'])) . ', reason: ' . $u['delete_reason'] . '). '
+        . "{$moved} document(s) moved to Archived Docs under their name; the email can be used for a new account.", 'system');
+    return $moved;
+}
+
+/** Every deleted account past its restore window, deleted permanently (purge_deleted_account()). */
+function cleanup_deleted_accounts(PDO $pdo): array {
+    try {
+        $ids = $pdo->query("SELECT user_id FROM users WHERE deleted_at IS NOT NULL AND purged_at IS NULL
+                            AND deleted_at < NOW() - INTERVAL '" . (int)DELETED_RETENTION_DAYS . "' DAY")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (PDOException $e) {
+        return ['purged' => 0, 'user_ids' => []];   // migration not applied yet
+    }
+    $purged = [];
+    foreach ($ids as $id) {
+        try {
+            if (purge_deleted_account($pdo, (int)$id) !== null) { $purged[] = (int)$id; }
+        } catch (Throwable $e) {
+            error_log("Permanent deletion of account {$id} failed: " . $e->getMessage());
+        }
+    }
+    return ['purged' => count($purged), 'user_ids' => $purged];
+}
+
+/** cleanup_deleted_accounts() at most once a day (run_once_a_day()). $force: cron/auto_archive.php. */
+function run_daily_account_cleanup(PDO $pdo, bool $force = false): ?array {
+    return run_once_a_day($pdo, 'account_cleanup_last_run', 'cleanup_deleted_accounts', $force);
+}
+
 /** URL that serves a 201-file document through the access check (document.php). */
 function document_url(int $document_id): string {
     return BASE_URL . '/document.php?id=' . $document_id;
@@ -698,9 +843,10 @@ function document_url(int $document_id): string {
 
 /**
  * Store a faculty member's upload: move the scan into the repository, log
- * it in submission_requests as 'uploaded' and insert the documents row as
- * For Review (status 'for_review') -- it reaches 201-Files once the Admin
- * posts it from Manage Document. $ocr is the OcrProcessor::process() result
+ * it in submission_requests as 'uploaded' and insert the documents row,
+ * posted to 201-Files right away (status 'active'); $meta['flag_reason']
+ * flags it for the Admin to check in Manage Document (document_flag_for_upload()).
+ * $ocr is the OcrProcessor::process() result
  * from the preview step (empty for a manual entry); $meta holds subtype /
  * academic_year / semester / period_year / expiration, entry_method
  * ('ocr' / 'manual') and details (document_details_clean()) -- the seminar /
@@ -731,9 +877,9 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
             "INSERT INTO documents (request_id, faculty_id, document_type, document_subtype, academic_year, semester, period_year,
                                     title, date_start, date_end, venue, conducted_by, training_type, training_level, hours, date_issued,
                                     file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note,
-                                    confidence_score, predicted_category, chosen_category, is_low_confidence,
-                                    status, entry_method, last_viewed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'for_review', ?, NOW())"
+                                    confidence_score, predicted_category, chosen_category, is_low_confidence, flag_reason,
+                                    status, entry_method, posted_at, last_viewed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NOW(), NOW())"
         )->execute([
             $request_id, $faculty['user_id'], $document_type, $subtype,
             $meta['academic_year'] ?? null, $meta['semester'] ?? null, $meta['period_year'] ?? null,
@@ -741,7 +887,7 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
             $filePath, $meta['expiration'] ?? null,
             $ocr['text'] ?? null, $ocr['matched_name'] ?? null,
             isset($ocr['confidence_note']) ? mb_substr($ocr['confidence_note'], 0, 255) : null,
-            $check['score'] ?? null, $check['predicted'] ?? null, $document_type, !empty($check['low']) ? 1 : 0,
+            $check['score'] ?? null, $check['predicted'] ?? null, $document_type, !empty($check['low']) ? 1 : 0, $meta['flag_reason'] ?? null,
             ($meta['entry_method'] ?? 'ocr') === 'manual' ? 'manual' : 'ocr',
         ]);
         $document_id = (int)$pdo->lastInsertId();
@@ -795,14 +941,65 @@ function confidence_label($score): string {
     return $score === null ? 'Not scored' : round((float)$score * 100) . '%';
 }
 
-/** Uploads waiting For Review in Manage Document (sidebar badge, dashboard); $faculty_id: one person's. */
-function documents_for_review_count(PDO $pdo, ?int $faculty_id = null): int {
+// ---------------------------------------------------------------------
+// Flagged for checking. Uploads are posted to 201-Files right away; the
+// system flags the ones the Admin should check (documents.flag_reason, a
+// comma-separated list of the codes below). The Admin corrects the type /
+// details in Manage Document and marks it checked (reviewed_at). A flag
+// never hides a document.
+// ---------------------------------------------------------------------
+
+/** Flag code => what it means. */
+function document_flag_reasons(): array {
+    return [
+        'low_confidence' => 'the document type was detected with low confidence',
+        'no_text'        => 'no text could be read from the file',
+        'manual_entry'   => 'the details were entered manually',
+        'type_changed'   => 'the uploader picked a different type than the one detected',
+    ];
+}
+
+/** The flag codes that apply to a new upload (null when there's nothing to check). */
+function document_flag_for_upload(array $check, bool $manual, string $chosen_type, ?string $ocr_text): ?string {
+    $codes = [];
+    if ($manual) {
+        $codes[] = 'manual_entry';
+    } else {
+        if (trim((string)$ocr_text) === '') { $codes[] = 'no_text'; }
+        if (!empty($check['low'])) { $codes[] = 'low_confidence'; }
+        elseif (!empty($check['predicted']) && $check['predicted'] !== $chosen_type) { $codes[] = 'type_changed'; }
+    }
+    return $codes ? implode(',', $codes) : null;
+}
+
+/** "the document type was detected with low confidence; no text could be read from the file" */
+function document_flag_text(?string $flag_reason): string {
+    $labels = document_flag_reasons();
+    $parts = array_map(fn($c) => $labels[$c] ?? $c, array_filter(explode(',', (string)$flag_reason)));
+    return implode('; ', $parts);
+}
+
+/** Short labels for lists: "Low confidence", "No text read", "Entered manually", "Type changed by uploader". */
+function document_flag_labels(?string $flag_reason): array {
+    $short = ['low_confidence' => 'Low confidence', 'no_text' => 'No text read', 'manual_entry' => 'Entered manually', 'type_changed' => 'Type changed by uploader'];
+    return array_map(fn($c) => $short[$c] ?? $c, array_filter(explode(',', (string)$flag_reason)));
+}
+
+/** SQL condition: document $a is flagged and not checked yet (and not archived / deleted). */
+function document_flagged_sql(string $a = 'd'): string {
+    return "{$a}.flag_reason IS NOT NULL AND {$a}.reviewed_at IS NULL AND {$a}.status = 'active'";
+}
+
+/** Whether a documents row is flagged and not checked yet. */
+function document_is_flagged(array $doc): bool {
+    return !empty($doc['flag_reason']) && empty($doc['reviewed_at']) && ($doc['status'] ?? '') === 'active';
+}
+
+/** Documents flagged for checking (Manage Document badge, dashboards); $faculty_id: one person's. */
+function documents_flagged_count(PDO $pdo, ?int $faculty_id = null): int {
     try {
-        if ($faculty_id === null) {
-            return (int)$pdo->query("SELECT COUNT(*) FROM documents WHERE status = 'for_review'")->fetchColumn();
-        }
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE status = 'for_review' AND faculty_id = ?");
-        $stmt->execute([$faculty_id]);
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents d WHERE " . document_flagged_sql() . ($faculty_id === null ? '' : ' AND d.faculty_id = ?'));
+        $stmt->execute($faculty_id === null ? [] : [$faculty_id]);
         return (int)$stmt->fetchColumn();
     } catch (PDOException $e) {
         return 0;   // migration not applied yet
@@ -1052,11 +1249,11 @@ function documents_expiring_soon(PDO $pdo, int $days = 60): array {
          JOIN users u ON u.user_id = d.faculty_id
          WHERE d.expiration_date IS NOT NULL
            AND d.status = 'active'
-           AND d.expiration_date >= CURDATE()
-           AND d.expiration_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+           AND d.expiration_date >= CURRENT_DATE
+           AND d.expiration_date <= CURRENT_DATE + INTERVAL '" . $days . "' DAY
          ORDER BY d.expiration_date ASC"
     );
-    $stmt->execute([$days]);
+    $stmt->execute();
     return $stmt->fetchAll();
 }
 
@@ -1149,8 +1346,8 @@ function expiring_documents(PDO $pdo, ?int $faculty_id = null, int $days = 60): 
               AND NOT EXISTS (
                   SELECT 1 FROM documents n
                   WHERE n.status = 'active' AND n.faculty_id = d.faculty_id AND n.document_type = d.document_type
-                    AND n.document_subtype <=> d.document_subtype AND n.academic_year <=> d.academic_year
-                    AND n.semester <=> d.semester AND n.period_year <=> d.period_year
+                    AND " . sql_same('n.document_subtype', 'd.document_subtype') . " AND " . sql_same('n.academic_year', 'd.academic_year') . "
+                    AND " . sql_same('n.semester', 'd.semester') . " AND " . sql_same('n.period_year', 'd.period_year') . "
                     AND n.document_id > d.document_id AND n.expiration_date > d.expiration_date
               )";
     $params = [(new DateTimeImmutable('today'))->modify("+{$days} days")->format('Y-m-d')];
@@ -1189,14 +1386,14 @@ function expiration_alert_messages(array $doc): array {
  * Send every expiration alert that is due: for each expired / expiring
  * document, the milestone it is in now, unless already sent for this
  * expiration date. The expiration_alerts_sent row is written first
- * (INSERT IGNORE on the unique key), so two runs at once can't both send
- * it; it's rolled back if the notifications fail, to be retried.
+ * (sql_insert_ignore() on the unique key), so two runs at once can't both
+ * send it; it's rolled back if the notifications fail, to be retried.
  * @return array{documents: int, alerts: int}
  */
 function check_expiration_alerts(PDO $pdo): array {
     $documents = expiring_documents($pdo);
     $sent = 0;
-    $claim = $pdo->prepare("INSERT IGNORE INTO expiration_alerts_sent (document_id, milestone, expiration_date) VALUES (?, ?, ?)");
+    $claim = $pdo->prepare(sql_insert_ignore("expiration_alerts_sent (document_id, milestone, expiration_date) VALUES (?, ?, ?)"));
     foreach ($documents as $doc) {
         $milestone = expiration_milestone($doc['days_left']);
         if ($milestone === null) { continue; }
@@ -1236,10 +1433,15 @@ function run_once_a_day(PDO $pdo, string $key, callable $job, bool $force = fals
         $running = 'running:' . date('Y-m-d H:i:s');
         $stale = 'running:' . date('Y-m-d H:i:s', time() - 60 * DAILY_JOB_STALE_MINUTES);
         // Leaves the row alone (0 rows) when today is recorded or a run started less than
-        // DAILY_JOB_STALE_MINUTES ago (a date sorts before any "running:" value)
-        $stmt = $pdo->prepare(
-            "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
-             ON DUPLICATE KEY UPDATE setting_value = IF(? = 0 AND (setting_value <=> ? OR setting_value > ?), setting_value, VALUES(setting_value))"
+        // DAILY_JOB_STALE_MINUTES ago (a date sorts before any "running:" value).
+        // MySQL counts a row set to its own value as 0 rows; PostgreSQL skips the update by its WHERE.
+        $stmt = $pdo->prepare(db_is_pgsql()
+            ? "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
+               ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
+               WHERE NOT (CAST(? AS INTEGER) = 0 AND (system_settings.setting_value IS NOT DISTINCT FROM CAST(? AS VARCHAR)
+                                                      OR system_settings.setting_value > CAST(? AS VARCHAR)))"
+            : "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
+               ON DUPLICATE KEY UPDATE setting_value = IF(? = 0 AND (setting_value <=> ? OR setting_value > ?), setting_value, VALUES(setting_value))"
         );
         $stmt->execute([$key, $running, $force ? 1 : 0, $today, $stale]);
         if ($stmt->rowCount() === 0 && !$force) {
@@ -1331,7 +1533,7 @@ function auto_archive_unviewed_documents(PDO $pdo): array {
 
     // Checked again in the UPDATE: not taken by a run at the same moment, and not opened in the meantime
     $archive = $pdo->prepare(
-        "UPDATE documents d SET d.status = 'archived', d.archived_at = NOW(), d.archived_by = NULL, d.archive_reason = ?
+        "UPDATE documents d SET status = 'archived', archived_at = NOW(), archived_by = NULL, archive_reason = ?
          WHERE d.document_id = ? AND d.status = 'active' AND d.archive_exempt = 0 AND $last_viewed < ?"
     );
     $done = [];
@@ -1376,6 +1578,7 @@ function run_daily_auto_archive(PDO $pdo, bool $force = false): ?array {
 function run_daily_jobs(PDO $pdo): void {
     run_daily_auto_archive($pdo);
     run_daily_deleted_cleanup($pdo);
+    run_daily_account_cleanup($pdo);
     run_daily_expiration_check($pdo);
     run_daily_reminder_check($pdo);
     if ($me = current_user()) { ensure_reminders_checked($pdo, (int)$me['user_id']); }
@@ -1509,7 +1712,7 @@ function record_login_attempt(PDO $pdo, string $email, ?int $user_id, bool $succ
 // lock further logins for LOCKOUT_MINUTES (config.php). Failures are
 // counted from login_attempts by time window; login_lockouts holds one row
 // per lock, so the Admins are notified once and can unlock early. All
-// times are compared inside MySQL (NOW(), session time zone +08:00).
+// times are compared inside the database (NOW(), session time zone Asia/Manila).
 // ---------------------------------------------------------------------
 
 /**
@@ -1518,7 +1721,7 @@ function record_login_attempt(PDO $pdo, string $email, ?int $user_id, bool $succ
  */
 function active_login_lock(PDO $pdo, string $type, string $key): ?array {
     $stmt = $pdo->prepare(
-        "SELECT id, locked_until, TIMESTAMPDIFF(SECOND, NOW(), locked_until) AS seconds_left
+        "SELECT id, locked_until, " . sql_seconds_until('locked_until') . " AS seconds_left
          FROM login_lockouts
          WHERE lock_type = ? AND lock_key = ? AND cleared_at IS NULL AND locked_until > NOW()
          ORDER BY locked_until DESC LIMIT 1"
@@ -1536,14 +1739,14 @@ function active_login_lock(PDO $pdo, string $type, string $key): ?array {
  */
 function recent_login_failures(PDO $pdo, string $type, string $key): int {
     $column = $type === 'account' ? 'email' : 'ip_address';
-    $since = "GREATEST(NOW() - INTERVAL ? MINUTE,
+    $since = "GREATEST(NOW() - INTERVAL '" . (int)FAILED_ATTEMPT_WINDOW_MINUTES . "' MINUTE,
                        COALESCE((SELECT MAX(GREATEST(locked_at, COALESCE(cleared_at, locked_at))) FROM login_lockouts
                                  WHERE lock_type = ? AND lock_key = ?), '1000-01-01')"
            . ($type === 'account'
                 ? ", COALESCE((SELECT MAX(attempted_at) FROM login_attempts WHERE email = ? AND was_successful = 1), '1000-01-01')"
                 : '')
            . ")";
-    $params = [(int)FAILED_ATTEMPT_WINDOW_MINUTES, $type, $key];
+    $params = [$type, $key];
     if ($type === 'account') { $params[] = $key; }
     $params[] = $key;
     $stmt = $pdo->prepare(
@@ -1582,8 +1785,8 @@ function register_failed_login(PDO $pdo, string $email, string $ip, ?int &$attem
 
         $pdo->prepare(
             "INSERT INTO login_lockouts (lock_type, lock_key, failed_count, locked_at, locked_until)
-             VALUES (?, ?, ?, NOW(), NOW() + INTERVAL ? MINUTE)"
-        )->execute([$type, $key, $failures, (int)LOCKOUT_MINUTES]);
+             VALUES (?, ?, ?, NOW(), NOW() + INTERVAL '" . (int)LOCKOUT_MINUTES . "' MINUTE)"
+        )->execute([$type, $key, $failures]);
         $lock = active_login_lock($pdo, $type, $key);
         $until = date('g:i A', time() + $lock['seconds_left']);
         $what = $type === 'account' ? "Login for {$email} locked" : "Logins from IP address {$ip} locked";
@@ -1612,7 +1815,7 @@ function clear_login_lock(PDO $pdo, string $type, string $key, int $admin_id): b
 /** Locks in force now: rows of login_lockouts plus seconds_left, latest first. */
 function active_login_locks(PDO $pdo): array {
     return $pdo->query(
-        "SELECT id, lock_type, lock_key, failed_count, locked_at, locked_until, TIMESTAMPDIFF(SECOND, NOW(), locked_until) AS seconds_left
+        "SELECT id, lock_type, lock_key, failed_count, locked_at, locked_until, " . sql_seconds_until('locked_until') . " AS seconds_left
          FROM login_lockouts WHERE cleared_at IS NULL AND locked_until > NOW() ORDER BY locked_at DESC"
     )->fetchAll();
 }
@@ -1641,7 +1844,7 @@ function flag_suspicious_login(PDO $pdo, int $user_id, string $full_name, string
         "SELECT COUNT(*) FROM login_attempts
          WHERE email = (SELECT email FROM users WHERE user_id = ?)
            AND was_successful = 0
-           AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
+           AND attempted_at >= NOW() - INTERVAL '15' MINUTE"
     );
     $stmt->execute([$user_id]);
     if ((int)$stmt->fetchColumn() >= 3) {
@@ -1672,18 +1875,23 @@ function activity_actions(): array {
         'SEARCH'             => 'Search',
         'GENERATE_REPORT'    => 'Generate Report',
         'PDS_UPDATE'         => 'PDS Update',
-        'PDS_IMPORT'         => 'PDS Imported from File',
+        'PDS_IMPORT'         => 'PDS Updated from Upload',
+        'PDS_UNDO'           => 'PDS Update Undone',
         'ACCOUNT_CREATE'     => 'Account Created',
         'ACCOUNT_UPDATE'     => 'Account Updated',
         'ACCOUNT_DEACTIVATE' => 'Account Deactivated',
         'ACCOUNT_ACTIVATE'   => 'Account Activated',
+        'ACCOUNT_DELETE'     => 'Account Deleted',
+        'ACCOUNT_RESTORE'    => 'Account Restored',
+        'ACCOUNT_PURGE'      => 'Account Permanently Deleted (automatic)',
         'CATEGORY_CORRECT'   => 'Category Corrected',
         'DOCUMENT_DELETE'    => 'Document Deleted',
         'DOCUMENT_ARCHIVE'   => 'Document Archived',
         'DOCUMENT_RESTORE'   => 'Document Restored',
         'DOCUMENT_AUTO_ARCHIVE' => 'Documents Auto-Archived',
         'DOCUMENT_POST'      => 'Document Posted (Classification Review)',
-        'DOCUMENT_REVIEW_EDIT' => 'Document Corrected in Review',
+        'DOCUMENT_REVIEW_EDIT' => 'Document Type / Details Corrected',
+        'DOCUMENT_CHECKED'   => 'Flagged Document Checked',
         'DOCUMENT_PURGE'     => 'Document Permanently Deleted',
         'DOCUMENT_AUTO_PURGE' => 'Document Permanently Deleted (automatic)',
         'DOCUMENT_DETAILS'   => 'Document Details Updated',
@@ -1693,8 +1901,8 @@ function activity_actions(): array {
         'PASSWORD_CHANGE'    => 'Password Changed',
         'PASSWORD_RESET'     => 'Password Reset',
         'LOGIN_LOCKOUT'      => 'Login Locked',
-        'LOGIN_BLOCKED'      => 'Login Blocked (Deactivated Account)',
-        'SESSION_ENDED'      => 'Signed Out (Account Deactivated)',
+        'LOGIN_BLOCKED'      => 'Login Blocked (Deactivated / Deleted Account)',
+        'SESSION_ENDED'      => 'Signed Out (Account Deactivated / Deleted)',
         'LOGIN_UNLOCK'       => 'Login Unlocked',
         'AI_SUMMARY'         => 'AI Report Summary Generated',
         'REMINDER_CHECK'     => 'Reminder Check',

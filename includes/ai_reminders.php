@@ -248,7 +248,7 @@ function reminder_write_messages(PDO $pdo, array $items): array {
     if (!$items || !ai_enabled()) { return $out; }
     $deadline = microtime(true) + REMINDER_AI_SECONDS;
 
-    $system = "You write short reminder messages for faculty members in a university's Faculty 201-File Repository system.\n"
+    $system = "You write short reminder messages for faculty members in a university's " . SYSTEM_NAME . ".\n"
             . "For each item, write ONE message: at most 2 sentences and under 280 characters, professional but warm.\n"
             . "Start with a greeting that uses the first name, e.g. \"Hi, Maria!\" or \"Hey, Maria!\".\n"
             . "Say what is missing or needs attention and what to do (upload the document, update the PDS, upload an updated copy).\n"
@@ -295,7 +295,7 @@ function reminder_write_messages(PDO $pdo, array $items): array {
 function check_reminders(PDO $pdo, ?int $only_user = null): array {
     $one = $only_user !== null ? [$only_user] : [];
     $stmt = $pdo->prepare(
-        "SELECT user_id, full_name, role, employment_type, employment_status FROM users
+        "SELECT * FROM users
          WHERE is_active = 1" . ($one ? ' AND user_id = ?' : '') . " ORDER BY user_id"
     );
     $stmt->execute($one);
@@ -363,8 +363,8 @@ function check_reminders(PDO $pdo, ?int $only_user = null): array {
 
     // Done for today: the accounts checked without errors
     $mark = $pdo->prepare(
-        "INSERT INTO ai_reminder_checks (user_id, checked_at, started_at) VALUES (?, ?, NULL)
-         ON DUPLICATE KEY UPDATE checked_at = VALUES(checked_at), started_at = NULL"
+        "INSERT INTO ai_reminder_checks (user_id, checked_at, started_at) VALUES (?, ?, NULL) "
+        . sql_on_duplicate('user_id', 'checked_at = ' . sql_inserted('checked_at') . ', started_at = NULL')
     );
     $now = date('Y-m-d H:i:s');
     foreach ($users as $u) {
@@ -400,7 +400,7 @@ function reminder_changes(PDO $pdo, array $u, array $conditions, array $types, a
         if ($current && $current['condition_key'] === $key && $current['created_at'] > $repeat_after) {
             // Already reminded about exactly this, recently
             if ($type === 'follow_up' && $current['reason'] !== $reason) {
-                $message = reminder_template_message($type, ai_first_name($u['full_name']), $c['facts']);
+                $message = reminder_template_message($type, person_first_name($u), $c['facts']);
                 $pdo->prepare("UPDATE ai_reminders SET reason = ?, message = ?, link = ? WHERE id = ?")
                     ->execute([$reason, mb_substr($message, 0, 500), $link, $current['id']]);
                 $run['updated']++;
@@ -408,7 +408,7 @@ function reminder_changes(PDO $pdo, array $u, array $conditions, array $types, a
             continue;
         }
         $new[$u['user_id'] . ':' . $type] = ['user' => $u, 'type' => $type, 'key' => $key, 'reason' => $reason, 'link' => $link,
-                                             'first_name' => ai_first_name($u['full_name']), 'facts' => $c['facts'],
+                                             'first_name' => person_first_name($u), 'facts' => $c['facts'],
                                              'replaces' => $current['id'] ?? null];
     }
     return $new;
@@ -495,10 +495,15 @@ function ensure_reminders_checked(PDO $pdo, int $user_id): void {
         if (is_string($daily) && $daily > 'running:' . date('Y-m-d H:i:s', $stale)) {
             return;   // the day's run is checking everyone right now
         }
-        $claim = $pdo->prepare(
-            "INSERT INTO ai_reminder_checks (user_id, started_at) VALUES (?, ?)
-             ON DUPLICATE KEY UPDATE started_at = IF((checked_at IS NULL OR checked_at < ?) AND (started_at IS NULL OR started_at < ?),
-                                                     VALUES(started_at), started_at)"
+        // MySQL counts a row set to its own value as 0 rows; PostgreSQL skips the update by its WHERE
+        $claim = $pdo->prepare(db_is_pgsql()
+            ? "INSERT INTO ai_reminder_checks (user_id, started_at) VALUES (?, ?)
+               ON CONFLICT (user_id) DO UPDATE SET started_at = EXCLUDED.started_at
+               WHERE (ai_reminder_checks.checked_at IS NULL OR ai_reminder_checks.checked_at < CAST(? AS TIMESTAMP))
+                 AND (ai_reminder_checks.started_at IS NULL OR ai_reminder_checks.started_at < CAST(? AS TIMESTAMP))"
+            : "INSERT INTO ai_reminder_checks (user_id, started_at) VALUES (?, ?)
+               ON DUPLICATE KEY UPDATE started_at = IF((checked_at IS NULL OR checked_at < ?) AND (started_at IS NULL OR started_at < ?),
+                                                       VALUES(started_at), started_at)"
         );
         $claim->execute([$user_id, date('Y-m-d H:i:s'), date('Y-m-d 00:00:00'), date('Y-m-d H:i:s', $stale)]);
         if ($claim->rowCount() === 0) {
@@ -530,7 +535,11 @@ function reminder_check_status(PDO $pdo, int $user_id): array {
     }
 }
 
-/** The user's own reminders for the dashboard card: open and not dismissed, newest first. */
+/**
+ * The user's own reminders for the dashboard card: open and not dismissed, newest first.
+ * A message is written once with the first name of that day; its greeting is shown with the
+ * current one (greeting_with_name()), so a renamed account isn't greeted by its old name.
+ */
 function open_reminders_for_user(PDO $pdo, int $user_id): array {
     try {
         $stmt = $pdo->prepare(
@@ -538,7 +547,10 @@ function open_reminders_for_user(PDO $pdo, int $user_id): array {
              WHERE user_id = ? AND resolved_at IS NULL AND dismissed_at IS NULL ORDER BY created_at DESC, id DESC"
         );
         $stmt->execute([$user_id]);
-        return $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+        $first = person_first_name(user_row($pdo, $user_id) ?? []);
+        foreach ($rows as &$r) { $r['message'] = greeting_with_name($r['message'], $first); }
+        return $rows;
     } catch (PDOException $e) {
         return [];   // migration not applied yet
     }

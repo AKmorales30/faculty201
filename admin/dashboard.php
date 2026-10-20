@@ -16,9 +16,11 @@ $card_admin = true;
 $total_faculty = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND is_active=1")->fetchColumn();
 $full_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='full_time' AND is_active=1")->fetchColumn();
 $part_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='part_time' AND is_active=1")->fetchColumn();
-$month_count   = $pdo->query("SELECT COUNT(*) FROM documents WHERE status='active' AND filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")->fetchColumn();
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE status='active' AND filed_at >= ?");
+$stmt->execute([date('Y-m-01')]);
+$month_count   = $stmt->fetchColumn();
 $filed_count   = $pdo->query("SELECT COUNT(*) FROM documents WHERE status='active'")->fetchColumn();
-$review_count  = documents_for_review_count($pdo);
+$flagged_count = documents_flagged_count($pdo);
 $alert_count   = unresolved_security_alert_count($pdo);
 
 $recent = $pdo->query(
@@ -45,7 +47,7 @@ $breakdown_max = max(1, ...array_column($breakdown, 'n'));
 
 // Uploads per month: the upload log over the last 6 months (this month included)
 $month_start = (new DateTimeImmutable('first day of this month'))->modify('-5 months');
-$stmt = $pdo->prepare("SELECT DATE_FORMAT(submitted_at, '%Y-%m') AS ym, COUNT(*) FROM submission_requests WHERE submitted_at >= ? GROUP BY ym");
+$stmt = $pdo->prepare("SELECT " . sql_year_month('submitted_at') . " AS ym, COUNT(*) FROM submission_requests WHERE submitted_at >= ? GROUP BY ym");
 $stmt->execute([$month_start->format('Y-m-d 00:00:00')]);
 $per_month = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 $months = [];
@@ -85,10 +87,10 @@ include __DIR__ . '/../includes/header.php';
 <div class="ui-greet-row">
   <div>
     <div class="ui-greet-date"><?= h(date('l, F j, Y')) ?></div>
-    <h2 class="ui-greet">Welcome back, <?= h(ai_first_name($me['full_name'])) ?></h2>
+    <h2 class="ui-greet">Welcome back, <?= h(person_first_name($me)) ?></h2>
   </div>
   <div class="ui-intro-actions">
-    <a href="<?= BASE_URL ?>/admin/manage_documents.php" class="btn btn-outline-brand"><i class="fa-solid fa-list-check" aria-hidden="true"></i> Manage Document<?= $review_count ? ' (' . (int)$review_count . ')' : '' ?></a>
+    <a href="<?= BASE_URL ?>/admin/manage_documents.php" class="btn btn-outline-brand"><i class="fa-solid fa-flag" aria-hidden="true"></i> Manage Document<?= $flagged_count ? ' (' . (int)$flagged_count . ' flagged)' : '' ?></a>
     <a href="<?= BASE_URL ?>/admin/reports.php" class="btn btn-brand"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> Generate Report</a>
   </div>
 </div>
@@ -99,10 +101,10 @@ include __DIR__ . '/../includes/header.php';
     <div class="ui-stat-value" data-count="<?= (int)$total_faculty ?>"><?= (int)$total_faculty ?></div>
     <div class="ui-stat-sub"><?= (int)$full_time ?> full-time · <?= (int)$part_time ?> part-time</div>
   </div>
-  <a class="ui-stat" href="<?= BASE_URL ?>/admin/manage_documents.php" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=for_review') ?>" data-app-modal-title="For Review">
-    <div class="ui-stat-top"><span class="ui-stat-label">For Review</span><span class="ui-stat-icon tone-gold" aria-hidden="true"><i class="fa-solid fa-inbox"></i></span></div>
-    <div class="ui-stat-value" data-count="<?= (int)$review_count ?>"><?= (int)$review_count ?></div>
-    <div class="ui-stat-sub">new uploads to check and post</div>
+  <a class="ui-stat" href="<?= BASE_URL ?>/admin/manage_documents.php" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=flagged') ?>" data-app-modal-title="Flagged for checking">
+    <div class="ui-stat-top"><span class="ui-stat-label">Flagged for checking</span><span class="ui-stat-icon tone-gold" aria-hidden="true"><i class="fa-solid fa-flag"></i></span></div>
+    <div class="ui-stat-value" data-count="<?= (int)$flagged_count ?>"><?= (int)$flagged_count ?></div>
+    <div class="ui-stat-sub">uploads to check — already in 201-Files</div>
   </a>
   <div class="ui-stat" role="group" aria-label="Posted This Month">
     <div class="ui-stat-top"><span class="ui-stat-label">Posted This Month</span><span class="ui-stat-icon tone-teal" aria-hidden="true"><i class="fa-solid fa-upload"></i></span></div>

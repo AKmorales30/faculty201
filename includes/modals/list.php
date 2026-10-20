@@ -16,7 +16,8 @@
  *      viewer's scope -- profile_scope_sql(); the details are worked out now)
  *   expiring             everyone              documents expired or expiring within 60 days
  *   expired, expiring_7, expiring_30, expiring_60   one expiration bucket of those
- *   for_review           everyone              uploads waiting for the classification review
+ *   flagged              everyone              uploads flagged for checking (already in 201-Files);
+ *                                              'for_review' is the old name
  *   recent_uploads       everyone              the latest uploads
  *     (document lists: the Admin sees every faculty member's; anyone else
  *      only their own -- Program Chairs and Deans can't open faculty files)
@@ -40,10 +41,11 @@ $categories = [
     'expiring_7'        => ['Expiring Within 7 Days', '7', $is_admin ? 'admin/expiring_documents.php?status=7' : null],
     'expiring_30'       => ['Expiring in 8–30 Days', '30', $is_admin ? 'admin/expiring_documents.php?status=30' : null],
     'expiring_60'       => ['Expiring in 31–60 Days', '60', $is_admin ? 'admin/expiring_documents.php?status=60' : null],
-    'for_review'        => ['For Review', null, $is_admin ? 'admin/manage_documents.php' : 'faculty/my_documents.php?tab=pending'],
+    'flagged'           => ['Flagged for checking', null, $is_admin ? 'admin/manage_documents.php' : 'faculty/my_documents.php?tab=flagged'],
     'recent_uploads'    => ['Recent File Uploads', null, $is_admin ? 'admin/public_docs.php' : 'faculty/my_requests.php'],
 ];
 $category = (string)($_GET['category'] ?? '');
+if ($category === 'for_review') { $category = 'flagged'; }   // old links
 if (!isset($categories[$category])) {
     modal_fail(404, 'Unknown list.');
 }
@@ -73,6 +75,7 @@ if ($faculty_list) {
             $status = pds_status($pdo, $pid);
             $row['sections'] = ($pds['exists'] || $pds['ld']) ? array_keys(pds_validate_by_section($pds['data'], $pds['ld'])) : null;   // null = not filled in
             $row['updated_at'] = $status['updated_at'];
+            $row['version'] = pds_latest_version($pdo, $pid);
             $row['current'] = $status['current'];
             $row['year'] = $status['year'];
         } elseif ($category === 'missing_documents') {
@@ -97,11 +100,11 @@ if ($faculty_list) {
         }
         $rows[] = $row;
     }
-} elseif ($category === 'for_review') {
+} elseif ($category === 'flagged') {
     $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.title, d.file_path, d.filed_at,
-                   d.confidence_score, d.entry_method, u.full_name
+                   d.confidence_score, d.entry_method, d.flag_reason, u.full_name
             FROM documents d JOIN users u ON u.user_id = d.faculty_id
-            WHERE d.status = 'for_review'" . ($is_admin ? '' : ' AND d.faculty_id = ?') . "
+            WHERE " . document_flagged_sql('d') . ($is_admin ? '' : ' AND d.faculty_id = ?') . "
             ORDER BY d.filed_at ASC, d.document_id ASC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($is_admin ? [] : [$uid]);
@@ -138,7 +141,7 @@ $show_faculty = $is_admin;   // document lists: only the Admin's span several pe
       <thead class="table-light">
         <tr>
           <th>Faculty</th>
-          <?php if ($category === 'pds_update'): ?><th>Incomplete PDS Sections</th><th class="text-nowrap">Last Updated</th>
+          <?php if ($category === 'pds_update'): ?><th>Incomplete PDS Sections</th><th class="text-nowrap">PDS Version · Last Updated</th>
           <?php elseif ($category === 'missing_documents'): ?><th>Missing Documents</th>
           <?php elseif ($category === 'no_recent_seminar'): ?><th>Latest Seminar / Training Certificate</th><th class="text-nowrap">Uploaded</th>
           <?php else: ?><th>Expired / Expiring Documents</th><th class="text-nowrap">Soonest</th><?php endif; ?>
@@ -163,7 +166,11 @@ $show_faculty = $is_admin;   // document lists: only the Admin's span several pe
                 <?php endif; ?>
                 <?php if (!$r['current']): ?><div class="text-muted">Not yet updated for <?= (int)$r['year'] ?></div><?php endif; ?>
               </td>
-              <td class="small text-nowrap"><?= $r['updated_at'] ? h($fmt($r['updated_at'])) : '<span class="text-muted">Never</span>' ?></td>
+              <td class="small text-nowrap">
+                <?php if ($r['version']): ?>Version <?= (int)$r['version']['version_number'] ?> · <?= h(pds_version_date($r['version']['created_at'])) ?>
+                  <div class="text-muted"><?= h(pds_version_source_label($r['version'])) ?></div>
+                <?php else: ?><?= $r['updated_at'] ? h($fmt($r['updated_at'])) : '<span class="text-muted">Never</span>' ?><?php endif; ?>
+              </td>
             <?php elseif ($category === 'missing_documents'): ?>
               <td class="small"><?= $r['missing'] ? h(implode('; ', $r['missing'])) : h($r['reason']) ?></td>
             <?php elseif ($category === 'no_recent_seminar'): ?>
@@ -186,11 +193,11 @@ $show_faculty = $is_admin;   // document lists: only the Admin's span several pe
     </table>
   </div>
 
-<?php elseif ($category === 'for_review'): ?>
+<?php elseif ($category === 'flagged'): ?>
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
-        <tr><th>Document</th><?php if ($show_faculty): ?><th>Faculty</th><?php endif; ?><th>Document Type</th><?php if ($is_admin): ?><th>Confidence</th><?php endif; ?><th class="text-nowrap">Uploaded</th><th></th></tr>
+        <tr><th>Document</th><?php if ($show_faculty): ?><th>Faculty</th><?php endif; ?><th>Document Type</th><th>Why flagged</th><?php if ($is_admin): ?><th>Confidence</th><?php endif; ?><th class="text-nowrap">Uploaded</th><th></th></tr>
       </thead>
       <tbody>
         <?php foreach ($rows as $d): $open = $is_admin ? BASE_URL . '/api/modal.php?view=review&id=' . (int)$d['document_id'] : $doc_link((int)$d['document_id']); ?>
@@ -198,9 +205,10 @@ $show_faculty = $is_admin;   // document lists: only the Admin's span several pe
             <td class="text-break small fw-semibold"><?= h(document_title($d)) ?></td>
             <?php if ($show_faculty): ?><td class="small"><?= h($d['full_name']) ?></td><?php endif; ?>
             <td class="small"><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>
+            <td class="small"><?= h(implode(', ', document_flag_labels($d['flag_reason']))) ?></td>
             <?php if ($is_admin): ?><td><span class="badge <?= confidence_badge_class($d['confidence_score']) ?>"><?= h($d['entry_method'] === 'manual' ? 'Manual' : confidence_label($d['confidence_score'])) ?></span></td><?php endif; ?>
             <td class="small text-nowrap"><?= h($fmt($d['filed_at'], 'M j, Y g:ia')) ?></td>
-            <td class="text-end"><button type="button" class="btn btn-sm <?= $is_admin ? 'btn-brand' : 'btn-outline-brand' ?> text-nowrap" data-app-modal="<?= h($open) ?>"><i class="fa-solid <?= $is_admin ? 'fa-list-check' : 'fa-eye' ?>"></i> <?= $is_admin ? 'Review' : 'View' ?></button></td>
+            <td class="text-end"><button type="button" class="btn btn-sm <?= $is_admin ? 'btn-brand' : 'btn-outline-brand' ?> text-nowrap" data-app-modal="<?= h($open) ?>"><i class="fa-solid <?= $is_admin ? 'fa-list-check' : 'fa-eye' ?>"></i> <?= $is_admin ? 'Check' : 'View' ?></button></td>
           </tr>
         <?php endforeach; ?>
       </tbody>

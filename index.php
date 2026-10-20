@@ -55,7 +55,7 @@ $active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the f
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Faculty 201-Files Management System — CCS, Universidad de Manila</title>
+<title><?= h(SYSTEM_NAME) ?> — CCS, Universidad de Manila</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Public+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -85,7 +85,7 @@ $active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the f
   <section class="ld-hero" aria-labelledby="ld-title">
     <p class="ld-eyebrow">College of Computing Studies</p>
     <h2 class="ld-title" id="ld-title">
-      <span class="ld-nowrap">Faculty 201-Files</span>
+      <span class="ld-nowrap">Faculty-201 File</span>
       <span>Management System</span>
     </h2>
     <hr class="ld-rule">
