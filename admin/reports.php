@@ -159,129 +159,84 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <div class="no-print">
-  <h3 class="fw-bold mb-3">Document Status</h3>
-  <?= report_tabs('status') ?>
+<?= admin_intro('Status of every posted document, with expiration dates. Filter the list, then print it, save it as PDF or export it to CSV. For each seminar and training, use the <a href="' . BASE_URL . '/training_report.php">Training Summary</a>.',
+    '<button type="button" class="btn btn-outline-brand" onclick="window.print()"><i class="fa-solid fa-print" aria-hidden="true"></i> Print / Save as PDF</button>'
+  . '<a href="reports.php?' . h(http_build_query($filter_query + ['export' => 'csv'])) . '" class="btn btn-brand"><i class="fa-solid fa-file-csv" aria-hidden="true"></i> Export CSV</a>') ?>
+<?= report_tabs('status') ?>
 </div>
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4 no-print">
-  <div>
-    <p class="text-muted mb-0">Generate a report of posted 201-file documents and their expiration status, then print it, save it as PDF or export it to CSV.
-      For each seminar and training with its title, dates, venue and organizer, use the <a href="<?= BASE_URL ?>/training_report.php">Training Summary</a>.</p>
-  </div>
-  <div class="d-flex gap-2">
-    <button type="button" class="btn btn-outline-brand" onclick="window.print()"><i class="fa-solid fa-print"></i> Print / Save as PDF</button>
-    <a href="reports.php?<?= h(http_build_query($filter_query + ['export' => 'csv'])) ?>" class="btn btn-brand"><i class="fa-solid fa-file-csv"></i> Export CSV</a>
+
+<?php $cat_max = max(1, ...array_values($by_category)); ?>
+<div class="ui-grid-2">
+  <section class="ui-card report-category-counts" aria-labelledby="catCountsTitle" data-animate>
+    <div class="ui-card-head"><h2 class="ui-card-title" id="catCountsTitle">Documents per category</h2><span class="ui-card-meta"><?= count($documents) ?> total</span></div>
+    <div class="card-body d-flex flex-column gap-2">
+      <?php foreach ($by_category as $key => $c): ?>
+        <div class="ui-catbar">
+          <span class="ui-catbar-label"><?= h($categories[$key]['label'] ?? $key) ?></span>
+          <span class="ui-bar" aria-hidden="true"><span style="--w: <?= round($c / $cat_max * 100) ?>%"></span></span>
+          <span class="ui-catbar-n <?= $c ? '' : 'text-muted' ?>"><?= (int)$c ?></span>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </section>
+  <div class="ui-tiles mb-0" style="align-content:start">
+    <?php foreach (['active' => ['Active', 'var(--ad-teal)'], 'expiring' => ['Expiring within 60 days', 'var(--ad-gold)'], 'expired' => ['Expired', 'var(--ad-red)'], 'none' => ['No expiration date', 'var(--ad-gray)']] as $key => [$label, $dot]): ?>
+      <a class="ui-tile ui-tile-stack" href="reports.php?<?= h(http_build_query(array_merge($filter_query, ['status' => $key]))) ?>" style="--dot: <?= $dot ?>">
+        <span class="ui-tile-dot"><?= h($label) ?></span>
+        <span class="ui-tile-n" data-count="<?= (int)$by_status[$key] ?>"><?= (int)$by_status[$key] ?></span>
+      </a>
+    <?php endforeach; ?>
   </div>
 </div>
 
-<div class="card stat-card mb-4 no-print">
-  <div class="card-body">
-    <form method="GET" class="row g-2 align-items-end">
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fFrom" class="form-label small fw-semibold">Uploaded From</label>
-        <input type="date" name="from" id="fFrom" value="<?= h($from) ?>" class="form-control">
-      </div>
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fTo" class="form-label small fw-semibold">Uploaded To</label>
-        <input type="date" name="to" id="fTo" value="<?= h($to) ?>" class="form-control">
-      </div>
-      <div class="col-md-6 col-xl-2">
-        <label for="fCategory" class="form-label small fw-semibold">Category</label>
-        <select name="category" id="fCategory" class="form-select">
-          <option value="">All Categories</option>
-          <?php foreach ($categories as $key => $meta): ?>
-            <option value="<?= h($key) ?>" <?= $category === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-6 col-xl-2">
-        <label for="fFaculty" class="form-label small fw-semibold">Faculty Member</label>
-        <select name="faculty" id="fFaculty" class="form-select">
-          <option value="">All Faculty</option>
-          <?php foreach ($faculty_list as $f): ?>
-            <option value="<?= (int)$f['user_id'] ?>" <?= $faculty_id === (int)$f['user_id'] ? 'selected' : '' ?>>
-              <?= h($f['full_name']) ?><?= $f['role'] !== 'faculty' ? ' (' . h(ucwords(str_replace('_', ' ', $f['role']))) . ')' : '' ?><?= $f['is_active'] ? '' : ' (inactive)' ?>
-            </option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-6 col-xl-2">
-        <label for="fStatus" class="form-label small fw-semibold">Expiration Status</label>
-        <select name="status" id="fStatus" class="form-select">
-          <option value="">All</option>
-          <?php foreach ($status_options as $key => $label): ?>
-            <option value="<?= h($key) ?>" <?= $status === $key ? 'selected' : '' ?>><?= h($label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-6 col-xl-2 d-flex gap-2">
-        <button class="btn btn-brand flex-fill"><i class="fa-solid fa-file-lines"></i> Generate</button>
-        <a href="reports.php" class="btn btn-outline-secondary flex-fill">Reset</a>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="row g-3 mb-3">
-  <div class="col-6 col-md-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Total Documents</div>
-      <div class="stat-number text-brand"><?= count($documents) ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Active</div>
-      <div class="stat-number text-accent-teal"><?= $by_status['active'] ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Expiring Soon (60 days)</div>
-      <div class="stat-number text-accent-gold"><?= $by_status['expiring'] ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small">Expired</div>
-      <div class="stat-number text-danger"><?= $by_status['expired'] ?></div>
-    </div>
-  </div>
-</div>
-<p class="small text-muted mb-3"><?= $by_status['none'] ?> document<?= $by_status['none'] === 1 ? ' has' : 's have' ?> no expiration date.</p>
-
-<div class="card stat-card mb-4 report-category-counts">
-  <div class="card-header bg-white fw-semibold">Documents per Category</div>
-  <div class="card-body p-0 table-responsive">
-    <table class="table table-sm mb-0 align-middle">
-      <tbody>
-        <?php foreach ($by_category as $key => $c): ?>
-          <tr>
-            <td class="ps-3"><?= h($categories[$key]['label'] ?? $key) ?></td>
-            <td class="text-end pe-3 fw-semibold <?= $c ? '' : 'text-muted' ?>"><?= (int)$c ?></td>
-          </tr>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card stat-card">
-  <div class="card-header bg-white fw-semibold"><?= count($documents) ?> document<?= count($documents) === 1 ? '' : 's' ?></div>
-  <div class="card-body p-0 table-responsive">
-    <table class="table mb-0 align-middle report-table">
-      <thead class="table-light">
-        <tr><th>Faculty Name</th><th>Document</th><th>Category</th><th>Upload Date</th><th>Expiration Date</th><th>Status</th></tr>
+<section class="ui-card" aria-label="Documents">
+  <form method="GET" class="ui-toolbar no-print" data-autosubmit>
+    <label for="fCategory" class="visually-hidden">Category</label>
+    <select name="category" id="fCategory" class="form-select">
+      <option value="">All categories</option>
+      <?php foreach ($categories as $key => $meta): ?>
+        <option value="<?= h($key) ?>" <?= $category === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <label for="fStatus" class="visually-hidden">Expiration status</label>
+    <select name="status" id="fStatus" class="form-select">
+      <option value="">All statuses</option>
+      <?php foreach ($status_options as $key => $label): ?>
+        <option value="<?= h($key) ?>" <?= $status === $key ? 'selected' : '' ?>><?= h($label) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <label for="fFaculty" class="visually-hidden">Faculty member</label>
+    <select name="faculty" id="fFaculty" class="form-select">
+      <option value="">All faculty</option>
+      <?php foreach ($faculty_list as $f): ?>
+        <option value="<?= (int)$f['user_id'] ?>" <?= $faculty_id === (int)$f['user_id'] ? 'selected' : '' ?>>
+          <?= h($f['full_name']) ?><?= $f['role'] !== 'faculty' ? ' (' . h(ucwords(str_replace('_', ' ', $f['role']))) . ')' : '' ?><?= $f['is_active'] ? '' : ' (inactive)' ?>
+        </option>
+      <?php endforeach; ?>
+    </select>
+    <label for="fFrom" class="visually-hidden">Uploaded from</label>
+    <input type="date" name="from" id="fFrom" value="<?= h($from) ?>" class="form-control" title="Uploaded from">
+    <label for="fTo" class="visually-hidden">Uploaded to</label>
+    <input type="date" name="to" id="fTo" value="<?= h($to) ?>" class="form-control" title="Uploaded to">
+    <button class="btn btn-sm btn-brand ui-apply"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> Generate</button>
+    <?php if ($applied): ?><a href="reports.php" class="btn btn-sm btn-outline-secondary">Clear filters</a><?php endif; ?>
+    <span class="ui-count"><?= count($documents) ?> document<?= count($documents) === 1 ? '' : 's' ?></span>
+  </form>
+  <div class="table-responsive">
+    <table class="table align-middle report-table">
+      <thead>
+        <tr><th>Faculty name</th><th>Document</th><th>Category</th><th>Upload date</th><th>Expiration date</th><th>Status</th></tr>
       </thead>
       <tbody>
         <?php if (!$documents): ?>
-          <tr><td colspan="6" class="text-center text-muted py-4">No documents found<?= $applied ? ' for the selected filters' : '' ?>.</td></tr>
+          <?= admin_empty_row(6, 'No documents match', $applied ? 'Try different filters, or clear them to see everything.' : 'Posted documents appear here.', $applied ? 'reports.php' : null) ?>
         <?php endif; ?>
-        <?php foreach ($documents as $d): ?>
-        <tr>
-          <td><?= h($d['full_name']) ?></td>
+        <?php foreach ($documents as $d): $view_url = BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']; ?>
+        <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h($view_url) ?>" aria-label="Open <?= h(basename($d['file_path'])) ?>">
+          <td class="fw-semibold"><?= h($d['full_name']) ?></td>
           <td class="text-break">
-            <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><?= h(basename($d['file_path'])) ?></a>
-            <?php if ($p = document_period_label($d)): ?><div class="small text-muted"><?= h($p) ?></div><?php endif; ?>
+            <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="text-body" data-app-modal="<?= h($view_url) ?>"><?= h(basename($d['file_path'])) ?></a>
+            <?php if ($p = document_period_label($d)): ?><div class="ui-cell-sub"><?= h($p) ?></div><?php endif; ?>
           </td>
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?></td>
@@ -292,7 +247,7 @@ include __DIR__ . '/../includes/header.php';
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
 <script>
 // Activity log: record that the report was printed / saved as PDF (button or Ctrl+P), once per page view

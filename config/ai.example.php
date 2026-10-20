@@ -14,9 +14,9 @@
  * Get a key at https://aistudio.google.com/apikey
  */
 return [
-    // Global on / off switch for all AI features (report summary, reminder
-    // wording, chatbot). Off: the report and reminders still work (reminders
-    // use fixed template messages) and the chatbot button is hidden.
+    // Global on / off switch for the AI features (report summary, reminder
+    // wording). Off: the report and reminders still work (reminders use
+    // fixed template messages; the report has no AI summary).
     'ai_enabled'      => true,
 
     'gemini_api_key'  => 'PASTE-YOUR-GEMINI-API-KEY-HERE',
@@ -29,11 +29,6 @@ return [
     // Seconds to wait for Gemini before giving up (and falling back)
     'request_timeout' => 25,
     'connect_timeout' => 5,
-
-    // Chatbot: messages each user may send per hour, and how many earlier
-    // messages are sent along as conversation context
-    'chatbot_messages_per_hour' => 30,
-    'chatbot_context_messages'  => 6,
 
     // AI report summary: true sends faculty full names (so "faculty needing
     // attention" names them); false sends "Maria S." style short names.

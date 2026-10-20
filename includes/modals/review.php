@@ -126,10 +126,10 @@ if (!preg_match('#^admin/manage_documents\.php(\?[A-Za-z0-9_.%=&\-]*)?$#', $retu
       <?php unset($detail_attr); ?>
 
       <div class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
-        <button type="submit" name="do" value="post" class="btn btn-brand"><i class="fa-solid fa-check"></i> Post to Public Docs</button>
+        <button type="submit" name="do" value="post" class="btn btn-brand"><i class="fa-solid fa-check"></i> Post to 201-Files</button>
         <button type="submit" name="do" value="save" class="btn btn-outline-brand"><i class="fa-solid fa-floppy-disk"></i> Save corrections</button>
       </div>
-      <div class="form-text">Posting saves the type and details shown here, moves the document to Public Docs and notifies <?= h($doc['full_name']) ?>.</div>
+      <div class="form-text">Posting saves the type and details shown here, moves the document to 201-Files and notifies <?= h($doc['full_name']) ?>.</div>
     </form>
   </div>
 </div>

@@ -1,6 +1,6 @@
 <?php
 /**
- * Public Docs -- a faculty member's (or Program Chair's / Dean's) own 201
+ * 201-Files -- a faculty member's (or Program Chair's / Dean's) own 201
  * file, in three tabs:
  *   Posted          documents the Admin reviewed and posted, by category
  *                   (includes/document_browser.php)
@@ -13,7 +13,7 @@ require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
 
 $me = current_user();
 $tab = ($_GET['tab'] ?? '') === 'pending' ? 'pending' : 'posted';
-$page_title = 'Public Docs';
+$page_title = '201-Files';
 $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
 $stmt->execute([$me['user_id']]);
 $faculty = $stmt->fetch();
@@ -31,51 +31,40 @@ if ($tab === 'pending') {
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-  <h3 class="fw-bold mb-0">Public Docs</h3>
-  <div class="d-flex gap-2">
-    <a href="<?= BASE_URL ?>/archive.php" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-box-archive"></i> Archived Docs</a>
-    <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand btn-sm"><i class="fa-solid fa-file-circle-plus"></i> Upload Document</a>
-  </div>
-</div>
+<?= admin_intro($tab === 'posted'
+      ? 'Documents in your own 201 file that the Admin reviewed and posted, by category. New uploads wait under <a href="?tab=pending">Pending review</a> until the Admin posts them. You can delete a wrong upload yourself within ' . (int)FACULTY_DELETE_WINDOW_HOURS . ' hours; documents nobody opens in ' . h(archive_period_label()) . ' move to Archived Docs.'
+      : 'Uploads waiting for the Admin\'s classification review. You\'re notified when each one is posted, and can still edit the details or delete a wrong upload within ' . (int)FACULTY_DELETE_WINDOW_HOURS . ' hours.',
+    '<a href="' . BASE_URL . '/archive.php" class="btn btn-outline-brand"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archived Docs</a>'
+  . '<a href="' . BASE_URL . '/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> Upload Document</a>') ?>
 
 <?= my_docs_tabs($pdo, $tab) ?>
 
 <?php if ($tab === 'posted'): ?>
-  <p class="text-muted mb-4">Your documents that the Admin reviewed and posted, organized by category. The latest version of each is shown first; older versions are kept as history.
-    New uploads appear here once posted -- until then they're under <a href="?tab=pending">Pending review</a>.
-    Uploaded the wrong file or a duplicate? You can delete it yourself within <?= (int)FACULTY_DELETE_WINDOW_HOURS ?> hours of uploading; after that, contact the Admin.
-    Documents nobody has opened in <?= h(archive_period_label()) ?> move to <a href="<?= BASE_URL ?>/archive.php">Archived Docs</a>.</p>
 
   <?php include __DIR__ . '/../includes/document_browser.php'; ?>
 
 <?php else: include_once __DIR__ . '/../includes/document_actions.php'; ?>
-  <p class="text-muted mb-4">Uploads waiting for the Admin's classification review: the Admin checks the detected document type and details, corrects them if needed, and posts them to your Public Docs.
-    You're notified when each one is posted. You can still edit the details or delete a wrong upload within <?= (int)FACULTY_DELETE_WINDOW_HOURS ?> hours.</p>
-
-  <div class="card stat-card">
-    <div class="card-body p-0 table-responsive">
-      <table class="table table-hover mb-0 align-middle">
-        <thead class="table-light"><tr><th>Document</th><th>Type</th><th>Uploaded</th><th>Status</th><th></th></tr></thead>
+  <section class="ui-card" aria-label="Pending review">
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th>Document</th><th>Type</th><th>Uploaded</th><th>Status</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr></thead>
         <tbody>
           <?php if (!$pending): ?>
-            <tr><td colspan="5" class="text-center text-muted py-4">Nothing is waiting for review -- all your uploads have been posted.</td></tr>
+            <?= admin_empty_row(5, 'Nothing is waiting for review', 'All your uploads have been posted.', null, 'fa-circle-check') ?>
           <?php endif; ?>
-          <?php foreach ($pending as $d): ?>
-            <tr>
-              <td class="text-break small">
-                <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="fw-semibold"
-                   data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><?= h(document_title($d)) ?></a>
-                <?php if (trim((string)$d['title']) !== ''): ?><div class="text-muted"><?= h(document_display_name($d['file_path'])) ?></div><?php endif; ?>
+          <?php foreach ($pending as $d): $view_url = BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']; ?>
+            <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h($view_url) ?>" aria-label="Open <?= h(document_title($d)) ?>">
+              <td class="text-break">
+                <div class="fw-semibold"><?= h(document_title($d)) ?></div>
+                <?php if (trim((string)$d['title']) !== ''): ?><div class="ui-cell-sub"><?= h(document_display_name($d['file_path'])) ?></div><?php endif; ?>
               </td>
-              <td class="small"><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?><?php if ($p = document_period_label($d)): ?><div class="text-muted"><?= h($p) ?></div><?php endif; ?></td>
-              <td class="small text-nowrap"><?= h(date('M j, Y g:ia', strtotime($d['filed_at']))) ?></td>
-              <td><span class="badge bg-review">For Review</span></td>
+              <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?><?php if ($p = document_period_label($d)): ?><div class="ui-cell-sub"><?= h($p) ?></div><?php endif; ?></td>
+              <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?><div class="ui-cell-sub"><?= h(date('g:i A', strtotime($d['filed_at']))) ?></div></td>
+              <td><span class="badge bg-review">For Review</span><div class="ui-cell-sub">Waiting for the Admin</div></td>
               <td>
-                <div class="d-flex flex-wrap gap-1 align-items-start">
-                  <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"
-                     data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><i class="fa-solid fa-eye"></i> View</a>
-                  <a href="<?= BASE_URL ?>/document_details.php?id=<?= (int)$d['document_id'] ?>&amp;return=<?= h(urlencode('faculty/my_documents.php?tab=pending')) ?>" class="btn btn-sm btn-outline-brand text-nowrap"><i class="fa-solid fa-pen-to-square"></i> Details</a>
+                <div class="ui-actions">
+                  <?= admin_icon_link(document_url((int)$d['document_id']), 'fa-eye', 'View file', 'target="_blank" data-app-modal="' . h($view_url) . '"') ?>
+                  <?= admin_icon_link(BASE_URL . '/document_details.php?id=' . (int)$d['document_id'] . '&return=' . urlencode('faculty/my_documents.php?tab=pending'), 'fa-pen-to-square', 'Edit details') ?>
                   <?= document_action_buttons($d, $me) ?>
                 </div>
               </td>
@@ -84,7 +73,7 @@ include __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
-  </div>
+  </section>
 <?php endif; ?>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

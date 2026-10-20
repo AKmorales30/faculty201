@@ -6,9 +6,9 @@
  * 'for_review'). Review opens a pop-up (api/modal.php?view=review) with the
  * file, the detected document type and its confidence score, and the
  * details read from it; the Admin corrects them if needed and posts the
- * document to Public Docs (review_save_document(), includes/document_review.php).
+ * document to 201-Files (review_save_document(), includes/document_review.php).
  * The owner is notified once it's posted. Only posted documents appear in
- * Public Docs, searches, reports and analytics.
+ * 201-Files, searches, reports and analytics.
  *
  * This is a classification check only -- the old Program Chair / Dean
  * approval stays removed. A wrong file is deleted with the normal Delete
@@ -104,125 +104,105 @@ include __DIR__ . '/../includes/header.php';
 include_once __DIR__ . '/../includes/document_actions.php';   // Delete button + confirmation dialog
 ?>
 
-<h3 class="fw-bold mb-1">Manage Document</h3>
-<p class="text-muted mb-3">
-  Every new upload waits here For Review. Open one to check the document type the system detected (and how confident it was) and the details it read,
-  correct anything that's wrong, then <strong>Post</strong> it to Public Docs -- the faculty member is notified. This is a classification check only;
-  a wrong file can be deleted with a reason. Low-confidence uploads (below <?= h(confidence_label(CONFIDENCE_THRESHOLD)) ?>) are highlighted.
-</p>
+<?php $filtered = $from !== '' || $to !== '' || $category !== '' || $low_only; ?>
+<?= admin_intro('New uploads are checked by the system first. Open one to confirm or correct the document type it detected (and how confident it was) and the details it read, then <strong>Post</strong> it to 201-Files — the faculty member is notified. Uploads below ' . h(confidence_label(CONFIDENCE_THRESHOLD)) . ' confidence are highlighted.') ?>
 
-<ul class="nav nav-tabs page-tabs mb-3">
+<div class="nav page-tabs" role="tablist" aria-label="Manage Document">
   <?php foreach ($tabs as $key => $label): ?>
-    <li class="nav-item">
-      <a class="nav-link <?= $tab === $key ? 'active' : '' ?>" href="manage_documents.php<?= $key !== 'review' ? '?tab=' . h($key) : '' ?>">
-        <i class="fa-solid <?= $key === 'review' ? 'fa-hourglass-half' : 'fa-circle-check' ?>"></i> <?= h($label) ?>
-        <?php if ($key === 'review'): ?><span class="badge rounded-pill bg-review ms-1"><?= (int)$review_total ?></span><?php endif; ?>
-      </a>
-    </li>
+    <a class="nav-link <?= $tab === $key ? 'active' : '' ?>" role="tab" aria-selected="<?= $tab === $key ? 'true' : 'false' ?>" href="manage_documents.php<?= $key !== 'review' ? '?tab=' . h($key) : '' ?>">
+      <?= h($label) ?>
+      <?php if ($key === 'review'): ?><span class="badge"><?= (int)$review_total ?></span><?php endif; ?>
+    </a>
   <?php endforeach; ?>
-</ul>
-
-<div class="card stat-card mb-4">
-  <div class="card-body">
-    <form method="GET" class="row g-2 align-items-end">
-      <?php if ($tab !== 'review'): ?><input type="hidden" name="tab" value="<?= h($tab) ?>"><?php endif; ?>
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fFrom" class="form-label small fw-semibold">Uploaded From</label>
-        <input type="date" name="from" id="fFrom" value="<?= h($from) ?>" class="form-control">
-      </div>
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fTo" class="form-label small fw-semibold">Uploaded To</label>
-        <input type="date" name="to" id="fTo" value="<?= h($to) ?>" class="form-control">
-      </div>
-      <div class="col-md-6 col-xl-3">
-        <label for="fCategory" class="form-label small fw-semibold">Document Type</label>
-        <select name="category" id="fCategory" class="form-select">
-          <option value="">All Types</option>
-          <?php foreach ($categories as $key => $meta): ?>
-            <option value="<?= h($key) ?>" <?= $category === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-6 col-xl-2">
-        <div class="form-check mb-2">
-          <input type="checkbox" name="low" value="1" id="fLow" class="form-check-input" <?= $low_only ? 'checked' : '' ?>>
-          <label for="fLow" class="form-check-label small">Low confidence only</label>
-        </div>
-      </div>
-      <div class="col-md-6 col-xl-3 d-flex gap-2">
-        <button class="btn btn-brand flex-fill"><i class="fa-solid fa-filter"></i> Filter</button>
-        <a href="manage_documents.php<?= $tab !== 'review' ? '?tab=' . h($tab) : '' ?>" class="btn btn-outline-secondary flex-fill">Reset</a>
-      </div>
-    </form>
-  </div>
 </div>
 
-<?php if ($tab === 'review'): ?>
-<div class="small text-muted mb-2"><?= count($documents) ?> document<?= count($documents) === 1 ? '' : 's' ?> waiting, oldest first · click a row to review it</div>
-<div class="card stat-card">
-  <div class="card-body p-0 table-responsive">
-    <table class="table table-hover mb-0 align-middle">
-      <thead class="table-light">
-        <tr><th>Faculty</th><th>Document</th><th>Detected Type</th><th>Chosen by Uploader</th><th>Confidence</th><th>Uploaded</th><th></th></tr>
+<section class="ui-card" aria-label="<?= h($tabs[$tab]) ?>">
+  <form method="GET" class="ui-toolbar" data-autosubmit>
+    <?php if ($tab !== 'review'): ?><input type="hidden" name="tab" value="<?= h($tab) ?>"><?php endif; ?>
+    <label for="fCategory" class="visually-hidden">Document type</label>
+    <select name="category" id="fCategory" class="form-select">
+      <option value="">All types</option>
+      <?php foreach ($categories as $key => $meta): ?>
+        <option value="<?= h($key) ?>" <?= $category === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <label for="fFrom" class="visually-hidden">Uploaded from</label>
+    <input type="date" name="from" id="fFrom" value="<?= h($from) ?>" class="form-control" title="Uploaded from">
+    <label for="fTo" class="visually-hidden">Uploaded to</label>
+    <input type="date" name="to" id="fTo" value="<?= h($to) ?>" class="form-control" title="Uploaded to">
+    <div class="form-check">
+      <input type="checkbox" name="low" value="1" id="fLow" class="form-check-input" <?= $low_only ? 'checked' : '' ?>>
+      <label for="fLow" class="form-check-label">Low confidence only</label>
+    </div>
+    <button class="btn btn-sm btn-brand ui-apply"><i class="fa-solid fa-filter" aria-hidden="true"></i> Apply</button>
+    <?php if ($filtered): ?><a href="manage_documents.php<?= $tab !== 'review' ? '?tab=' . h($tab) : '' ?>" class="btn btn-sm btn-outline-secondary">Clear filters</a><?php endif; ?>
+    <span class="ui-count"><?= count($documents) ?> <?= $tab === 'review' ? 'waiting · oldest first' : 'posted · newest first' ?></span>
+  </form>
+
+  <div class="table-responsive">
+  <?php if ($tab === 'review'): ?>
+    <table class="table align-middle">
+      <thead>
+        <tr><th>Faculty</th><th>Document</th><th>Detected type</th><th>Chosen by uploader</th><th>Confidence</th><th>Uploaded</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr>
       </thead>
       <tbody>
         <?php if (!$documents): ?>
-          <tr><td colspan="7" class="text-center text-muted py-4"><i class="fa-solid fa-circle-check text-success"></i> Nothing is waiting for review<?= $where ? ' with these filters' : '' ?>.</td></tr>
+          <?= admin_empty_row(7, $filtered ? 'Nothing matches these filters' : 'All caught up',
+                $filtered ? 'Try different filters, or clear them to see everything.' : 'No uploads are waiting for review.',
+                $filtered ? 'manage_documents.php' : null, $filtered ? 'fa-inbox' : 'fa-circle-check') ?>
         <?php endif; ?>
-        <?php foreach ($documents as $d): $score = $d['confidence_score']; ?>
-        <tr class="row-clickable <?= $d['is_low_confidence'] ? 'row-attention' : '' ?>" tabindex="0" role="button" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>">
-          <td><?= h($d['full_name']) ?></td>
-          <td class="text-break small">
-            <div class="fw-semibold"><?= h(document_title($d)) ?></div>
-            <?php if (trim((string)$d['title']) !== ''): ?><div class="text-muted"><?= h(document_display_name($d['file_path'])) ?></div><?php endif; ?>
+        <?php foreach ($documents as $d): ?>
+        <tr class="row-clickable <?= $d['is_low_confidence'] ? 'row-attention' : '' ?>" tabindex="0" role="button" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>" data-app-modal-title="Review classification" aria-label="Review <?= h(document_title($d)) ?>">
+          <td class="fw-semibold"><?= h($d['full_name']) ?></td>
+          <td class="text-break">
+            <?= h(document_title($d)) ?>
+            <?php if (trim((string)$d['title']) !== ''): ?><div class="ui-cell-sub"><?= h(document_display_name($d['file_path'])) ?></div><?php endif; ?>
           </td>
-          <td class="small"><?= $d['entry_method'] === 'manual' ? '<span class="text-muted">Entered manually</span>' : h($cat_label($d['predicted_category'])) ?></td>
-          <td class="small"><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?><?php if ($p = document_period_label($d)): ?><div class="text-muted"><?= h($p) ?></div><?php endif; ?></td>
-          <td><span class="badge <?= confidence_badge_class($score) ?>"><?= h(confidence_label($score)) ?></span></td>
-          <td class="text-nowrap small"><?= h(date('M j, Y g:ia', strtotime($d['filed_at']))) ?></td>
-          <td class="text-nowrap">
-            <button type="button" class="btn btn-sm btn-brand" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>"><i class="fa-solid fa-list-check"></i> Review</button>
-            <?= document_action_buttons($d, current_user()) ?>
+          <td><?= $d['entry_method'] === 'manual' ? '<span class="text-muted">Entered manually</span>' : h($cat_label($d['predicted_category'])) ?></td>
+          <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?><?php if ($p = document_period_label($d)): ?><div class="ui-cell-sub"><?= h($p) ?></div><?php endif; ?></td>
+          <td><?= admin_confidence($d['confidence_score']) ?></td>
+          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?><div class="ui-cell-sub"><?= h(date('g:i A', strtotime($d['filed_at']))) ?></div></td>
+          <td>
+            <div class="ui-actions">
+              <button type="button" class="btn btn-sm btn-brand" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>" data-app-modal-title="Review classification"><i class="fa-solid fa-list-check" aria-hidden="true"></i> Review</button>
+              <?= document_action_buttons($d, current_user()) ?>
+            </div>
           </td>
         </tr>
         <?php endforeach; ?>
       </tbody>
     </table>
-  </div>
-</div>
-
-<?php else: ?>
-<div class="small text-muted mb-2">The last <?= count($documents) ?> document<?= count($documents) === 1 ? '' : 's' ?> posted through this review, newest first</div>
-<div class="card stat-card">
-  <div class="card-body p-0 table-responsive">
-    <table class="table table-hover mb-0 align-middle">
-      <thead class="table-light">
-        <tr><th>Faculty</th><th>Document</th><th>Posted As</th><th>Confidence</th><th>Uploaded</th><th>Posted</th><th>Now</th></tr>
+  <?php else: ?>
+    <table class="table align-middle">
+      <thead>
+        <tr><th>Faculty</th><th>Document</th><th>Posted as</th><th>Confidence</th><th>Uploaded</th><th>Posted</th><th>Now</th></tr>
       </thead>
       <tbody>
         <?php if (!$documents): ?>
-          <tr><td colspan="7" class="text-center text-muted py-4">No documents have been posted through the review yet.</td></tr>
+          <?= admin_empty_row(7, $filtered ? 'Nothing matches these filters' : 'Nothing posted yet',
+                $filtered ? 'Try different filters, or clear them to see everything.' : 'Documents posted from For Review appear here.',
+                $filtered ? 'manage_documents.php?tab=posted' : null) ?>
         <?php endif; ?>
         <?php foreach ($documents as $d):
           $corrected = $d['chosen_category'] !== null && $d['chosen_category'] !== $d['document_type'];
           [$st_label, $st_badge] = document_status_badge($d['status']); ?>
-        <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>">
-          <td><?= h($d['full_name']) ?></td>
-          <td class="text-break small fw-semibold"><?= h(document_title($d)) ?></td>
-          <td class="small">
+        <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>" aria-label="Open <?= h(document_title($d)) ?>">
+          <td class="fw-semibold"><?= h($d['full_name']) ?></td>
+          <td class="text-break"><?= h(document_title($d)) ?></td>
+          <td>
             <?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?>
-            <?php if ($corrected): ?><div><span class="badge bg-info" title="The uploader chose <?= h($cat_label($d['chosen_category'])) ?>">Corrected</span></div><?php endif; ?>
+            <?php if ($corrected): ?><div class="ui-cell-sub" title="The uploader chose <?= h($cat_label($d['chosen_category'])) ?>">Corrected from <?= h($cat_label($d['chosen_category'])) ?></div><?php endif; ?>
           </td>
-          <td><span class="badge <?= confidence_badge_class($d['confidence_score']) ?>"><?= h(confidence_label($d['confidence_score'])) ?></span></td>
-          <td class="text-nowrap small"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?></td>
-          <td class="small"><?= h(date('M j, Y g:ia', strtotime($d['posted_at']))) ?><?php if ($d['posted_by_name']): ?><div class="text-muted">by <?= h($d['posted_by_name']) ?></div><?php endif; ?></td>
-          <td><span class="badge <?= $st_badge ?>"><?= h($st_label) ?></span></td>
+          <td><?= admin_confidence($d['confidence_score']) ?></td>
+          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?></td>
+          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['posted_at']))) ?><?php if ($d['posted_by_name']): ?><div class="ui-cell-sub">by <?= h($d['posted_by_name']) ?></div><?php endif; ?></td>
+          <td><span class="badge <?= $st_badge ?>"><?= h($st_label === 'Posted' ? 'In 201-Files' : $st_label) ?></span></td>
         </tr>
         <?php endforeach; ?>
       </tbody>
     </table>
+  <?php endif; ?>
   </div>
-</div>
-<?php endif; ?>
+</section>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

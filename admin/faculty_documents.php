@@ -21,7 +21,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <a href="<?= BASE_URL ?>/admin/view_records.php" class="small text-muted d-inline-block mb-3">
-  <i class="fa-solid fa-arrow-left"></i> Back to Public Docs &rsaquo; By faculty
+  <i class="fa-solid fa-arrow-left"></i> Back to 201-Files &rsaquo; By faculty
 </a>
 
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">

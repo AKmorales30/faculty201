@@ -1,8 +1,9 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 
-// Maps each portal's form value to: the login page to bounce back to on
-// failure, the session key used for that page's flash error, and a
+// Maps each portal's form value (the role chosen on the landing page) to:
+// the landing page with that role's login form open, to bounce back to on
+// failure, the session key used for that form's flash error, and a
 // validator that checks the authenticated user actually belongs there.
 // Faculty (full-time + part-time) share one portal; Admin, Program
 // Chair, and Dean share the other. Employment type and the specific
@@ -10,14 +11,14 @@ require_once __DIR__ . '/includes/auth.php';
 // account can see and do once inside — only the LOGIN SCREEN is shared.
 $PORTALS = [
     'faculty' => [
-        'page'       => 'login_faculty.php',
+        'page'       => 'index.php?role=faculty',
         'error_key'  => 'login_error_faculty',
         'validate'   => function (array $user): bool {
             return $user['role'] === 'faculty';
         },
     ],
     'admin' => [
-        'page'       => 'login_admin.php',
+        'page'       => 'index.php?role=admin',
         'error_key'  => 'login_error_admin',
         'validate'   => function (array $user): bool {
             return in_array($user['role'], ['admin', 'program_chair', 'dean'], true);
@@ -25,10 +26,11 @@ $PORTALS = [
     ],
 ];
 
-$portal_key = $_POST['portal'] ?? '';
+$portal_key = is_string($_POST['portal'] ?? null) ? $_POST['portal'] : '';
 $portal = $PORTALS[$portal_key] ?? null;
 
-// Fallback target if we don't recognize the portal (e.g. tampered form)
+// Fallback target if we don't recognize the portal (e.g. tampered form):
+// the role choice, with the error shown there
 $fallback_page = $portal['page'] ?? 'index.php';
 $error_key = $portal['error_key'] ?? 'login_error';
 
@@ -74,6 +76,16 @@ function login_side_task(string $what, callable $task, $fallback = null) {
 
 const LOGIN_BAD_CREDENTIALS = 'Invalid email or password.';
 
+// The role comes from the browser, so it is never trusted on its own: an
+// unknown one is refused here, and a known one is checked against the
+// account's real role after the password (validate, below).
+if (!$portal) {
+    login_fail('Please choose your role, then log in.');
+}
+if (!csrf_valid()) {
+    login_fail('Your session expired. Please log in again.');
+}
+
 if ($email === '' || $password === '') {
     login_fail('Please enter both your email and password.', true);
 }
@@ -85,7 +97,9 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
 // password -- stops it with the generic message; side tasks fail safe.
 try {
     require_once __DIR__ . '/includes/functions.php';   // connects to the database
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? AND is_active = 1 LIMIT 1");
+    // Deactivated accounts are found too, so the right password gets the "deactivated" message
+    // below instead of "Invalid email or password" (a wrong password still gets the generic one)
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 } catch (Throwable $e) {
@@ -122,10 +136,18 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
             : ''), true);
 }
 
+// Deactivated (users.is_active = 0, set in Manage Faculty): right password, but no session. Logged as a
+// blocked attempt -- blocked attempts don't count toward the brute-force lockout.
+if ((int)$user['is_active'] !== 1) {
+    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip, true));
+    log_activity($pdo, $user_id, 'LOGIN_BLOCKED', 'Login refused: the account is deactivated.', $user['role']);
+    login_fail(ACCOUNT_DEACTIVATED_MESSAGE);
+}
+
 // Confirm the account actually belongs to the portal it logged in through
-if ($portal && !$portal['validate']($user)) {
+if (!$portal['validate']($user)) {
     login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip));
-    login_fail('This account is not registered for this login portal. Please use the correct login page.');
+    login_fail('This account is not registered for this role. Use "Change role" to choose the correct one.');
 }
 
 // Successful login: log it, then screen for suspicious patterns (RBAC /

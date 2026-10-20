@@ -41,9 +41,8 @@ mark_document_viewed($pdo, (int)$doc['document_id']);
 // every redeploy. A file that only exists on disk (uploaded before files
 // were kept in the database, e.g. on XAMPP) is copied in the first time
 // it's opened.
-$stmt = $pdo->prepare("SELECT mime_type, file_size, data FROM document_files WHERE document_id = ?");
-$stmt->execute([(int)$doc['document_id']]);
-$file = $stmt->fetch();
+// Big files are stored in pieces (document_file_chunks), each smaller than one MySQL packet.
+$file = document_file_info($pdo, (int)$doc['document_id']);
 
 if (!$file) {
     $path = realpath(ROOT_PATH . '/' . $doc['file_path']);
@@ -58,13 +57,19 @@ if (!$file) {
     } catch (Throwable $e) {
         error_log('Copying document ' . $doc['document_id'] . ' into the database failed: ' . $e->getMessage());
     }
-    $file = ['mime_type' => document_mime_type($path), 'file_size' => filesize($path), 'data' => file_get_contents($path)];
+    header('Content-Type: ' . document_mime_type($path));
+    header('Content-Length: ' . filesize($path));
+    header('Content-Disposition: ' . (!empty($_GET['download']) ? 'attachment' : 'inline') . '; filename="' . basename($doc['file_path']) . '"');
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store');
+    readfile($path);
+    exit;
 }
 
 header('Content-Type: ' . $file['mime_type']);
-header('Content-Length: ' . strlen($file['data']));
+header('Content-Length: ' . (int)$file['file_size']);
 // ?download=1 saves the file instead of opening it (the Download buttons)
 header('Content-Disposition: ' . (!empty($_GET['download']) ? 'attachment' : 'inline') . '; filename="' . basename($doc['file_path']) . '"');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, no-store');
-echo $file['data'];
+document_file_each($pdo, (int)$doc['document_id'], $file, function (string $piece) { echo $piece; });

@@ -1,85 +1,156 @@
 <?php
 /**
- * Top of every page. Expects $page_title to be set by the including page.
+ * Top of every page after login (every page includes it; all of them
+ * require login), the same for every role -- Faculty-201 File Management
+ * System. Expects $page_title to be set by the including page; $pdo from
+ * includes/auth.php. Layout:
  *
- * Signed in, the same header for every role, upper right:
- *   [search] [bell] (initials avatar) [Log out]
- * Search: hovering or clicking the magnifier opens a box that searches
- * documents by title, faculty or document type -- the Admin everyone's,
- * anyone else only their own. Results open in the pop-up (assets/js/app.js
- * -> api/modal.php?view=search); without JavaScript the form opens the
- * role's document list with the same search. The avatar opens Profile
- * Preference; the bell, the notifications.
+ *   [sidebar: logos, system name, menu]  [top bar: page title · search · bell · avatar · Log out]
+ *                                        [page]
+ *
+ * The menu is app_menu() (includes/nav_menu.php) for the user's role. Below
+ * 992px the sidebar is a slide-out menu (Bootstrap offcanvas-lg), opened by
+ * the round menu button in the top bar. The header search looks in every
+ * document for the Admin and in their own 201 file for everyone else
+ * (api/modal.php?view=search scopes it on the server); without JavaScript it
+ * opens the role's document list with the same search. The avatar opens
+ * Profile Preference; the bell, the notifications.
+ * The ids / classes assets/js/app.js relies on: #appSidebar, .sb-menu /
+ * .sb-sub / .sb-group-toggle (remembered closed sections), #headerSearch
+ * (search pop-up), #appModal (footer).
+ * Styles: assets/css/style.css, then assets/css/admin.css (body.admin-ui).
  */
 $user = current_user();
-$search_page = $user && $user['role'] === 'admin' ? 'admin/public_docs.php' : 'faculty/my_documents.php';
+require_once __DIR__ . '/admin_ui.php';
+require_once __DIR__ . '/nav_menu.php';
+$ad_page = nav_current_page();
+$ad_menu = app_menu($pdo, $user);
+$ad_unread = unread_notification_count($pdo, (int)$user['user_id']);
+$ad_udm = admin_logo_url('udm-logo');
+$ad_ccs = admin_logo_url('ccs-logo');
+$ad_title = $page_title ?? 'Home';
+$ad_avatar_user = ['user_id' => $user['user_id'], 'full_name' => $user['full_name'], 'profile_picture' => current_user_picture($pdo)];
+$ad_is_admin = $user['role'] === 'admin';
+$ad_search_page = $ad_is_admin ? 'admin/public_docs.php' : 'faculty/my_documents.php';
+$ad_search_ph = $ad_is_admin ? 'Title, faculty or document type' : 'Search my documents';
+
+/** One menu link: (round icon) label [count]. */
+$ad_link = function (array $item, bool $nested) use ($ad_page): string {
+    $active = ($item['active'])($ad_page);
+    $badge = (int)($item['badge'] ?? 0);
+    return '<li><a class="sb-row' . ($nested ? ' sb-row-sub' : '') . ($active ? ' active' : '') . '"'
+         . ' href="' . h(BASE_URL . '/' . $item['url']) . '"' . ($active ? ' aria-current="page"' : '') . '>'
+         . '<span class="sb-icon" aria-hidden="true"><i class="fa-solid ' . h($item['icon']) . '"></i></span>'
+         . '<span class="sb-label">' . h($item['label']) . '</span>'
+         . ($badge ? '<span class="sb-count" title="' . h($badge . ' ' . ($item['badge_title'] ?? '')) . '">'
+                   . ($badge > 99 ? '99+' : $badge) . '<span class="visually-hidden"> ' . h($item['badge_title'] ?? '') . '</span></span>' : '')
+         . '</a></li>';
+};
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
 <meta charset="UTF-8">
+<script>document.documentElement.className = document.documentElement.className.replace('no-js', 'js');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><?= h($page_title ?? 'Faculty 201-File Repository') ?> — CCS, Universidad de Manila</title>
+<title><?= h($ad_title) ?> — <?= h(ADMIN_SYSTEM_NAME) ?></title>
+<?php if ($ad_udm): ?><link rel="icon" href="<?= h($ad_udm) ?>"><?php endif; ?>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
-<link href="<?= BASE_URL ?>/assets/css/style.css?v=<?= (int)@filemtime(ROOT_PATH . '/assets/css/style.css') ?>" rel="stylesheet">
+<link href="<?= h(admin_asset('assets/css/style.css')) ?>" rel="stylesheet">
+<link href="<?= h(admin_asset('assets/css/admin.css')) ?>" rel="stylesheet">
 </head>
-<body>
-<nav class="navbar navbar-dark app-navbar">
-  <div class="container-fluid flex-nowrap">
-    <?php if ($user): ?>
-    <!-- Mobile only: opens the sidebar as a slide-in menu -->
-    <button class="btn btn-link text-white d-md-none px-1 me-2 sidebar-toggle" type="button"
-            data-bs-toggle="offcanvas" data-bs-target="#appSidebar" aria-controls="appSidebar" aria-label="Open menu">
-      <i class="fa-solid fa-bars fa-lg"></i>
-    </button>
-    <?php endif; ?>
-    <a class="navbar-brand fw-bold text-truncate me-2" href="<?= BASE_URL ?>/index.php">
-      <i class="fa-solid fa-folder-open"></i>
-      <span class="d-none d-sm-inline">CCS Faculty 201-File Repository</span>
-      <span class="d-sm-none">CCS 201-File</span>
-    </a>
-    <?php if ($user): ?>
-    <div class="d-flex align-items-center gap-2 gap-md-3 ms-auto flex-shrink-0 header-actions">
-      <?php if (empty($user['must_change_password'])): ?>
-      <form class="header-search" id="headerSearch" role="search" method="GET" action="<?= h(BASE_URL . '/' . $search_page) ?>"
-            data-endpoint="<?= h(BASE_URL . '/api/modal.php?view=search') ?>">
-        <label for="headerSearchInput" class="visually-hidden">Search documents</label>
-        <input type="search" name="q" id="headerSearchInput" class="form-control form-control-sm header-search-input" maxlength="100" autocomplete="off"
-               placeholder="<?= $user['role'] === 'admin' ? 'Title, faculty or document type' : 'Search my documents' ?>">
-        <button type="button" class="btn btn-link text-white px-1 header-search-btn" aria-controls="headerSearchInput" aria-expanded="false"
-                data-tooltip data-bs-placement="bottom" title="Search documents" aria-label="Search documents">
-          <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+<body class="admin-ui role-<?= h(str_replace('_', '-', $user['role'])) ?>">
+<a class="ad-skip" href="#adContent">Skip to content</a>
+<div class="ad-app">
+
+  <aside class="ad-sidebar offcanvas-lg offcanvas-start" id="appSidebar" tabindex="-1" aria-label="Main menu">
+    <div class="ad-brand">
+      <div class="ad-brand-logos">
+        <?php if ($ad_udm): ?><img src="<?= h($ad_udm) ?>" alt="Universidad de Manila seal" width="42" height="42"><?php endif; ?>
+        <?php if ($ad_ccs): ?><img src="<?= h($ad_ccs) ?>" alt="College of Computing Studies logo" width="42" height="42" class="ad-logo-contain"><?php endif; ?>
+        <button type="button" class="ad-round-btn ad-drawer-close d-lg-none" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar" aria-label="Close menu">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
         </button>
-      </form>
-      <?php endif; ?>
-      <?php $unread = unread_notification_count($pdo, $user['user_id']); ?>
-      <a href="<?= BASE_URL . '/' . role_notifications_path($user['role']) ?>" class="text-white position-relative px-1" data-tooltip data-bs-placement="bottom" title="Notifications<?= $unread ? ' (' . $unread . ' unread)' : '' ?>" aria-label="Notifications<?= $unread ? ' (' . $unread . ' unread)' : '' ?>">
-        <i class="fa-solid fa-bell fa-lg"></i>
-        <?php if ($unread): ?>
-          <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:.6rem;"><?= $unread > 9 ? '9+' : $unread ?></span>
-        <?php endif; ?>
-      </a>
-      <a href="<?= BASE_URL ?>/profile.php" class="navbar-profile text-decoration-none" data-tooltip data-bs-placement="bottom"
-         title="Profile Preference — <?= h($user['full_name']) ?>" aria-label="Profile Preference (<?= h($user['full_name']) ?>)">
-        <span class="avatar avatar-initials avatar-navbar" aria-hidden="true"><?= h(user_initials($user['full_name'])) ?></span>
-      </a>
-      <a href="<?= BASE_URL ?>/logout.php" class="btn btn-sm btn-outline-light text-nowrap"><i class="fa-solid fa-right-from-bracket"></i><span class="d-none d-sm-inline"> Log out</span></a>
+      </div>
+      <a class="ad-brand-name" href="<?= h(BASE_URL . '/' . portal_home_path()) ?>"><?= h(ADMIN_SYSTEM_NAME) ?></a>
+      <div class="ad-brand-sub">Universidad de Manila · College of Computing Studies</div>
     </div>
-    <?php endif; ?>
-  </div>
-</nav>
-<div class="container-fluid">
-  <div class="row">
-    <?php if ($user): include __DIR__ . '/sidebar.php'; endif; ?>
-    <main class="<?= $user ? 'col-12 col-md-9 col-lg-10 ms-sm-auto px-3 px-md-4' : 'col-12' ?> py-3 py-md-4 app-main">
-      <?php if (!empty($_SESSION['flash_error'])): ?>
-        <div class="alert alert-danger alert-dismissible fade show"><?= h($_SESSION['flash_error']) ?>
-          <button class="btn-close" data-bs-dismiss="alert"></button></div>
-        <?php unset($_SESSION['flash_error']); ?>
-      <?php endif; ?>
+    <nav class="ad-nav" aria-label="Main menu">
+      <ul class="sb-menu">
+        <?php foreach ($ad_menu as $i => $entry): ?>
+          <?php if (!isset($entry['group'])): ?>
+            <?= $ad_link($entry, false) ?>
+          <?php else:
+            $group_id = 'navGroup' . $i;
+            $group_active = (bool)array_filter($entry['items'], fn($item) => ($item['active'])($ad_page)); ?>
+            <li class="sb-group">
+              <button class="sb-row sb-group-toggle<?= $group_active ? ' has-active' : '' ?>" type="button" data-bs-toggle="collapse" data-bs-target="#<?= $group_id ?>"
+                      aria-expanded="true" aria-controls="<?= $group_id ?>" data-group="<?= h($entry['group']) ?>">
+                <span class="sb-icon" aria-hidden="true"><i class="fa-solid <?= h($entry['icon']) ?>"></i></span>
+                <span class="sb-label"><?= h($entry['group']) ?></span>
+                <span class="sb-chevron" aria-hidden="true"><i class="fa-solid fa-chevron-down"></i></span>
+              </button>
+              <ul class="sb-sub collapse show" id="<?= $group_id ?>" data-group="<?= h($entry['group']) ?>"<?= $group_active ? ' data-has-active="1"' : '' ?>>
+                <?php foreach ($entry['items'] as $item): ?>
+                  <?= $ad_link($item, true) ?>
+                <?php endforeach; ?>
+              </ul>
+            </li>
+          <?php endif; ?>
+        <?php endforeach; ?>
+      </ul>
+    </nav>
+  </aside>
+
+  <div class="ad-main">
+    <header class="ad-topbar">
+      <button class="ad-round-btn ad-menu-btn d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#appSidebar" aria-controls="appSidebar" aria-label="Open menu">
+        <i class="fa-solid fa-bars" aria-hidden="true"></i>
+      </button>
+      <h1 class="ad-title"><?= h($ad_title) ?></h1>
+      <div class="ad-actions">
+        <?php if (empty($user['must_change_password'])): ?>
+        <form class="header-search" id="headerSearch" role="search" method="GET" action="<?= h(BASE_URL . '/' . $ad_search_page) ?>"
+              data-endpoint="<?= h(BASE_URL . '/api/modal.php?view=search') ?>">
+          <label for="headerSearchInput" class="visually-hidden">Search documents</label>
+          <input type="search" name="q" id="headerSearchInput" class="header-search-input" maxlength="100" autocomplete="off" placeholder="<?= h($ad_search_ph) ?>">
+          <button type="button" class="header-search-btn" aria-controls="headerSearchInput" aria-expanded="false"
+                  data-tooltip data-bs-placement="bottom" title="Search documents" aria-label="Search documents">
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+          </button>
+        </form>
+        <?php endif; ?>
+        <a href="<?= h(BASE_URL . '/' . role_notifications_path($user['role'])) ?>" class="ad-round-btn ad-bell" data-tooltip data-bs-placement="bottom"
+           title="Notifications<?= $ad_unread ? ' (' . $ad_unread . ' unread)' : '' ?>" aria-label="Notifications<?= $ad_unread ? ', ' . $ad_unread . ' unread' : '' ?>">
+          <i class="fa-regular fa-bell" aria-hidden="true"></i>
+          <?php if ($ad_unread): ?><span class="ad-bell-count" aria-hidden="true"><?= $ad_unread > 9 ? '9+' : $ad_unread ?></span><?php endif; ?>
+        </a>
+        <a href="<?= BASE_URL ?>/profile.php" class="ad-avatar" data-tooltip data-bs-placement="bottom"
+           title="Profile Preference — <?= h($user['full_name']) ?>" aria-label="Profile Preference — <?= h($user['full_name']) ?>">
+          <?= user_avatar($ad_avatar_user, 38) ?>
+        </a>
+        <a href="<?= BASE_URL ?>/logout.php" class="ad-logout" aria-label="Log out">
+          <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i><span class="ad-logout-text">Log out</span>
+        </a>
+      </div>
+    </header>
+
+    <main class="app-main ad-content" id="adContent" tabindex="-1">
       <?php if (!empty($_SESSION['flash_success'])): ?>
-        <div class="alert alert-success alert-dismissible fade show"><?= h($_SESSION['flash_success']) ?>
-          <button class="btn-close" data-bs-dismiss="alert"></button></div>
+        <div class="ad-toast" role="status" aria-live="polite">
+          <span class="ad-toast-icon" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
+          <div class="ad-toast-text"><?= h($_SESSION['flash_success']) ?></div>
+          <button type="button" class="ad-toast-close" aria-label="Dismiss"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
         <?php unset($_SESSION['flash_success']); ?>
+      <?php endif; ?>
+      <div class="ad-page">
+      <?php if (!empty($_SESSION['flash_error'])): ?>
+        <div class="alert alert-danger alert-dismissible fade show" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> <?= h($_SESSION['flash_error']) ?>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>
+        <?php unset($_SESSION['flash_error']); ?>
       <?php endif; ?>

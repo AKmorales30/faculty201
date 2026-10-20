@@ -54,10 +54,8 @@ function pds_import_read_document(PDO $pdo, array $doc): array {
     if (is_file($path)) {
         return pds_import_extract_file($path, $doc['ocr_extracted_text']);
     }
-    $stmt = $pdo->prepare("SELECT data FROM document_files WHERE document_id = ?");
-    $stmt->execute([$doc['document_id']]);
-    $bytes = $stmt->fetchColumn();
-    if ($bytes === false) { return pds_import_empty('text'); }
+    $bytes = document_file_bytes($pdo, (int)$doc['document_id']);   // stored whole or in pieces
+    if ($bytes === null) { return pds_import_empty('text'); }
     if (!is_dir(TEMP_SCAN_PATH)) { @mkdir(TEMP_SCAN_PATH, 0775, true); }
     $tmp = TEMP_SCAN_PATH . '/pdsimport_' . bin2hex(random_bytes(6)) . '.' . strtolower(pathinfo($doc['file_path'], PATHINFO_EXTENSION));
     file_put_contents($tmp, $bytes);
@@ -154,7 +152,7 @@ include __DIR__ . '/../includes/header.php';
 
 <a href="<?= h(BASE_URL . '/' . $back) ?>" class="small text-muted d-inline-block mb-3"><i class="fa-solid fa-arrow-left"></i> Back</a>
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-1">
-  <h3 class="fw-bold mb-0">Import PDS File<?= $is_own ? '' : ' — ' . h($doc['full_name']) ?></h3>
+  <?php if (!$is_own): /* your own: the title is in the top bar */ ?><h3 class="fw-bold mb-0">Import PDS File — <?= h($doc['full_name']) ?></h3><?php else: ?><span></span><?php endif; ?>
   <div class="d-flex gap-2">
     <a href="<?= h(document_url($document_id)) ?>" target="_blank" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-eye"></i> View the file</a>
     <a href="<?= h($self) ?>&amp;refresh=1" class="btn btn-sm btn-outline-secondary" title="Read the file again"><i class="fa-solid fa-rotate"></i> Read again</a>

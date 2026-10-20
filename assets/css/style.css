@@ -8,12 +8,6 @@
 }
 
 body { background-color: #f4f6f9; color: var(--c-charcoal); }
-.app-navbar { background-color: var(--c-navy); }
-.sidebar {
-  background-color: #ffffff;
-  min-height: calc(100vh - 56px);
-  border-right: 1px solid #e2e2e2;
-}
 
 .stat-card { border: none; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
 .stat-card .stat-number { font-size: 2rem; font-weight: 700; color: var(--c-navy); }
@@ -211,35 +205,16 @@ body { background-color: #f4f6f9; color: var(--c-charcoal); }
 .notif-unread { border-left-color: var(--c-gold); background-color: #fffaf0; }
 
 /* =====================================================================
-   RESPONSIVE / MOBILE LAYOUT
-   Sidebar is static on md+ and becomes a slide-in (offcanvas-md) menu
-   below 768px, opened by the hamburger button in the navbar.
+   RESPONSIVE / MOBILE (the layout itself: assets/css/admin.css)
    ===================================================================== */
-html, body { overflow-x: hidden; }
+/* On body only: the browser hands it to the window, so there is no sideways
+   scroll and body stays a plain box. Also setting it on html made body its own
+   (never-scrolling) scroll box, which stopped the sticky sidebar / top bar and
+   the slide-out menu's "page behind doesn't scroll" lock from working. */
+body { overflow-x: hidden; }
 .app-main { min-width: 0; }
-.navbar-username { max-width: 220px; }
-.sidebar-toggle { line-height: 1; }
-.sidebar-toggle:focus-visible { outline: 2px solid #fff; }
-
-/* offcanvas-md forces a transparent background on md+; keep the white sidebar */
-@media (min-width: 768px) {
-  .sidebar.offcanvas-md { background-color: #ffffff !important; }
-}
 
 @media (max-width: 767.98px) {
-  /* Slide-in menu */
-  .sidebar.offcanvas-md {
-    --bs-offcanvas-width: min(82vw, 300px);
-    min-height: 0;
-    padding: 0;
-    border-right: none;
-  }
-  .sidebar .sidebar-mobile-header { background-color: var(--c-navy); color: #fff; }
-  .sidebar .sidebar-body { overflow-y: auto; flex-grow: 1; padding-bottom: 1rem; }
-
-  /* Navbar */
-  .app-navbar .navbar-brand { font-size: 1.05rem; min-width: 0; }
-
   /* Page headings + cards */
   .app-main h3 { font-size: 1.35rem; }
   .app-main .mb-4 { margin-bottom: 1rem !important; }
@@ -305,7 +280,7 @@ html, body { overflow-x: hidden; }
 /* Reports: print / save as PDF shows only the report header, counts and list */
 .report-print-header { border-bottom: 2px solid var(--c-navy); padding-bottom: .5rem; margin-bottom: 1rem; }
 @media print {
-  .app-navbar, #appSidebar, .no-print, .app-main > .alert { display: none !important; }
+  #appSidebar, .no-print, .app-main > .alert { display: none !important; }
   body { background: #fff; }
   .app-main { width: 100% !important; max-width: 100% !important; flex: 0 0 100% !important; margin: 0 !important; padding: 0 !important; }
   .stat-card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
@@ -322,10 +297,6 @@ html, body { overflow-x: hidden; }
 .avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; display: inline-block; background-color: #e9ecef; }
 .avatar-initials { display: inline-flex; align-items: center; justify-content: center; background-color: var(--c-teal);
                    color: #fff; font-weight: 600; line-height: 1; user-select: none; letter-spacing: .02em; }
-.avatar-navbar { border: 2px solid rgba(255,255,255,.75); }
-.avatar-navbar.avatar-initials { background-color: var(--c-gold); color: var(--c-charcoal); }
-.navbar-profile:hover .navbar-username { text-decoration: underline; }
-.navbar-profile:focus-visible { outline: 2px solid #fff; outline-offset: 2px; border-radius: 6px; }
 .avatar-lg { border: 4px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,.15); }
 
 /* Profile page */
@@ -340,7 +311,7 @@ html, body { overflow-x: hidden; }
 .directory-filter { max-width: 320px; }
 
 /* =====================================================================
-   AI features: report summary, reminders, 201 File Assistant (chatbot)
+   AI features: report summary, reminders
    ===================================================================== */
 .nav-pills .nav-link { color: var(--c-navy); }
 .nav-pills .nav-link.active { background-color: var(--c-navy); color: #fff; }
@@ -350,47 +321,6 @@ html, body { overflow-x: hidden; }
 .ai-gap { height: .5rem; }
 .reminder-card { border-left: 4px solid var(--c-gold); }
 
-.chatbot { position: fixed; right: 20px; bottom: 20px; z-index: 1060; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
-.chatbot-toggle {
-  width: 58px; height: 58px; border-radius: 50%; border: none; background: var(--c-navy); color: #fff;
-  font-size: 1.45rem; box-shadow: 0 6px 18px rgba(0,0,0,.25); transition: transform .15s ease, background-color .15s ease;
-}
-.chatbot-toggle:hover { transform: scale(1.06); background: #163d78; }
-.chatbot-toggle:focus-visible { outline: 3px solid var(--c-gold); outline-offset: 2px; }
-.chatbot-open .chatbot-toggle .fa-comments::before { content: "\f00d"; }   /* X while open */
-.chatbot-panel {
-  width: min(380px, calc(100vw - 32px)); height: min(560px, calc(100vh - 110px));
-  display: flex; flex-direction: column; overflow: hidden; border: none; border-radius: 16px; box-shadow: 0 12px 36px rgba(0,0,0,.25);
-}
-.chatbot-panel[hidden] { display: none; }
-.chatbot-header { background: var(--c-navy); color: #fff; padding: .6rem .5rem .6rem .9rem; }
-.chatbot-subtitle { color: rgba(255,255,255,.75); }
-.chatbot-messages { flex: 1 1 auto; overflow-y: auto; padding: .9rem; background: #f4f6f9; display: flex; flex-direction: column; gap: .5rem; }
-.chatbot-msg { max-width: 88%; padding: .5rem .75rem; border-radius: 14px; font-size: .9rem; line-height: 1.4; overflow-wrap: anywhere; }
-.chatbot-msg ul, .chatbot-msg ol { margin: .25rem 0; }
-.chatbot-msg-user { align-self: flex-end; background: var(--c-navy); color: #fff; border-bottom-right-radius: 4px; white-space: pre-wrap; }
-.chatbot-msg-assistant { align-self: flex-start; background: #fff; border: 1px solid #e2e6ee; border-bottom-left-radius: 4px; }
-.chatbot-msg-error { align-self: flex-start; background: #fff4e5; border: 1px solid #f5c26b; color: #6b4a00; }
-.chatbot-suggestions { display: flex; flex-wrap: wrap; gap: .4rem; }
-.chatbot-suggestions .btn { border-radius: 999px; font-size: .78rem; background: #fff; }
-.chatbot-typing { padding: .25rem 1rem .5rem; background: #f4f6f9; }
-.chatbot-typing span:not(.visually-hidden) {
-  display: inline-block; width: 7px; height: 7px; margin-right: 3px; border-radius: 50%; background: #9aa3b2;
-  animation: chatbot-dot 1.2s infinite ease-in-out;
-}
-.chatbot-typing span:nth-child(2) { animation-delay: .15s; }
-.chatbot-typing span:nth-child(3) { animation-delay: .3s; }
-@keyframes chatbot-dot { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-4px); } }
-.chatbot-form { padding: .6rem; border-top: 1px solid #e2e6ee; background: #fff; }
-.chatbot-form textarea { resize: none; max-height: 120px; }
-.chatbot-note { font-size: .7rem; color: #6c757d; text-align: center; padding: 0 .6rem .45rem; background: #fff; }
-@media (max-width: 575.98px) {
-  .chatbot { right: 12px; bottom: 12px; }
-  .chatbot-toggle { width: 52px; height: 52px; font-size: 1.3rem; }
-  .chatbot-panel { height: calc(100vh - 96px); }
-}
-@media (prefers-reduced-motion: reduce) { .chatbot-typing span { animation: none; } .chatbot-toggle { transition: none; } }
-@media print { .chatbot { display: none !important; } }
 
 /* =====================================================================
    Grouped sidebar, header search, pop-ups, review status
@@ -407,7 +337,6 @@ html, body { overflow-x: hidden; }
 .header-search-input:focus { width: min(260px, 50vw); padding: .25rem .6rem; border-width: 1px; opacity: 1; }
 .header-search-btn { line-height: 1; }
 .header-search-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.navbar-profile .avatar-navbar { width: 34px; height: 34px; font-size: .8rem; }
 @media (max-width: 575.98px) {
   .header-search.open .header-search-input, .header-search-input:focus { width: 42vw; }
   .header-search:hover:not(.open) .header-search-input:not(:focus) { width: 0; padding: 0; border-width: 0; opacity: 0; }   /* no hover on phones */
@@ -452,86 +381,6 @@ html, body { overflow-x: hidden; }
 .create-option:focus-visible { outline: 2px solid var(--c-navy); outline-offset: 2px; }
 
 @media print { .header-search, #appModal { display: none !important; } }
-
-/* =====================================================================
-   Sidebar menu (includes/sidebar.php) -- rounded rows with a round icon
-   holder, one-line labels; sections expand / collapse in place.
-   ===================================================================== */
-.sidebar {
-  --sb-text: #050505;
-  --sb-icon-bg: #e4e6eb;
-  --sb-hover: #f2f2f2;
-  --sb-active: #eef1f5;
-  --sb-ease: 180ms ease;
-  border-right: 1px solid #e4e6eb;
-}
-/* A fixed-width column on md+, so labels fit on one line; the page takes the rest */
-@media (min-width: 768px) {
-  .sidebar.col-md-3 { flex: 0 0 264px; width: 264px; max-width: 264px; padding-left: 0; padding-right: 0; }
-  .sidebar.col-md-3 + .app-main { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
-  .sidebar .sidebar-body { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; }
-}
-@media (min-width: 1200px) {
-  .sidebar.col-md-3 { flex-basis: 280px; width: 280px; max-width: 280px; }
-}
-
-.sidebar .sidebar-body { padding: .75rem .5rem 1rem; }
-.sb-menu, .sb-sub { list-style: none; margin: 0; padding: 0; }
-.sb-menu > li + li { margin-top: 2px; }
-.sb-sub > li { margin-top: 2px; }
-
-/* Every row: links and section headers */
-.sb-row {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  min-height: 52px; padding: 8px; border: 0; border-radius: 8px; background: transparent;
-  color: var(--sb-text); font: inherit; font-size: 15px; font-weight: 400; line-height: 1.25;
-  text-align: left; text-decoration: none; cursor: pointer;
-  transition: background-color var(--sb-ease);
-}
-.sb-row:hover { background-color: var(--sb-hover); color: var(--sb-text); }
-.sb-row:active { background-color: #e9eaed; }
-.sb-row:focus { outline: none; }
-.sb-row:focus-visible { outline: 2px solid var(--c-navy); outline-offset: -2px; }
-
-.sb-icon {
-  flex: 0 0 36px; width: 36px; height: 36px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  background-color: var(--sb-icon-bg); color: var(--sb-text); font-size: 16px;
-  transition: background-color var(--sb-ease), color var(--sb-ease);
-}
-.sb-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sb-badge {
-  flex: 0 0 auto; margin-left: auto; min-width: 22px; padding: .25em .55em;
-  font-size: 12px; font-weight: 600; line-height: 1.1; text-align: center;
-}
-
-/* Section headers: medium label, chevron on the far right (up = open) */
-.sb-group-toggle .sb-label { font-weight: 500; }
-.sb-chevron {
-  flex: 0 0 auto; width: 24px; text-align: center; font-size: 12px; color: #65676b;
-  transition: transform var(--sb-ease);
-}
-.sb-group-toggle[aria-expanded="true"] .sb-chevron { transform: rotate(180deg); }
-.sidebar .sb-sub.collapsing { transition: height var(--sb-ease); }
-
-/* Links inside a section: indented so the icon sits under the section's label */
-.sb-row-sub { min-height: 44px; padding-left: 56px; }
-.sb-row-sub .sb-icon { flex-basis: 32px; width: 32px; height: 32px; font-size: 14px; }
-
-/* The current page: light row, icon circle in the system's navy, label stays dark */
-.sb-row.active, .sb-row.active:hover { background-color: var(--sb-active); }
-.sb-row.active .sb-label { font-weight: 600; }
-.sb-row.active .sb-icon { background-color: var(--c-navy); color: #fff; }
-
-.sb-divider { height: 1px; background-color: #e4e6eb; margin: .5rem 8px; }
-.sb-row-danger .sb-icon { color: #c0392b; }
-
-@media (max-width: 767.98px) {
-  .sidebar .sidebar-body { padding: .5rem; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sb-row, .sb-icon, .sb-chevron, .sidebar .sb-sub.collapsing { transition: none; }
-}
 
 /* Recently Deleted: days left before the permanent deletion; 7 days or fewer stand out */
 .purge-countdown { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .55rem; border-radius: 999px;

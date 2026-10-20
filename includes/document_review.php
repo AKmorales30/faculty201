@@ -7,7 +7,7 @@
  * The Admin opens it in the review pop-up (api/modal.php?view=review),
  * checks the detected document type, confidence and extracted details,
  * corrects them if needed, and posts it: status 'active' (Posted), with
- * posted_at / posted_by. Only posted documents appear in Public Docs,
+ * posted_at / posted_by. Only posted documents appear in 201-Files,
  * searches, reports and analytics. The owner is notified when it's posted.
  *
  * This is a classification check only -- not the old Program Chair / Dean
@@ -138,10 +138,10 @@ function review_save_document(PDO $pdo, array $doc, array $in, array $admin, boo
         log_my_activity($pdo, 'DOCUMENT_POST', "Reviewed and posted {$what} as {$label}{$change_text}.");
         $owner_link = 'faculty/my_documents.php?type=' . rawurlencode($type);
         notify($pdo, (int)$doc['faculty_id'], 'Your ' . document_title(['title' => $details['title'] ?? $doc['title'], 'file_path' => $file_path])
-            . " ({$label}) was reviewed and posted to your Public Docs."
+            . " ({$label}) was reviewed and posted to your 201-Files."
             . ($type_changed ? ' Its document type was corrected from ' . document_type_label($doc['document_type'], $doc['document_subtype']) . '.' : ''),
             null, $owner_link);
-        return [true, "Posted {$doc['full_name']}'s {$label} to Public Docs. {$doc['full_name']} has been notified."];
+        return [true, "Posted {$doc['full_name']}'s {$label} to 201-Files. {$doc['full_name']} has been notified."];
     }
     if ($changes) {
         log_my_activity($pdo, 'DOCUMENT_REVIEW_EDIT', "Corrected {$what} in Manage Document (still For Review){$change_text}.");

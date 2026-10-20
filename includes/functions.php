@@ -166,9 +166,17 @@ function move_to_repository(int $faculty_id, string $document_type, string $sour
     $srcAbs = ROOT_PATH . '/' . $source_rel;
     $relDir = 'uploads/' . $faculty_id . '/' . $document_type . ($subtype ? '/' . $subtype : '');
     $destDir = ROOT_PATH . '/' . $relDir;
-    if (!is_dir($destDir)) { @mkdir($destDir, 0775, true); }
+    if (!is_dir($destDir) && !@mkdir($destDir, 0775, true) && !is_dir($destDir)) {
+        error_log("Storing upload failed: could not create {$destDir} (is uploads/ writable by the web server?)");
+        return null;
+    }
     $filename = basename($source_rel);
-    if (!is_file($srcAbs) || !@rename($srcAbs, $destDir . '/' . $filename)) {
+    if (!is_file($srcAbs)) {
+        error_log("Storing upload failed: the scanned file {$srcAbs} is missing");
+        return null;
+    }
+    if (!@rename($srcAbs, $destDir . '/' . $filename)) {
+        error_log("Storing upload failed: could not move {$srcAbs} to {$destDir}/ (" . (error_get_last()['message'] ?? 'unknown error') . ')');
         return null;
     }
     return $relDir . '/' . $filename;
@@ -187,7 +195,7 @@ function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?st
          . "Faculty: {$uploader['full_name']}\n"
          . "Document Type: " . document_type_label($document_type, $subtype) . "\n"
          . "Date Uploaded: " . $when->format('F j, Y, g:i A') . "\n"
-         . "It is waiting For Review in Manage Document: check its document type and details, then post it to Public Docs.";
+         . "It is waiting For Review in Manage Document: check its document type and details, then post it to 201-Files.";
     foreach ($extra_lines as $line) {
         $msg .= "\n" . $line;
     }
@@ -243,32 +251,123 @@ function document_mime_type(string $file_path): string {
     return $types[strtolower(pathinfo($file_path, PATHINFO_EXTENSION))] ?? 'application/octet-stream';
 }
 
+/** A file bigger than the database can store (max_allowed_packet, and the chunk table isn't set up yet). */
+class DocumentFileTooLarge extends RuntimeException {
+    public function __construct(public readonly int $size, public readonly int $max) {
+        parent::__construct("File of {$size} bytes exceeds what the database accepts in one query ({$max} bytes; max_allowed_packet) "
+            . '-- apply database/migration_document_file_chunks.sql to store files in pieces');
+    }
+}
+
+/** Whether database/migration_document_file_chunks.sql has been applied (files are stored in pieces). */
+function document_file_chunks_ready(PDO $pdo): bool {
+    static $ready = null;
+    if ($ready === null) {
+        try {
+            $ready = (bool)$pdo->query("SHOW TABLES LIKE 'document_file_chunks'")->fetchColumn();
+        } catch (PDOException $e) {
+            $ready = false;
+        }
+    }
+    return $ready;
+}
+
 /**
- * Save a document's file in the database (document_files), so it survives
- * the hosting server wiping its disk. $abs_path is the file on disk.
- * Throws if the file can't be read or is bigger than the database accepts
- * in one query (max_allowed_packet).
+ * Save a document's file in the database, so it survives the hosting server
+ * wiping its disk. $abs_path is the file on disk.
+ *
+ * MySQL refuses any query (and any row it sends back) bigger than
+ * max_allowed_packet -- 1 MB on XAMPP -- so the file is written to
+ * document_file_chunks in pieces of half that size; document_files keeps
+ * its type and size, with an empty data column. Before
+ * migration_document_file_chunks.sql is applied, the whole file goes into
+ * document_files.data, which only works for files that fit in one packet
+ * (DocumentFileTooLarge otherwise). Throws if the file can't be read or a
+ * query fails.
  */
 function store_document_file(PDO $pdo, int $document_id, string $abs_path, string $file_path): void {
     $bytes = @file_get_contents($abs_path);
     if ($bytes === false) {
         throw new RuntimeException("Could not read $abs_path to store it");
     }
+    $size = strlen($bytes);
     $limit = (int)$pdo->query("SELECT @@max_allowed_packet")->fetchColumn();
-    // Room for the rest of the query: 1 MB, or an eighth of a small limit -- a flat 1 MB
-    // left nothing at all on XAMPP's default 1M, so no file could be stored there
-    if ($limit > 0 && strlen($bytes) > $limit - min(1024 * 1024, intdiv($limit, 8))) {
-        throw new RuntimeException('File of ' . strlen($bytes) . ' bytes exceeds the database max_allowed_packet (' . $limit . ')');
+    $chunked = document_file_chunks_ready($pdo);
+    if (!$chunked) {
+        // Room for the rest of the query: 1 MB, or an eighth of a small limit
+        $max = $limit > 0 ? $limit - min(1024 * 1024, intdiv($limit, 8)) : PHP_INT_MAX;
+        if ($size > $max) {
+            throw new DocumentFileTooLarge($size, $max);
+        }
     }
-    $stmt = $pdo->prepare(
-        "INSERT INTO document_files (document_id, mime_type, file_size, data) VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_size = VALUES(file_size), data = VALUES(data)"
-    );
-    $stmt->bindValue(1, $document_id, PDO::PARAM_INT);
-    $stmt->bindValue(2, document_mime_type($file_path));
-    $stmt->bindValue(3, strlen($bytes), PDO::PARAM_INT);
-    $stmt->bindValue(4, $bytes, PDO::PARAM_LOB);
-    $stmt->execute();
+    $own = !$pdo->inTransaction();   // all or nothing: never half a file
+    if ($own) { $pdo->beginTransaction(); }
+    try {
+        $stmt = $pdo->prepare(
+            "INSERT INTO document_files (document_id, mime_type, file_size, data) VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_size = VALUES(file_size), data = VALUES(data)"
+        );
+        $stmt->bindValue(1, $document_id, PDO::PARAM_INT);
+        $stmt->bindValue(2, document_mime_type($file_path));
+        $stmt->bindValue(3, $size, PDO::PARAM_INT);
+        $stmt->bindValue(4, $chunked ? '' : $bytes, PDO::PARAM_LOB);
+        $stmt->execute();
+        if ($chunked) {
+            $pdo->prepare("DELETE FROM document_file_chunks WHERE document_id = ?")->execute([$document_id]);
+            $piece = max(64 * 1024, min(8 * 1024 * 1024, intdiv($limit > 0 ? $limit : 16 * 1024 * 1024, 2)));
+            $insert = $pdo->prepare("INSERT INTO document_file_chunks (document_id, seq, data) VALUES (?, ?, ?)");
+            for ($seq = 0, $offset = 0; $offset < $size || $seq === 0; $seq++, $offset += $piece) {
+                $insert->bindValue(1, $document_id, PDO::PARAM_INT);
+                $insert->bindValue(2, $seq, PDO::PARAM_INT);
+                $insert->bindValue(3, substr($bytes, $offset, $piece), PDO::PARAM_LOB);
+                $insert->execute();
+            }
+        }
+        if ($own) { $pdo->commit(); }
+    } catch (Throwable $e) {
+        if ($own && $pdo->inTransaction()) { $pdo->rollBack(); }
+        throw $e;
+    }
+}
+
+/**
+ * A document's stored file: ['mime_type', 'file_size'] or null when it isn't
+ * in the database. Read the bytes with document_file_bytes() or
+ * document_file_each().
+ */
+function document_file_info(PDO $pdo, int $document_id): ?array {
+    $stmt = $pdo->prepare("SELECT mime_type, file_size, LENGTH(data) AS inline_size FROM document_files WHERE document_id = ?");
+    $stmt->execute([$document_id]);
+    return $stmt->fetch() ?: null;
+}
+
+/** Send a stored file's bytes to $out piece by piece (no row bigger than one packet is ever read). */
+function document_file_each(PDO $pdo, int $document_id, array $info, callable $out): void {
+    if ((int)$info['inline_size'] > 0) {   // saved in one row (before files were stored in pieces)
+        $stmt = $pdo->prepare("SELECT data FROM document_files WHERE document_id = ?");
+        $stmt->execute([$document_id]);
+        $out((string)$stmt->fetchColumn());
+        return;
+    }
+    if (!document_file_chunks_ready($pdo)) {
+        return;
+    }
+    $stmt = $pdo->prepare("SELECT data FROM document_file_chunks WHERE document_id = ? ORDER BY seq");
+    $stmt->execute([$document_id]);
+    while (($piece = $stmt->fetchColumn()) !== false) {
+        $out((string)$piece);
+    }
+}
+
+/** A stored file's bytes, or null when it isn't in the database. */
+function document_file_bytes(PDO $pdo, int $document_id): ?string {
+    $info = document_file_info($pdo, $document_id);
+    if ($info === null) {
+        return null;
+    }
+    $bytes = '';
+    document_file_each($pdo, $document_id, $info, function (string $piece) use (&$bytes) { $bytes .= $piece; });
+    return $bytes;
 }
 
 /**
@@ -376,10 +475,10 @@ function move_document_file(string $from, string $to): string {
  * archived -> Recently Deleted) or 'restore':
  *   archived -> posted (or For Review if it was never posted)
  *   deleted  -> back where it was when deleted (status_before_delete:
- *               Public Docs, Archived Docs or For Review), with its details;
+ *               201-Files, Archived Docs or For Review), with its details;
  *               only within DELETED_RETENTION_DAYS (deleted_restore_open())
  * Deleting moves the local file into uploads/_deleted/; restoring moves it
- * back. Restoring to Public Docs counts as a view (last_viewed_at), so the
+ * back. Restoring to 201-Files counts as a view (last_viewed_at), so the
  * auto-archive doesn't take it straight back.
  * Returns false if the action doesn't apply to the document's current status.
  */
@@ -507,8 +606,8 @@ function permanently_delete_document(PDO $pdo, int $document_id, ?array $actor, 
             $pdo->rollBack();
             return false;
         }
-        // Notifications about this upload, then the document (document_files and expiration_alerts_sent
-        // follow by ON DELETE CASCADE; PDS entries made from it keep their data, unlinked), then its upload log
+        // Notifications about this upload, then the document (document_files, document_file_chunks and
+        // expiration_alerts_sent follow by ON DELETE CASCADE; PDS entries made from it keep their data, unlinked), then its upload log
         $pdo->prepare("DELETE FROM notifications WHERE request_id = ?")->execute([$doc['request_id']]);
         $pdo->prepare("DELETE FROM document_files WHERE document_id = ?")->execute([$document_id]);
         $pdo->prepare("DELETE FROM documents WHERE document_id = ?")->execute([$document_id]);
@@ -600,7 +699,7 @@ function document_url(int $document_id): string {
 /**
  * Store a faculty member's upload: move the scan into the repository, log
  * it in submission_requests as 'uploaded' and insert the documents row as
- * For Review (status 'for_review') -- it reaches Public Docs once the Admin
+ * For Review (status 'for_review') -- it reaches 201-Files once the Admin
  * posts it from Manage Document. $ocr is the OcrProcessor::process() result
  * from the preview step (empty for a manual entry); $meta holds subtype /
  * academic_year / semester / period_year / expiration, entry_method
@@ -609,10 +708,12 @@ function document_url(int $document_id): string {
  * and Dean (notify_new_upload) once any PDS update has been applied.
  * Returns [request_id, document_id], or null if the file could not be stored.
  */
-function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, array $meta, string $scan_rel, array $ocr): ?array {
+function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, array $meta, string $scan_rel, array $ocr, ?array &$failure = null): ?array {
+    $failure = null;   // on failure: ['reason' => 'move' | 'too_large' | 'database', 'max' => bytes (too_large)]
     $subtype = $meta['subtype'] ?? null;
-    $filePath = move_to_repository((int)$faculty['user_id'], $document_type, $scan_rel, $subtype);
+    $filePath = move_to_repository((int)$faculty['user_id'], $document_type, $scan_rel, $subtype);   // logs why it failed
     if ($filePath === null) {
+        $failure = ['reason' => 'move'];
         return null;
     }
 
@@ -651,7 +752,11 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
         if ($pdo->inTransaction()) { $pdo->rollBack(); }
         // Put the scan back so the faculty member can retry from the preview.
         @rename(ROOT_PATH . '/' . $filePath, ROOT_PATH . '/' . $scan_rel);
-        error_log('Storing upload failed: ' . $e->getMessage());
+        // The real cause, for the PHP error log (the user sees a friendly message)
+        error_log(sprintf('Storing upload failed: %s: %s in %s:%d (faculty %d, %s, %s)', get_class($e), $e->getMessage(),
+            $e->getFile(), $e->getLine(), (int)$faculty['user_id'], $document_type, $filePath)
+            . ($e instanceof PDOException ? ' SQLSTATE ' . ($e->errorInfo[0] ?? '?') . ' / driver error ' . ($e->errorInfo[1] ?? '?') : ''));
+        $failure = $e instanceof DocumentFileTooLarge ? ['reason' => 'too_large', 'max' => $e->max] : ['reason' => 'database'];
         return null;
     }
 
@@ -1166,8 +1271,8 @@ function run_daily_expiration_check(PDO $pdo, bool $force = false): ?array {
 // archived_by NULL, archive_reason auto_archive_reason(). The file and
 // record are kept; the owner sees it in their Archived Docs, the
 // Admin can restore it (which counts as a view). Opening an archived
-// document does not restore it. Archived documents are left out of Public
-// Docs, searches, dashboards, expiration alerts and analytics, which all
+// document does not restore it. Archived documents are left out of
+// 201-Files, searches, dashboards, expiration alerts and analytics, which all
 // filter on status = 'active'. Runs at most once a day
 // (run_daily_auto_archive(), dashboards and cron/auto_archive.php).
 // ---------------------------------------------------------------------
@@ -1588,6 +1693,8 @@ function activity_actions(): array {
         'PASSWORD_CHANGE'    => 'Password Changed',
         'PASSWORD_RESET'     => 'Password Reset',
         'LOGIN_LOCKOUT'      => 'Login Locked',
+        'LOGIN_BLOCKED'      => 'Login Blocked (Deactivated Account)',
+        'SESSION_ENDED'      => 'Signed Out (Account Deactivated)',
         'LOGIN_UNLOCK'       => 'Login Unlocked',
         'AI_SUMMARY'         => 'AI Report Summary Generated',
         'REMINDER_CHECK'     => 'Reminder Check',
