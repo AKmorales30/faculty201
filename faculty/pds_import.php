@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // PHP drops fields past max_input_vars: a cut-off form would import only part of what was ticked
     if (empty($_POST['form_complete'])) { $fail('The review is too large to save in one go on this server (PHP max_input_vars). Untick some rows and try again.'); }
 
-    $result = pds_import_apply($pdo, $faculty_id, $document_id, $_POST);
+    $result = pds_import_apply($pdo, $faculty_id, $document_id, $_POST, (int)$me['user_id'], $is_own ? 'upload' : 'admin edit');
     unset($_SESSION['pds_import'][$document_id]);
     $notes = [];
     if ($result['invalid']) { $notes[] = $result['invalid'] . ' value' . ($result['invalid'] === 1 ? ' was' : 's were') . ' not valid (e.g. a date) and left out.'; }

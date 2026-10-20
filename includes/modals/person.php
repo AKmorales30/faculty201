@@ -38,7 +38,8 @@ $fields = [
   <div class="min-w-0">
     <div class="ui-person-title"><?= h($person['full_name']) ?></div>
     <div class="ui-cell-sub"><?= h(user_position_line($person)) ?></div>
-    <span class="status-pill mt-1 <?= $person['is_active'] ? 'status-pill-active' : 'status-pill-off' ?>"><?= $person['is_active'] ? 'Active' : 'Deactivated' ?></span>
+    <?php [$status_label, $status_class] = account_status_pill($person); ?>
+    <span class="status-pill mt-1 <?= $status_class ?>"><?= h($status_label) ?></span>
   </div>
 </div>
 
@@ -48,6 +49,8 @@ $fields = [
   <?php endforeach; ?>
 </dl>
 
+<?php require_once __DIR__ . '/../pds.php'; ?>
+<div class="mb-3"><?= pds_version_card($pdo, $pid, $me, true) ?></div>
 <div class="ui-person-section">201 file summary</div>
 <div class="ui-person-counts">
   <span><strong><?= (int)$summary['total'] ?></strong> posted document<?= $summary['total'] === 1 ? '' : 's' ?></span>

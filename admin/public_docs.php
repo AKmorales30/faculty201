@@ -157,9 +157,9 @@ include __DIR__ . '/../includes/header.php';
 include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delete buttons + confirmation dialog
 ?>
 
-<?php $review_n = documents_for_review_count($pdo); ?>
-<?= admin_intro('Every faculty member\'s posted documents — uploads that passed the classification review in Manage Document. Open a row to preview the file and its details.',
-    '<a href="' . BASE_URL . '/admin/manage_documents.php" class="btn btn-outline-brand"><i class="fa-solid fa-list-check" aria-hidden="true"></i> Manage Document' . ($review_n ? ' (' . $review_n . ' for review)' : '') . '</a>') ?>
+<?php $flagged_n = documents_flagged_count($pdo); ?>
+<?= admin_intro('Every faculty member\'s documents — uploads are posted here right away. Documents marked <span class="badge bg-review">Flagged</span> are also listed in Manage Document for checking. Open a row to preview the file and its details, or to correct its type.',
+    '<a href="' . BASE_URL . '/admin/manage_documents.php" class="btn btn-outline-brand"><i class="fa-solid fa-flag" aria-hidden="true"></i> Manage Document' . ($flagged_n ? ' (' . $flagged_n . ' flagged)' : '') . '</a>') ?>
 <?= admin_docs_tabs('list') ?>
 
 <?php if ($date_error): ?>
@@ -247,7 +247,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
       <tbody>
         <?php if (!$documents): ?>
           <?= admin_empty_row(6, $active ? 'No documents match' : 'No posted documents yet',
-                $active ? 'Try a different search, or clear the filters to see everything.' : 'Documents appear here once they are posted from Manage Document.',
+                $active ? 'Try a different search, or clear the filters to see everything.' : 'Documents appear here as soon as they are uploaded.',
                 $active ? 'public_docs.php' : null) ?>
         <?php endif; ?>
         <?php foreach ($documents as $d):
@@ -260,6 +260,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
             <?php if (trim((string)$d['title']) !== ''): ?><div class="ui-cell-sub"><?= h(basename($d['file_path'])) ?></div><?php endif; ?>
             <?php if ($d['ocr_matched_name']): ?><div class="ui-cell-sub">Name read: <?= h($d['ocr_matched_name']) ?></div><?php endif; ?>
             <?php if ($d['status'] === 'archived'): ?><div class="mt-1"><span class="badge bg-light">Archived</span></div><?php endif; ?>
+            <?php if (document_is_flagged($d)): ?><div class="mt-1"><span class="badge bg-review" title="<?= h(ucfirst(document_flag_text($d['flag_reason']))) ?>"><i class="fa-solid fa-flag" aria-hidden="true"></i> Flagged for checking</span></div><?php endif; ?>
           </td>
           <td>
             <a href="faculty_documents.php?id=<?= (int)$d['faculty_id'] ?>" class="text-body fw-semibold"><?= h($d['full_name']) ?></a>

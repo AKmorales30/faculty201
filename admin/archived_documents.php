@@ -25,7 +25,7 @@ if (!array_key_exists($category, $categories)) { $category = ''; }
 if (!in_array($how, ['auto', 'manual'], true)) { $how = ''; }
 
 $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title, d.status, d.filed_at, d.last_viewed_at,
-               d.archived_at AS removed_at, d.archive_reason AS removed_reason, u.full_name, r.full_name AS removed_by_name, r.role AS removed_by_role
+               d.archived_at AS removed_at, d.archive_reason AS removed_reason, u.full_name, u.purged_at AS owner_purged_at, r.full_name AS removed_by_name, r.role AS removed_by_role
         FROM documents d
         JOIN users u ON u.user_id = d.faculty_id
         LEFT JOIN users r ON r.user_id = d.archived_by
@@ -98,11 +98,14 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Restore / Delet
             <div class="fw-semibold"><?= h(document_title($d)) ?></div>
             <div class="ui-cell-sub">Uploaded <?= h(date('M j, Y', strtotime($d['filed_at']))) ?> · last opened <?= h(date('M j, Y', strtotime($d['last_viewed_at'] ?? $d['filed_at']))) ?></div>
           </td>
-          <td><a href="<?= BASE_URL ?>/archive.php?id=<?= (int)$d['faculty_id'] ?>" class="text-body fw-semibold" title="This faculty member's archive"><?= h($d['full_name']) ?></a></td>
+          <td><a href="<?= BASE_URL ?>/archive.php?id=<?= (int)$d['faculty_id'] ?>" class="text-body fw-semibold" title="This faculty member's archive"><?= h($d['full_name']) ?></a>
+            <?php if ($d['owner_purged_at']): ?><div class="ui-cell-sub">Former faculty · account deleted</div><?php endif; ?></td>
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>
           <td class="text-nowrap"><?= $d['removed_at'] ? h(date('M j, Y', strtotime($d['removed_at']))) : '—' ?></td>
           <td>
-            <?php if ($d['removed_by_name']): ?>
+            <?php if (!$d['removed_by_name'] && $d['owner_purged_at']): ?>
+              <span class="badge bg-secondary">Former faculty</span>
+            <?php elseif ($d['removed_by_name']): ?>
               <span class="badge bg-info">Archived by <?= $d['removed_by_role'] !== 'admin' ? 'owner' : 'Admin' ?></span>
               <?php if ($d['removed_by_role'] === 'admin'): ?><div class="ui-cell-sub"><?= h($d['removed_by_name']) ?></div><?php endif; ?>
             <?php else: ?>

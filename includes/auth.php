@@ -125,6 +125,7 @@ function redirect_to_dashboard() {
 // ---------------------------------------------------------------------
 
 const ACCOUNT_DEACTIVATED_MESSAGE = 'Your account has been deactivated. Please contact the administrator.';
+const ACCOUNT_DELETED_MESSAGE = 'This account has been deleted. Please contact the administrator.';
 
 /** The landing page's login form a role uses ('faculty', or 'admin' for Admin / Program Chair / Dean). */
 function login_portal_for_role(?string $role): string {
@@ -137,11 +138,12 @@ function login_portal_for_role(?string $role): string {
  * landing page, then send a page request to that role's login form and an
  * AJAX request a 401 (assets/js/app.js reloads the page, which lands there).
  */
-function end_deactivated_session(PDO $pdo): void {
+function end_deactivated_session(PDO $pdo, bool $deleted = false): void {
     $u = $_SESSION['user'];
+    $message = $deleted ? ACCOUNT_DELETED_MESSAGE : ACCOUNT_DEACTIVATED_MESSAGE;
     try {
         $pdo->prepare("INSERT INTO activity_logs (user_id, user_role, action, details, ip_address, user_agent) VALUES (?, ?, 'SESSION_ENDED', ?, ?, ?)")
-            ->execute([(int)$u['user_id'], $u['role'] ?? null, 'Signed out automatically: the account was deactivated.',
+            ->execute([(int)$u['user_id'], $u['role'] ?? null, 'Signed out automatically: the account was ' . ($deleted ? 'deleted.' : 'deactivated.'),
                        $_SERVER['REMOTE_ADDR'] ?? null, isset($_SERVER['HTTP_USER_AGENT']) ? mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255) : null]);
     } catch (Throwable $e) {
         error_log('Deactivated session: could not log it: ' . $e->getMessage());
@@ -149,14 +151,14 @@ function end_deactivated_session(PDO $pdo): void {
     $portal = login_portal_for_role($u['role'] ?? null);
     $_SESSION = [];
     session_regenerate_id(true);
-    $_SESSION['login_error_' . $portal] = ACCOUNT_DEACTIVATED_MESSAGE;
+    $_SESSION['login_error_' . $portal] = $message;
 
     $ajax = ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest'
          || str_contains(str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? ''), '/api/');
     if ($ajax) {
         http_response_code(401);
         header('Content-Type: application/json; charset=UTF-8');
-        echo json_encode(['ok' => false, 'error' => ACCOUNT_DEACTIVATED_MESSAGE]);
+        echo json_encode(['ok' => false, 'error' => $message]);
         exit;
     }
     header('Location: ' . BASE_URL . '/index.php?role=' . $portal);
@@ -165,18 +167,24 @@ function end_deactivated_session(PDO $pdo): void {
 
 // Runs at the top level of every page / endpoint that includes this file (all of them), so the
 // connection lands in the global $pdo that includes/functions.php uses too.
+// The same read refreshes the signed-in user's name in the session, so the top bar, avatar initials
+// and greetings show the name in the database right away -- also after the Admin renames the account.
 if (!empty($_SESSION['user']['user_id']) && PHP_SAPI !== 'cli') {
     require_once __DIR__ . '/../config/db.php';
     try {
-        $account_check = $pdo->prepare("SELECT is_active FROM users WHERE user_id = ?");
+        $account_check = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");   // * : the name columns may not be migrated yet
         $account_check->execute([(int)$_SESSION['user']['user_id']]);
-        $account_active = $account_check->fetchColumn();
+        $account_row = $account_check->fetch();
     } catch (Throwable $e) {
-        $account_active = null;   // database problem: the page itself reports it
+        $account_row = null;   // database problem: the page itself reports it
         error_log('Account status check failed: ' . $e->getMessage());
     }
-    if ($account_active !== null && (int)$account_active !== 1) {   // false (no such account) or 0 (deactivated)
-        end_deactivated_session($pdo);
+    if ($account_row === false || ($account_row && ((int)$account_row['is_active'] !== 1 || !empty($account_row['deleted_at'])))) {
+        end_deactivated_session($pdo, !empty($account_row['deleted_at']));   // no such account, deactivated, or deleted
     }
-    unset($account_check, $account_active);
+    if ($account_row) {
+        $_SESSION['user']['full_name'] = $account_row['full_name'];
+        $_SESSION['user']['first_name'] = $account_row['first_name'] ?? null;
+    }
+    unset($account_check, $account_row);
 }

@@ -96,8 +96,8 @@ function document_action_buttons(array $doc, array $me): string {
     delete:  ['Delete document', 'This document will be moved to Recently Deleted. You can restore it within ' + DAYS + ' days before it is permanently deleted.', 'btn-danger', 'Delete'],
     purge:   ['Delete permanently', 'This permanently deletes the document: its file and its record are removed for good. This cannot be undone.', 'btn-danger', 'Delete permanently'],
     archive: ['Archive document', 'It will move to the faculty member\'s Archived Docs (they can still view it there) and no longer appear in 201-Files, searches, reports or expiration alerts. You can restore it later.', 'btn-secondary', 'Archive'],
-    restoreDeleted: ['Restore document', 'It goes back to where it was before it was deleted (201-Files, Archived Docs or For Review), with its details.', 'btn-success', 'Restore'],
-    restore: ['Restore document', 'It will appear in the faculty member\'s 201-Files again (a document deleted before it was posted goes back to For Review). Restoring counts as opening it, so the <?= h(archive_period_label()) ?> archive rule starts over.', 'btn-success', 'Restore']
+    restoreDeleted: ['Restore document', 'It goes back to where it was before it was deleted (201-Files or Archived Docs), with its details.', 'btn-success', 'Restore'],
+    restore: ['Restore document', 'It will appear in the faculty member\'s 201-Files again. Restoring counts as opening it, so the <?= h(archive_period_label()) ?> archive rule starts over.', 'btn-success', 'Restore']
   };
   var modal = document.getElementById('docActionModal');
   modal.addEventListener('show.bs.modal', function (e) {

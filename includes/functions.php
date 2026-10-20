@@ -22,7 +22,8 @@ function run_pending_migrations(PDO $pdo): void {
                    'migration_document_removal.sql', 'migration_password_management.sql', 'migration_login_lockout.sql',
                    'migration_search_indexes.sql', 'migration_profile_reports_archive.sql', 'migration_ai_features.sql',
                    'migration_reminder_checks.sql', 'migration_review_archive_views.sql',
-                   'migration_recently_deleted.sql'];
+                   'migration_recently_deleted.sql', 'migration_account_names_delete.sql', 'migration_document_file_chunks.sql',
+                   'migration_flags_pds_versions.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -131,8 +132,9 @@ function status_badge(string $status): array {
 
 /**
  * status_badge() for an upload-log row that also has document_status
- * (documents.status): For Review until the Admin posts it, then Posted;
- * a document later archived or deleted says so.
+ * (documents.status): Posted (uploads go to 201-Files right away); a
+ * document later archived or deleted says so. 'for_review' is the old
+ * review step, kept for documents not yet moved on by the migration.
  */
 function upload_status_badge(array $row): array {
     return match ($row['document_status'] ?? null) {
@@ -187,15 +189,17 @@ function move_to_repository(int $faculty_id, string $document_type, string $sour
  * faculty member uploaded a document to their 201 file. $extra_lines
  * are appended (e.g. that the upload also updated their PDS).
  */
-function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false): void {
+function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false, ?string $flag_reason = null): void {
     $when = new DateTime('now', new DateTimeZone('Asia/Manila'));
 
-    // Admin: full details, as before -- and the upload now waits for their classification review
+    // Admin: full details, as before. The upload is in 201-Files already; a flagged one is also in Manage Document.
     $msg = "New Document Uploaded\n"
          . "Faculty: {$uploader['full_name']}\n"
          . "Document Type: " . document_type_label($document_type, $subtype) . "\n"
          . "Date Uploaded: " . $when->format('F j, Y, g:i A') . "\n"
-         . "It is waiting For Review in Manage Document: check its document type and details, then post it to 201-Files.";
+         . ($flag_reason !== null
+             ? 'It is in 201-Files, and flagged for checking in Manage Document: ' . document_flag_text($flag_reason) . '.'
+             : 'It is in 201-Files.');
     foreach ($extra_lines as $line) {
         $msg .= "\n" . $line;
     }
@@ -471,11 +475,11 @@ function move_document_file(string $from, string $to): string {
 
 /**
  * Archive, delete or restore one document. $doc is its documents row;
- * $action 'archive' (posted only), 'delete' (posted, for review or
- * archived -> Recently Deleted) or 'restore':
- *   archived -> posted (or For Review if it was never posted)
+ * $action 'archive' (posted only), 'delete' (posted or archived ->
+ * Recently Deleted) or 'restore':
+ *   archived -> posted
  *   deleted  -> back where it was when deleted (status_before_delete:
- *               201-Files, Archived Docs or For Review), with its details;
+ *               201-Files or Archived Docs), with its details;
  *               only within DELETED_RETENTION_DAYS (deleted_restore_open())
  * Deleting moves the local file into uploads/_deleted/; restoring moves it
  * back. Restoring to 201-Files counts as a view (last_viewed_at), so the
@@ -507,8 +511,7 @@ function change_document_status(PDO $pdo, array $doc, string $action, int $actor
         $pdo->prepare(
             "UPDATE documents d SET
                     d.last_viewed_at = IF(d.status_before_delete = 'archived', d.last_viewed_at, NOW()),
-                    d.status = IF(d.status_before_delete IN ('active', 'for_review', 'archived'), d.status_before_delete,
-                                  IF(d.posted_at IS NULL, 'for_review', 'active')),
+                    d.status = IF(d.status_before_delete = 'archived', 'archived', 'active'),
                     d.file_path = ?, d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
                     d.status_before_delete = NULL, d.purge_warned_at = NULL
              WHERE d.document_id = ? AND d.status = 'deleted'"
@@ -518,7 +521,7 @@ function change_document_status(PDO $pdo, array $doc, string $action, int $actor
     if ($action === 'restore' && $status === 'archived') {
         $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
         $pdo->prepare(
-            "UPDATE documents d SET d.status = IF(d.posted_at IS NULL, 'for_review', 'active'), d.file_path = ?,
+            "UPDATE documents d SET d.status = 'active', d.posted_at = COALESCE(d.posted_at, d.filed_at), d.file_path = ?,
                     d.archived_at = NULL, d.archived_by = NULL, d.archive_reason = NULL,
                     d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
                     d.last_viewed_at = NOW()
@@ -691,6 +694,82 @@ function run_daily_deleted_cleanup(PDO $pdo, bool $force = false): ?array {
     return run_once_a_day($pdo, 'deleted_cleanup_last_run', 'cleanup_recently_deleted', $force);
 }
 
+// ---------------------------------------------------------------------
+// Deleted accounts (Manage Faculty > Delete). A deleted account can't log
+// in and can be restored for DELETED_RETENTION_DAYS. After that the daily
+// cleanup deletes it permanently: the login is removed for good (email
+// released, password replaced by an unusable one, picture and contact
+// number removed, its notifications and reminders deleted) and its posted
+// and For Review documents move to Archived Docs, labeled with the former
+// faculty member's name. The users row stays (purged_at): documents, the
+// PDS and the activity log point to it, and deleting it would delete those
+// official 201-file records with it (ON DELETE CASCADE).
+// ---------------------------------------------------------------------
+
+/** Permanently delete one account past its restore window. Returns how many documents moved to Archived Docs, or null if it doesn't qualify. */
+function purge_deleted_account(PDO $pdo, int $user_id): ?int {
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT user_id, full_name, role, email, deleted_at, delete_reason FROM users
+             WHERE user_id = ? AND deleted_at IS NOT NULL AND purged_at IS NULL
+               AND deleted_at < NOW() - INTERVAL " . (int)DELETED_RETENTION_DAYS . " DAY FOR UPDATE"
+        );
+        $stmt->execute([$user_id]);
+        $u = $stmt->fetch();
+        if (!$u) {
+            $pdo->rollBack();
+            return null;
+        }
+        $reason = mb_substr("Former faculty: {$u['full_name']}. The account was deleted permanently on " . date('F j, Y')
+            . '; the document is kept as an official 201-file record.', 0, 255);
+        $stmt = $pdo->prepare("UPDATE documents SET status = 'archived', archived_at = NOW(), archived_by = NULL, archive_reason = ?
+                               WHERE faculty_id = ? AND status IN ('active', 'for_review')");
+        $stmt->execute([$reason, $user_id]);
+        $moved = $stmt->rowCount();
+        foreach (['notifications', 'ai_reminders', 'ai_reminder_checks', 'profile_pictures'] as $table) {
+            $pdo->prepare("DELETE FROM {$table} WHERE user_id = ?")->execute([$user_id]);
+        }
+        $pdo->prepare(
+            "UPDATE users SET email = ?, password_hash = ?, profile_picture = NULL, contact_number = NULL, must_change_password = 0,
+                              is_active = 0, purged_at = NOW() WHERE user_id = ?"
+        )->execute(['deleted-' . $user_id . '-' . bin2hex(random_bytes(4)) . '@deleted.invalid',
+                    password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $user_id]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        throw $e;
+    }
+    log_activity($pdo, null, 'ACCOUNT_PURGE', "Deleted account #{$user_id} {$u['full_name']} (" . str_replace('_', ' ', $u['role']) . ", {$u['email']}) permanently -- "
+        . (int)DELETED_RETENTION_DAYS . ' days after it was deleted (' . date('F j, Y', strtotime($u['deleted_at'])) . ', reason: ' . $u['delete_reason'] . '). '
+        . "{$moved} document(s) moved to Archived Docs under their name; the email can be used for a new account.", 'system');
+    return $moved;
+}
+
+/** Every deleted account past its restore window, deleted permanently (purge_deleted_account()). */
+function cleanup_deleted_accounts(PDO $pdo): array {
+    try {
+        $ids = $pdo->query("SELECT user_id FROM users WHERE deleted_at IS NOT NULL AND purged_at IS NULL
+                            AND deleted_at < NOW() - INTERVAL " . (int)DELETED_RETENTION_DAYS . " DAY")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (PDOException $e) {
+        return ['purged' => 0, 'user_ids' => []];   // migration not applied yet
+    }
+    $purged = [];
+    foreach ($ids as $id) {
+        try {
+            if (purge_deleted_account($pdo, (int)$id) !== null) { $purged[] = (int)$id; }
+        } catch (Throwable $e) {
+            error_log("Permanent deletion of account {$id} failed: " . $e->getMessage());
+        }
+    }
+    return ['purged' => count($purged), 'user_ids' => $purged];
+}
+
+/** cleanup_deleted_accounts() at most once a day (run_once_a_day()). $force: cron/auto_archive.php. */
+function run_daily_account_cleanup(PDO $pdo, bool $force = false): ?array {
+    return run_once_a_day($pdo, 'account_cleanup_last_run', 'cleanup_deleted_accounts', $force);
+}
+
 /** URL that serves a 201-file document through the access check (document.php). */
 function document_url(int $document_id): string {
     return BASE_URL . '/document.php?id=' . $document_id;
@@ -698,9 +777,10 @@ function document_url(int $document_id): string {
 
 /**
  * Store a faculty member's upload: move the scan into the repository, log
- * it in submission_requests as 'uploaded' and insert the documents row as
- * For Review (status 'for_review') -- it reaches 201-Files once the Admin
- * posts it from Manage Document. $ocr is the OcrProcessor::process() result
+ * it in submission_requests as 'uploaded' and insert the documents row,
+ * posted to 201-Files right away (status 'active'); $meta['flag_reason']
+ * flags it for the Admin to check in Manage Document (document_flag_for_upload()).
+ * $ocr is the OcrProcessor::process() result
  * from the preview step (empty for a manual entry); $meta holds subtype /
  * academic_year / semester / period_year / expiration, entry_method
  * ('ocr' / 'manual') and details (document_details_clean()) -- the seminar /
@@ -731,9 +811,9 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
             "INSERT INTO documents (request_id, faculty_id, document_type, document_subtype, academic_year, semester, period_year,
                                     title, date_start, date_end, venue, conducted_by, training_type, training_level, hours, date_issued,
                                     file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note,
-                                    confidence_score, predicted_category, chosen_category, is_low_confidence,
-                                    status, entry_method, last_viewed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'for_review', ?, NOW())"
+                                    confidence_score, predicted_category, chosen_category, is_low_confidence, flag_reason,
+                                    status, entry_method, posted_at, last_viewed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NOW(), NOW())"
         )->execute([
             $request_id, $faculty['user_id'], $document_type, $subtype,
             $meta['academic_year'] ?? null, $meta['semester'] ?? null, $meta['period_year'] ?? null,
@@ -741,7 +821,7 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
             $filePath, $meta['expiration'] ?? null,
             $ocr['text'] ?? null, $ocr['matched_name'] ?? null,
             isset($ocr['confidence_note']) ? mb_substr($ocr['confidence_note'], 0, 255) : null,
-            $check['score'] ?? null, $check['predicted'] ?? null, $document_type, !empty($check['low']) ? 1 : 0,
+            $check['score'] ?? null, $check['predicted'] ?? null, $document_type, !empty($check['low']) ? 1 : 0, $meta['flag_reason'] ?? null,
             ($meta['entry_method'] ?? 'ocr') === 'manual' ? 'manual' : 'ocr',
         ]);
         $document_id = (int)$pdo->lastInsertId();
@@ -795,14 +875,65 @@ function confidence_label($score): string {
     return $score === null ? 'Not scored' : round((float)$score * 100) . '%';
 }
 
-/** Uploads waiting For Review in Manage Document (sidebar badge, dashboard); $faculty_id: one person's. */
-function documents_for_review_count(PDO $pdo, ?int $faculty_id = null): int {
+// ---------------------------------------------------------------------
+// Flagged for checking. Uploads are posted to 201-Files right away; the
+// system flags the ones the Admin should check (documents.flag_reason, a
+// comma-separated list of the codes below). The Admin corrects the type /
+// details in Manage Document and marks it checked (reviewed_at). A flag
+// never hides a document.
+// ---------------------------------------------------------------------
+
+/** Flag code => what it means. */
+function document_flag_reasons(): array {
+    return [
+        'low_confidence' => 'the document type was detected with low confidence',
+        'no_text'        => 'no text could be read from the file',
+        'manual_entry'   => 'the details were entered manually',
+        'type_changed'   => 'the uploader picked a different type than the one detected',
+    ];
+}
+
+/** The flag codes that apply to a new upload (null when there's nothing to check). */
+function document_flag_for_upload(array $check, bool $manual, string $chosen_type, ?string $ocr_text): ?string {
+    $codes = [];
+    if ($manual) {
+        $codes[] = 'manual_entry';
+    } else {
+        if (trim((string)$ocr_text) === '') { $codes[] = 'no_text'; }
+        if (!empty($check['low'])) { $codes[] = 'low_confidence'; }
+        elseif (!empty($check['predicted']) && $check['predicted'] !== $chosen_type) { $codes[] = 'type_changed'; }
+    }
+    return $codes ? implode(',', $codes) : null;
+}
+
+/** "the document type was detected with low confidence; no text could be read from the file" */
+function document_flag_text(?string $flag_reason): string {
+    $labels = document_flag_reasons();
+    $parts = array_map(fn($c) => $labels[$c] ?? $c, array_filter(explode(',', (string)$flag_reason)));
+    return implode('; ', $parts);
+}
+
+/** Short labels for lists: "Low confidence", "No text read", "Entered manually", "Type changed by uploader". */
+function document_flag_labels(?string $flag_reason): array {
+    $short = ['low_confidence' => 'Low confidence', 'no_text' => 'No text read', 'manual_entry' => 'Entered manually', 'type_changed' => 'Type changed by uploader'];
+    return array_map(fn($c) => $short[$c] ?? $c, array_filter(explode(',', (string)$flag_reason)));
+}
+
+/** SQL condition: document $a is flagged and not checked yet (and not archived / deleted). */
+function document_flagged_sql(string $a = 'd'): string {
+    return "{$a}.flag_reason IS NOT NULL AND {$a}.reviewed_at IS NULL AND {$a}.status = 'active'";
+}
+
+/** Whether a documents row is flagged and not checked yet. */
+function document_is_flagged(array $doc): bool {
+    return !empty($doc['flag_reason']) && empty($doc['reviewed_at']) && ($doc['status'] ?? '') === 'active';
+}
+
+/** Documents flagged for checking (Manage Document badge, dashboards); $faculty_id: one person's. */
+function documents_flagged_count(PDO $pdo, ?int $faculty_id = null): int {
     try {
-        if ($faculty_id === null) {
-            return (int)$pdo->query("SELECT COUNT(*) FROM documents WHERE status = 'for_review'")->fetchColumn();
-        }
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE status = 'for_review' AND faculty_id = ?");
-        $stmt->execute([$faculty_id]);
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents d WHERE " . document_flagged_sql() . ($faculty_id === null ? '' : ' AND d.faculty_id = ?'));
+        $stmt->execute($faculty_id === null ? [] : [$faculty_id]);
         return (int)$stmt->fetchColumn();
     } catch (PDOException $e) {
         return 0;   // migration not applied yet
@@ -1376,6 +1507,7 @@ function run_daily_auto_archive(PDO $pdo, bool $force = false): ?array {
 function run_daily_jobs(PDO $pdo): void {
     run_daily_auto_archive($pdo);
     run_daily_deleted_cleanup($pdo);
+    run_daily_account_cleanup($pdo);
     run_daily_expiration_check($pdo);
     run_daily_reminder_check($pdo);
     if ($me = current_user()) { ensure_reminders_checked($pdo, (int)$me['user_id']); }
@@ -1672,18 +1804,23 @@ function activity_actions(): array {
         'SEARCH'             => 'Search',
         'GENERATE_REPORT'    => 'Generate Report',
         'PDS_UPDATE'         => 'PDS Update',
-        'PDS_IMPORT'         => 'PDS Imported from File',
+        'PDS_IMPORT'         => 'PDS Updated from Upload',
+        'PDS_UNDO'           => 'PDS Update Undone',
         'ACCOUNT_CREATE'     => 'Account Created',
         'ACCOUNT_UPDATE'     => 'Account Updated',
         'ACCOUNT_DEACTIVATE' => 'Account Deactivated',
         'ACCOUNT_ACTIVATE'   => 'Account Activated',
+        'ACCOUNT_DELETE'     => 'Account Deleted',
+        'ACCOUNT_RESTORE'    => 'Account Restored',
+        'ACCOUNT_PURGE'      => 'Account Permanently Deleted (automatic)',
         'CATEGORY_CORRECT'   => 'Category Corrected',
         'DOCUMENT_DELETE'    => 'Document Deleted',
         'DOCUMENT_ARCHIVE'   => 'Document Archived',
         'DOCUMENT_RESTORE'   => 'Document Restored',
         'DOCUMENT_AUTO_ARCHIVE' => 'Documents Auto-Archived',
         'DOCUMENT_POST'      => 'Document Posted (Classification Review)',
-        'DOCUMENT_REVIEW_EDIT' => 'Document Corrected in Review',
+        'DOCUMENT_REVIEW_EDIT' => 'Document Type / Details Corrected',
+        'DOCUMENT_CHECKED'   => 'Flagged Document Checked',
         'DOCUMENT_PURGE'     => 'Document Permanently Deleted',
         'DOCUMENT_AUTO_PURGE' => 'Document Permanently Deleted (automatic)',
         'DOCUMENT_DETAILS'   => 'Document Details Updated',
@@ -1693,8 +1830,8 @@ function activity_actions(): array {
         'PASSWORD_CHANGE'    => 'Password Changed',
         'PASSWORD_RESET'     => 'Password Reset',
         'LOGIN_LOCKOUT'      => 'Login Locked',
-        'LOGIN_BLOCKED'      => 'Login Blocked (Deactivated Account)',
-        'SESSION_ENDED'      => 'Signed Out (Account Deactivated)',
+        'LOGIN_BLOCKED'      => 'Login Blocked (Deactivated / Deleted Account)',
+        'SESSION_ENDED'      => 'Signed Out (Account Deactivated / Deleted)',
         'LOGIN_UNLOCK'       => 'Login Unlocked',
         'AI_SUMMARY'         => 'AI Report Summary Generated',
         'REMINDER_CHECK'     => 'Reminder Check',

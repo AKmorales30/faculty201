@@ -9,7 +9,8 @@ $is_owner = (int)$doc['faculty_id'] === (int)$me['user_id'];
 [$status_label, $status_badge] = document_status_badge($doc['status']);
 $period = document_period_label($doc);
 $fmt = fn(?string $d, string $f = 'M j, Y'): string => $d ? date($f, strtotime($d)) : '—';
-$return = $is_admin ? 'admin/public_docs.php' : 'faculty/my_documents.php' . ($doc['status'] === 'for_review' ? '?tab=pending' : '');
+$return = $is_admin ? 'admin/public_docs.php' : 'faculty/my_documents.php';
+$flagged = document_is_flagged($doc);
 ?>
 <div data-modal-title="<?= h(document_title($doc)) ?>"></div>
 <div class="row g-3">
@@ -38,15 +39,19 @@ $return = $is_admin ? 'admin/public_docs.php' : 'faculty/my_documents.php' . ($d
       <dt>Status</dt>
       <dd>
         <span class="badge <?= $status_badge ?>"><?= h($status_label) ?></span>
-        <?php if ($doc['status'] === 'for_review'): ?>
-          <div class="small text-muted mt-1">Waiting for the Admin to check its document type and post it.</div>
-        <?php elseif ($doc['status'] === 'active' && $doc['posted_at']): ?>
+        <?php if ($flagged): ?> <span class="badge bg-review"><i class="fa-solid fa-flag" aria-hidden="true"></i> Flagged for checking</span><?php endif; ?>
+        <?php if ($doc['status'] === 'active' && $doc['posted_at']): ?>
           <div class="small text-muted mt-1">Posted <?= h($fmt($doc['posted_at'])) ?><?= $doc['posted_by_name'] && $is_admin ? ' by ' . h($doc['posted_by_name']) : '' ?></div>
         <?php elseif ($doc['status'] === 'archived'): ?>
           <div class="small text-muted mt-1">Archived <?= h($fmt($doc['archived_at'])) ?><?= $doc['archived_by_name'] ? ' by ' . h($doc['archived_by_name']) : ' automatically' ?><?= $doc['archive_reason'] ? ' — ' . h($doc['archive_reason']) : '' ?></div>
         <?php elseif ($doc['status'] === 'deleted'): $days_left = deleted_days_left($doc['deleted_at']); ?>
           <div class="small text-muted mt-1">In Recently Deleted since <?= h($fmt($doc['deleted_at'])) ?><?= $doc['delete_reason'] ? ' — ' . h($doc['delete_reason']) : '' ?></div>
           <div class="mt-1"><span class="purge-countdown small <?= $days_left <= 7 ? 'purge-countdown-soon' : '' ?>"><?= h(deleted_days_left_label($days_left)) ?></span></div>
+        <?php endif; ?>
+        <?php if ($flagged): ?>
+          <div class="small text-muted mt-1"><?= $is_admin
+            ? h(ucfirst(document_flag_text($doc['flag_reason']))) . '. It is listed in Manage Document until you mark it checked.'
+            : 'It is in your 201-Files. The system asked the Admin to check its type and details (' . h(document_flag_text($doc['flag_reason'])) . '); you are notified if the type is corrected.' ?></div>
         <?php endif; ?>
       </dd>
       <?php if ($doc['expiration_date']): $days = days_until($doc['expiration_date']); [$exp_label, $exp_badge] = expiration_badge($days); ?>
@@ -63,8 +68,8 @@ $return = $is_admin ? 'admin/public_docs.php' : 'faculty/my_documents.php' . ($d
     </dl>
 
     <div class="d-flex flex-wrap gap-2">
-      <?php if ($is_admin && $doc['status'] === 'for_review'): ?>
-        <button type="button" class="btn btn-sm btn-brand" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=review&id=' . (int)$doc['document_id']) ?>"><i class="fa-solid fa-list-check"></i> Review &amp; Post</button>
+      <?php if ($is_admin && in_array($doc['status'], ['active', 'archived', 'for_review'], true)): ?>
+        <button type="button" class="btn btn-sm <?= $flagged ? 'btn-brand' : 'btn-outline-brand' ?>" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=review&id=' . (int)$doc['document_id'] . '&return=' . rawurlencode($doc['status'] === 'archived' ? 'admin/archived_documents.php' : ($flagged ? 'admin/manage_documents.php' : 'admin/public_docs.php'))) ?>" data-app-modal-title="Correct document"><i class="fa-solid fa-list-check"></i> <?= $flagged ? 'Check type / details' : 'Correct type / details' ?></button>
       <?php endif; ?>
       <a href="<?= h(document_url((int)$doc['document_id'])) ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-up-right-from-square"></i> Open in new tab</a>
       <a href="<?= h(document_url((int)$doc['document_id'])) ?>&amp;download=1" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-download"></i> Download</a>

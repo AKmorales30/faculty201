@@ -75,6 +75,126 @@ function user_position_line(array $u): string {
     return user_position_label($u) . ($unit ? ' · ' . $unit : '');
 }
 
+// ---------------------------------------------------------------------
+// Names. users.full_name is the one name every page shows (pages join
+// users by user_id; nothing else stores a copy). It is built from the parts
+// (name_title, first_name, middle_name, last_name, name_suffix) by
+// person_full_name() whenever the Admin creates or edits an account:
+// "Dr. Juan S. Dela Cruz Jr." in lists, person_first_name() "Juan" in
+// greetings. Accounts not edited since the parts were added keep their
+// full_name; person_name_parts() reads the parts from it.
+// ---------------------------------------------------------------------
+
+const NAME_TITLES = ['Dr.', 'Engr.', 'Prof.', 'Atty.', 'Arch.', 'Mr.', 'Ms.', 'Mrs.'];
+const NAME_SUFFIXES = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
+
+/** "Juan S. Dela Cruz Jr." from the parts (title, first, middle, last, suffix); a middle name becomes its initial. */
+function person_full_name(array $p): string {
+    $middle = trim((string)($p['middle_name'] ?? ''));
+    $initial = $middle !== '' ? mb_strtoupper(mb_substr($middle, 0, 1)) . '.' : '';
+    return trim(preg_replace('/\s+/u', ' ', implode(' ', [
+        $p['name_title'] ?? '', $p['first_name'] ?? '', $initial, $p['last_name'] ?? '', $p['name_suffix'] ?? '',
+    ])));
+}
+
+/**
+ * The name parts of a users row: the stored ones, or -- for an account not
+ * edited since the parts were added -- read from full_name ("Dr. Fernando
+ * Del Rosario" -> title Dr., first Fernando, last Del Rosario; a lone
+ * initial before the surname is the middle name).
+ * @return array{name_title: string, first_name: string, middle_name: string, last_name: string, name_suffix: string}
+ */
+function person_name_parts(array $u): array {
+    if (trim((string)($u['first_name'] ?? '')) !== '') {
+        return ['name_title' => (string)($u['name_title'] ?? ''), 'first_name' => (string)$u['first_name'],
+                'middle_name' => (string)($u['middle_name'] ?? ''), 'last_name' => (string)($u['last_name'] ?? ''),
+                'name_suffix' => (string)($u['name_suffix'] ?? '')];
+    }
+    $words = array_values(array_filter(preg_split('/\s+/u', trim((string)($u['full_name'] ?? '')))));
+    $key = fn(string $w): string => mb_strtolower(rtrim($w, '.,'));
+    $title = '';
+    while ($words && ($t = array_values(array_filter(NAME_TITLES, fn($x) => $key($x) === $key($words[0]))))) {
+        $title = trim($title . ' ' . $t[0]);
+        array_shift($words);
+    }
+    $suffix = '';
+    if (count($words) > 1 && ($sx = array_values(array_filter(NAME_SUFFIXES, fn($x) => $key($x) === $key(end($words)))))) {
+        $suffix = $sx[0];
+        array_pop($words);
+    }
+    $last = $words ? [array_pop($words)] : [];
+    $particles = ['de', 'del', 'dela', 'la', 'los', 'delos', 'san', 'santa', 'sta', 'van', 'von', 'da', 'di', 'dos', 'das'];
+    while (count($words) > 1 && in_array($key(end($words)), $particles, true)) {
+        array_unshift($last, array_pop($words));
+    }
+    $middle = '';
+    if (count($words) > 1 && preg_match('/^\p{L}\.?$/u', end($words))) {
+        $middle = rtrim(array_pop($words), '.');
+    }
+    return ['name_title' => $title, 'first_name' => implode(' ', $words) ?: implode(' ', $last), 'middle_name' => $middle,
+            'last_name' => $words ? implode(' ', $last) : '', 'name_suffix' => $suffix];
+}
+
+/** Account status shown on a profile: [label, status-pill class] -- Active, Deactivated, Deleted (restorable) or Deleted permanently. */
+function account_status_pill(array $u): array {
+    return match (true) {
+        !empty($u['purged_at'])  => ['Deleted permanently', 'status-pill-off'],
+        !empty($u['deleted_at']) => ['Deleted', 'status-pill-off'],
+        (bool)$u['is_active']    => ['Active', 'status-pill-active'],
+        default                  => ['Deactivated', 'status-pill-off'],
+    };
+}
+
+/** "Juan" -- the first given name, for greetings ("Welcome back, Juan"). */
+function person_first_name(array $u): string {
+    $first = trim((string)($u['first_name'] ?? ''));
+    if ($first === '') {
+        $first = person_name_parts($u)['first_name'];
+    }
+    if ($first === '') { return 'there'; }
+    $words = preg_split('/\s+/u', $first);
+    // "Ma. Teresa" -> "Ma. Teresa", not "Ma."
+    return str_ends_with($words[0], '.') && isset($words[1]) ? $words[0] . ' ' . $words[1] : $words[0];
+}
+
+/**
+ * The name parts from a form (name_title, first_name, middle_name,
+ * last_name, name_suffix), checked: first and last name required, letters
+ * (any language), spaces, hyphens, apostrophes and periods only, within
+ * the column sizes; title and suffix from the lists (or blank).
+ * @return array|string the cleaned parts, or an error message
+ */
+function person_name_input(array $in): array|string {
+    $clean = fn($v) => trim(preg_replace('/\s+/u', ' ', (string)$v));
+    $p = ['name_title' => $clean($in['name_title'] ?? ''), 'first_name' => $clean($in['first_name'] ?? ''),
+          'middle_name' => $clean($in['middle_name'] ?? ''), 'last_name' => $clean($in['last_name'] ?? ''),
+          'name_suffix' => $clean($in['name_suffix'] ?? '')];
+    if ($p['first_name'] === '' || $p['last_name'] === '') {
+        return 'Please enter the first name and the last name.';
+    }
+    foreach (['first_name' => 'First name', 'middle_name' => 'Middle name', 'last_name' => 'Last name'] as $k => $label) {
+        if (mb_strlen($p[$k]) > 60) { return "{$label} is too long (60 characters at most)."; }
+        if ($p[$k] !== '' && !preg_match("/^\p{L}[\p{L}\p{M} .'\x{2019}-]*$/u", $p[$k])) {
+            return "{$label} may only contain letters, spaces, hyphens, apostrophes and periods.";
+        }
+    }
+    if ($p['name_title'] !== '' && !in_array($p['name_title'], NAME_TITLES, true)) { return 'Please choose a title from the list.'; }
+    if ($p['name_suffix'] !== '' && !in_array($p['name_suffix'], NAME_SUFFIXES, true)) { return 'Please choose a suffix from the list.'; }
+    if (mb_strlen(person_full_name($p)) > 150) { return 'The full name is too long.'; }
+    return $p;
+}
+
+/**
+ * A message addressed to the user ("Hi, Chrystal! ...") with the greeting
+ * using their current first name. Reminder and notification texts are
+ * written once, with the name at that time; this keeps them right after a
+ * rename.
+ */
+function greeting_with_name(string $message, string $first_name): string {
+    return preg_replace('/^(\s*(?:Hi|Hey|Hello|Good (?:morning|afternoon|evening|day)),?\s+)[^!,.?\n]{1,60}?([!,.])/u',
+        '${1}' . str_replace(['\\', '$'], ['\\\\', '\\$'], $first_name) . '${2}', $message, 1) ?? $message;
+}
+
 /** "FD" for "Dr. Fernando Del Rosario": first and last name, titles and suffixes skipped. */
 function user_initials(string $full_name): string {
     $skip = ['dr', 'engr', 'prof', 'mr', 'ms', 'mrs', 'atty', 'arch', 'jr', 'sr', 'ii', 'iii', 'iv'];
@@ -250,6 +370,7 @@ function profile_save_contact(PDO $pdo, int $user_id, ?string $contact): void {
     $data = $pds['data'];
     $data['mobile_no'] = $contact;
     $pdo->prepare("UPDATE pds_records SET data = ?, updated_at = updated_at WHERE faculty_id = ?")->execute([json_encode($data), $user_id]);
+    pds_record_version($pdo, $user_id, 'manual edit', null, $user_id);   // the Mobile No. changed
 }
 
 // ---------------------------------------------------------------------

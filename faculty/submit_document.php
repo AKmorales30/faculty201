@@ -13,8 +13,9 @@ require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Dean
 //   Enter details manually the uploader picks the type and types the details in
 //                          themselves (no OCR); the file is still attached, as
 //                          every 201-file record is a document
-// Either way the document is saved For Review: the Admin checks it in Manage
-// Document and posts it to the uploader's 201-Files.
+// Either way the document goes to the uploader's 201-Files right away; the
+// system flags the ones the Admin should check (Manage Document). An uploaded
+// PDS is read into the digital PDS automatically.
 $page_title = 'Upload Document';
 $me = current_user();
 $employment_type = faculty_employment_type($pdo, $me['user_id']);
@@ -119,10 +120,12 @@ if ($action !== '' && !csrf_valid()) {
 }
 
 // ---------------------------------------------------------------------
-// Step 2a: faculty confirmed the previewed scan / entered details -> store it
-// For Review, update the PDS where applicable, then notify the Admin and the
-// Program Chair / Dean. (No approval step -- the Admin's review only checks
-// the document type and details before posting it to 201-Files.)
+// Step 2a: faculty confirmed the previewed scan / entered details -> store it,
+// posted to their 201-Files right away (no review step), update the PDS where
+// applicable, then notify the Admin and the Program Chair / Dean. Uploads the
+// Admin should check (low confidence, no text read, type entered or changed
+// by the uploader) are flagged in Manage Document -- still in 201-Files.
+// A PDS is read into the digital PDS automatically (pds_import_auto_apply()).
 // ---------------------------------------------------------------------
 if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $scan = $_SESSION['pending_scan'];
@@ -153,6 +156,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         'classification' => $check,   // stored with the document: score, the system's guess, low-confidence flag
         'details'        => $details,
         'entry_method'   => !empty($scan['manual']) ? 'manual' : 'ocr',
+        'flag_reason'    => document_flag_for_upload($check, !empty($scan['manual']), $type, $scan['result']['text'] ?? null),
     ];
     if ($cat['frequency'] === 'semester') {
         $ay  = $_POST['academic_year'] ?? '';
@@ -188,22 +192,33 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     [$request_id, $document_id] = $stored;
     log_my_activity($pdo, 'UPLOAD', "Uploaded document #{$document_id} \"{$scan['original_name']}\" as " . document_type_label($type, $subtype)
         . (!empty($scan['manual']) ? ' (details entered manually)' : '')
-        . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '') . '; waiting For Review.');
-    // A PDS: read what it holds now (the cleaned-up page of a photo reads best), for the review page
-    $pds_import = null;
+        . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '') . '; posted to 201-Files'
+        . ($meta['flag_reason'] ? ' and flagged for checking (' . document_flag_text($meta['flag_reason']) . ')' : '') . '.');
+
+    // Relevant information -> PDS
+    $extra_lines = [];
     if ($type === 'PDS') {
+        // Read what it holds (the cleaned-up page of a photo reads best) straight into the digital PDS
         $stmt = $pdo->prepare("SELECT file_path FROM documents WHERE document_id = ?");
         $stmt->execute([$document_id]);
         $source = !empty($scan['page_image']) && is_file(ROOT_PATH . '/' . $scan['page_image'])
             ? ROOT_PATH . '/' . $scan['page_image'] : ROOT_PATH . '/' . $stmt->fetchColumn();
-        $pds_import = pds_import_extract_file($source, $scan['result']['text'] ?? null);
-        $_SESSION['pds_import'][$document_id] = ['ex' => $pds_import, 'nonce' => bin2hex(random_bytes(12))];
+        try {
+            $update = pds_import_auto_apply($pdo, (int)$me['user_id'], $document_id, pds_import_extract_file($source, $scan['result']['text'] ?? null), (int)$me['user_id']);
+            $_SESSION['pds_update'][$document_id] = ['counts' => $update['counts'], 'flags' => $update['flags'], 'duplicates' => $update['duplicates'],
+                                                     'version_id' => $update['version']['version_id'] ?? null];
+            if ($update['version']) {
+                $summary = pds_update_summary($update['counts']);
+                log_my_activity($pdo, 'PDS_IMPORT', "Updated their digital PDS automatically from uploaded PDS document #{$document_id} -- {$summary}"
+                    . ($update['flags'] ? '; ' . count($update['flags']) . ' value(s) flagged to check' : '') . " (version {$update['version']['version_number']}).");
+                $extra_lines[] = "Their digital PDS was updated from it: {$summary}.";
+            }
+        } catch (Throwable $e) {
+            error_log(sprintf('Automatic PDS update from document %d failed: %s: %s in %s:%d', $document_id, get_class($e), $e->getMessage(), $e->getFile(), $e->getLine()));
+            $_SESSION['pds_update'][$document_id] = ['error' => true];
+        }
     }
     discard_files(pending_extra_files($scan));   // the original photo isn't kept -- the cleaned-up PDF is the record
-
-    // Relevant information -> PDS
-    $extra_lines = [];
-    $pds_note = '';
     if ($type === 'Certificate' && in_array($subtype, ['Seminar', 'Training'], true) && !empty($_POST['add_to_pds'])) {
         $page = pds_add_training($pdo, $me['user_id'], [
             'title' => $details['title'], 'date_from' => $details['date_start'], 'date_to' => $details['date_end'],
@@ -212,28 +227,16 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         if ($page !== null) {
             log_my_activity($pdo, 'PDS_UPDATE', "Added a Learning and Development entry ({$page}) to their PDS from uploaded document #{$document_id}.");
             $extra_lines[] = 'PDS Section VI (Learning and Development) was updated with this ' . strtolower($subtype) . '.';
-            $pds_note = " It was also added to Section VI (Learning and Development) of your PDS ({$page}).";
+            $_SESSION['pds_update'][$document_id] = ['training_page' => $page];
         }
-    }
-    if ($pds_import !== null) {
-        $pds_note = $pds_import['sections']
-            ? ' Review what was read from it below -- nothing goes into your digital PDS until you confirm.'
-            : ' No PDS details could be read from it automatically, so please update your digital PDS by hand.';
     }
 
     $stmt = $pdo->prepare("SELECT user_id, role, full_name, employment_type, program, college FROM users WHERE user_id = ?");
     $stmt->execute([$me['user_id']]);
-    notify_new_upload($pdo, $stmt->fetch(), $type, $subtype, $request_id, $extra_lines, $reupload);
+    notify_new_upload($pdo, $stmt->fetch(), $type, $subtype, $request_id, $extra_lines, $reupload, $meta['flag_reason']);
 
     unset($_SESSION['pending_scan']);
-    if ($type === 'PDS') {   // next: the PDS import review (or the PDS itself), with the message as a toast
-        $_SESSION['flash_success'] = 'Your ' . document_type_label($type, $subtype) . ' has been uploaded and is waiting For Review: the Admin checks its document type and details, '
-            . 'then posts it to your 201-Files. You\'ll be notified when it is posted.'
-            . $pds_note . ($me['role'] === 'faculty' ? ' Your Program Chair and Dean have been notified.' : '');
-        header('Location: ' . BASE_URL . (!empty($pds_import['sections']) ? '/faculty/pds_import.php?document=' . $document_id : '/faculty/pds.php'));
-        exit;
-    }
-    header('Location: ' . BASE_URL . '/faculty/submit_document.php?submitted=' . $document_id);   // step 3: "Submitted for review"
+    header('Location: ' . BASE_URL . '/faculty/submit_document.php?submitted=' . $document_id);   // step 3: saved (and what changed in the PDS)
     exit;
 }
 
@@ -381,24 +384,32 @@ if ($action === 'scan') {
 
 $pending = $_SESSION['pending_scan'] ?? null;
 
-// Step 3 ("Submitted for review"): only for the uploader's own document
+// Step 3 (saved): only for the uploader's own document, with what changed in their PDS
 $submitted = null;
+$pds_version = null;
 if (!$pending && isset($_GET['submitted'])) {
-    $stmt = $pdo->prepare("SELECT document_id, document_type, document_subtype, title, file_path, status FROM documents WHERE document_id = ? AND faculty_id = ? AND status <> 'deleted'");
+    $stmt = $pdo->prepare("SELECT document_id, document_type, document_subtype, title, file_path, status, flag_reason, reviewed_at
+                           FROM documents WHERE document_id = ? AND faculty_id = ? AND status <> 'deleted'");
     $stmt->execute([(int)$_GET['submitted'], (int)$me['user_id']]);
     $submitted = $stmt->fetch() ?: null;
+    if ($submitted) {
+        $stmt = $pdo->prepare("SELECT version_id FROM pds_versions WHERE user_id = ? AND source_document_id = ? AND source = 'upload' ORDER BY version_id DESC LIMIT 1");
+        $stmt->execute([(int)$me['user_id'], (int)$submitted['document_id']]);
+        $pds_version = ($vid = $stmt->fetchColumn()) ? pds_version($pdo, (int)$vid) : null;
+    }
 }
+$pds_info = $submitted ? ($_SESSION['pds_update'][$submitted['document_id']] ?? []) : [];
 $step = $submitted ? 3 : ($pending ? 2 : 1);
 
 include __DIR__ . '/../includes/header.php';
 ?>
 
 <?php if ($step === 1): ?>
-<?= admin_intro('Add a document to your 201 file. Upload it and let the system read it and detect its type, or enter its details yourself. Either way it waits For Review until the Admin checks it and posts it to your 201-Files.') ?>
+<?= admin_intro('Add a document to your 201 file. Upload it and let the system read it and detect its type, or enter its details yourself. Either way it goes to your 201-Files right away. An uploaded PDS also updates your digital PDS automatically.') ?>
 <?php endif; ?>
 
 <ol class="ui-steps" aria-label="Steps">
-  <?php foreach ([1 => 'Choose a file', 2 => 'Check the details', 3 => 'Submitted'] as $n => $label): ?>
+  <?php foreach ([1 => 'Choose a file', 2 => 'Check the details', 3 => 'Saved'] as $n => $label): ?>
     <li class="<?= $n < $step ? 'is-done' : ($n === $step ? 'is-current' : '') ?>"<?= $n === $step ? ' aria-current="step"' : '' ?>>
       <span class="ui-step-n" aria-hidden="true"><?php if ($n < $step): ?><i class="fa-solid fa-check"></i><?php else: ?><?= $n ?><?php endif; ?></span><?= h($label) ?>
     </li>
@@ -408,13 +419,30 @@ include __DIR__ . '/../includes/header.php';
 <?php if ($submitted): ?>
   <section class="ui-card ui-done" aria-labelledby="doneTitle">
     <span class="ui-done-icon" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
-    <h2 class="ui-done-title" id="doneTitle">Submitted for review</h2>
-    <p class="ui-done-text">The Admin checks the category and details of <strong><?= h(document_title($submitted)) ?></strong>
-      (<?= h(document_type_label($submitted['document_type'], $submitted['document_subtype'])) ?>), then posts it to your 201-Files. You'll get a notification when it's posted.
+    <h2 class="ui-done-title" id="doneTitle">Saved to your 201-Files</h2>
+    <p class="ui-done-text"><strong><?= h(document_title($submitted)) ?></strong>
+      (<?= h(document_type_label($submitted['document_type'], $submitted['document_subtype'])) ?>) is in your 201-Files now.
+      <?php if (document_is_flagged($submitted)): ?>The system flagged it for the Admin to check (<?= h(document_flag_text($submitted['flag_reason'])) ?>); it stays in your 201-Files, and the Admin may correct its type or details.<?php endif; ?>
       <?php if ($me['role'] === 'faculty'): ?>Your Program Chair and Dean have been notified.<?php endif; ?></p>
+    <?php if ($submitted['document_type'] === 'PDS'): ?>
+      <div class="ui-done-pds text-start">
+        <?php if ($pds_version): ?>
+          <?= pds_update_summary_html($pds_version, $me) ?>
+        <?php elseif (!empty($pds_info['error'])): ?>
+          <div class="alert alert-warning mb-0">Your digital PDS could not be updated from this file just now. Open <a href="<?= BASE_URL ?>/faculty/pds.php">My PDS</a> and use <em>Import into my PDS</em> next to the file to try again.</div>
+        <?php elseif (!empty($pds_info['duplicates'])): ?>
+          <div class="alert alert-info mb-0">Your digital PDS already has everything read from this file (<?= (int)$pds_info['duplicates'] ?> entr<?= $pds_info['duplicates'] === 1 ? 'y was' : 'ies were' ?> there already), so nothing was added.</div>
+        <?php else: ?>
+          <div class="alert alert-info mb-0">No PDS details could be read from this file automatically, so your digital PDS was not changed. You can fill it in on <a href="<?= BASE_URL ?>/faculty/pds.php">My PDS</a>.</div>
+        <?php endif; ?>
+      </div>
+    <?php elseif (!empty($pds_info['training_page'])): ?>
+      <p class="ui-done-text">It was also added to Section VI (Learning and Development) of your PDS (<?= h($pds_info['training_page']) ?>).</p>
+    <?php endif; ?>
     <div class="ui-done-actions">
       <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-outline-brand"><i class="fa-solid fa-plus" aria-hidden="true"></i> Upload another</a>
-      <a href="<?= BASE_URL ?>/faculty/my_documents.php?tab=pending" class="btn btn-brand">Go to 201-Files</a>
+      <?php if ($submitted['document_type'] === 'PDS'): ?><a href="<?= BASE_URL ?>/faculty/pds.php" class="btn btn-outline-brand"><i class="fa-solid fa-id-card" aria-hidden="true"></i> Open My PDS</a><?php endif; ?>
+      <a href="<?= BASE_URL ?>/faculty/my_documents.php?type=<?= h(rawurlencode($submitted['document_type'])) ?>" class="btn btn-brand">Go to 201-Files</a>
     </div>
   </section>
 

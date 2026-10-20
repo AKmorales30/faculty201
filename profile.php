@@ -156,7 +156,8 @@ include __DIR__ . '/includes/header.php';
       <<?= $is_own ? 'h4' : 'h3' ?> class="fw-bold mb-1"><?= h($u['full_name']) ?></<?= $is_own ? 'h4' : 'h3' ?>>
       <div class="text-muted mb-2"><?= h(user_position_line($u)) ?><?= $u['academic_rank'] && $u['academic_rank'] !== 'N/A' ? ' · ' . h($u['academic_rank']) : '' ?></div>
       <div class="d-flex flex-wrap gap-2 justify-content-center justify-content-sm-start">
-        <span class="status-pill <?= $u['is_active'] ? 'status-pill-active' : 'status-pill-off' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
+        <?php [$status_label, $status_class] = account_status_pill($u); ?>
+        <span class="status-pill <?= $status_class ?>"><?= h($status_label) ?></span>
         <?php if ($u['employment_status'] === 'paused'): ?>
           <span class="small text-muted"><i class="fa-solid fa-pause"></i> Employment paused</span>
         <?php endif; ?>
@@ -319,6 +320,7 @@ include __DIR__ . '/includes/header.php';
             <?php if ($exp_total): ?><?= (int)$summary['expired'] ?> expired, <?= (int)$summary['expiring'] ?> expiring within 60 days.<?php endif; ?>
           </p>
         <?php endif; ?>
+        <?= pds_version_card($pdo, $target_id, $me, true) /* the digital PDS: version, last updated, history */ ?>
         <table class="table table-sm mb-0 align-middle">
           <thead class="table-light"><tr><th>Category</th><th class="text-end">Documents</th></tr></thead>
           <tbody>

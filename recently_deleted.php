@@ -8,7 +8,7 @@
  * A deleted document stays here for DELETED_RETENTION_DAYS from when it was
  * deleted, then the daily check deletes it permanently
  * (cleanup_recently_deleted()). Restore puts it back where it was
- * (201-Files, Archived Docs or For Review). Clicking a row opens its preview.
+ * (201-Files or Archived Docs). Clicking a row opens its preview.
  * Actions post to document_action.php (CSRF token), which checks the role
  * and ownership again.
  */
@@ -62,11 +62,7 @@ if ($is_admin) {
 }
 
 /** Where Restore puts a document back. */
-$restores_to = fn(array $d): string => match ($d['status_before_delete'] ?: ($d['posted_at'] ? 'active' : 'for_review')) {
-    'archived'   => 'Archived Docs',
-    'for_review' => 'For Review',
-    default      => '201-Files',
-};
+$restores_to = fn(array $d): string => $d['status_before_delete'] === 'archived' ? 'Archived Docs' : '201-Files';
 $has_filters = $category !== '' || $faculty_id || $from !== '' || $to !== '';
 
 include __DIR__ . '/includes/header.php';
@@ -74,8 +70,8 @@ include_once __DIR__ . '/includes/document_actions.php';   // Restore / Delete p
 ?>
 
 <?= admin_intro($is_admin
-    ? 'Deleted files stay here for ' . (int)DELETED_RETENTION_DAYS . ' days, then they are removed for good, file and record. Restore a file to put it back where it was — 201-Files, Archived Docs or For Review — or delete it permanently now.'
-    : 'Files you deleted stay here for ' . (int)DELETED_RETENTION_DAYS . ' days, then they are removed for good. Restore one to put it back where it was — 201-Files, Archived Docs or For Review. For a file the Admin deleted, ask the Admin.') ?>
+    ? 'Deleted files stay here for ' . (int)DELETED_RETENTION_DAYS . ' days, then they are removed for good, file and record. Restore a file to put it back where it was — 201-Files or Archived Docs — or delete it permanently now.'
+    : 'Files you deleted stay here for ' . (int)DELETED_RETENTION_DAYS . ' days, then they are removed for good. Restore one to put it back where it was — 201-Files or Archived Docs. For a file the Admin deleted, ask the Admin.') ?>
 
 <section class="ui-card" aria-label="Recently deleted documents">
   <form method="GET" class="ui-toolbar" data-autosubmit>

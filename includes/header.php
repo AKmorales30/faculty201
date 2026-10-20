@@ -53,7 +53,7 @@ $ad_link = function (array $item, bool $nested) use ($ad_page): string {
 <meta charset="UTF-8">
 <script>document.documentElement.className = document.documentElement.className.replace('no-js', 'js');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><?= h($ad_title) ?> — <?= h(ADMIN_SYSTEM_NAME) ?></title>
+<title><?= h($ad_title) ?> — <?= h(SYSTEM_NAME) ?></title>
 <?php if ($ad_udm): ?><link rel="icon" href="<?= h($ad_udm) ?>"><?php endif; ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -76,7 +76,7 @@ $ad_link = function (array $item, bool $nested) use ($ad_page): string {
           <i class="fa-solid fa-xmark" aria-hidden="true"></i>
         </button>
       </div>
-      <a class="ad-brand-name" href="<?= h(BASE_URL . '/' . portal_home_path()) ?>"><?= h(ADMIN_SYSTEM_NAME) ?></a>
+      <a class="ad-brand-name" href="<?= h(BASE_URL . '/' . portal_home_path()) ?>"><?= h(SYSTEM_NAME) ?></a>
       <div class="ad-brand-sub">Universidad de Manila · College of Computing Studies</div>
     </div>
     <nav class="ad-nav" aria-label="Main menu">

@@ -50,7 +50,7 @@ function app_menu(PDO $pdo, array $user): array {
                 ['label' => 'Recently Deleted', 'icon' => 'fa-trash-can-arrow-up', 'url' => 'recently_deleted.php', 'active' => nav_on('recently_deleted.php')],
                 ['label' => 'Manage Document', 'icon' => 'fa-file-pen', 'url' => 'admin/manage_documents.php',
                  'active' => nav_on('admin/manage_documents.php', 'admin/classification_review.php'),
-                 'badge' => documents_for_review_count($pdo), 'badge_title' => 'For Review'],
+                 'badge' => documents_flagged_count($pdo), 'badge_title' => 'Flagged for checking'],
             ]],
             ['group' => 'Report', 'icon' => 'fa-chart-pie', 'items' => [
                 ['label' => 'Document Status', 'icon' => 'fa-file-circle-check', 'url' => 'admin/reports.php',
@@ -72,15 +72,13 @@ function app_menu(PDO $pdo, array $user): array {
     // Faculty, Program Chairs and Deans keep their own 201 file
     $own_public = nav_on('faculty/my_documents.php', 'faculty/my_requests.php', 'document_details.php');
     $own_archive = fn(string $page): bool => $page === 'archive.php' && nav_viewing_own();
-    $pending = documents_for_review_count($pdo, (int)$user['user_id']);
 
     if ($user['role'] === 'faculty') {
         return [
             ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'faculty/dashboard.php', 'active' => nav_on('faculty/dashboard.php')],
             ['label' => 'Upload Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
             ['group' => 'File', 'icon' => 'fa-folder', 'items' => [
-                ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public,
-                 'badge' => $pending, 'badge_title' => 'Waiting for review', 'badge_class' => 'bg-review'],
+                ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public],
                 ['label' => 'Archived Docs', 'icon' => 'fa-box-archive', 'url' => 'archive.php', 'active' => $own_archive],
                 ['label' => 'Recently Deleted', 'icon' => 'fa-trash-can-arrow-up', 'url' => 'recently_deleted.php', 'active' => nav_on('recently_deleted.php')],
             ]],
@@ -93,8 +91,7 @@ function app_menu(PDO $pdo, array $user): array {
         ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'approval/dashboard.php', 'active' => nav_on('approval/dashboard.php', 'reminder_list.php')],
         ['label' => 'Upload Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
         ['group' => 'Files', 'icon' => 'fa-folder', 'items' => [
-            ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public,
-             'badge' => $pending, 'badge_title' => 'Waiting for review', 'badge_class' => 'bg-review'],
+            ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public],
             ['label' => 'Archived Docs', 'icon' => 'fa-box-archive', 'url' => 'archive.php', 'active' => $own_archive],
             ['label' => 'Recently Deleted', 'icon' => 'fa-trash-can-arrow-up', 'url' => 'recently_deleted.php', 'active' => nav_on('recently_deleted.php')],
         ]],

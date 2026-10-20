@@ -1,20 +1,21 @@
 <?php
 /**
- * Files > Manage Document (Admin): the classification review queue.
+ * Files > Manage Document (Admin): documents flagged for checking.
  *
- * Every new upload lands here first, For Review (documents.status
- * 'for_review'). Review opens a pop-up (api/modal.php?view=review) with the
- * file, the detected document type and its confidence score, and the
- * details read from it; the Admin corrects them if needed and posts the
- * document to 201-Files (review_save_document(), includes/document_review.php).
- * The owner is notified once it's posted. Only posted documents appear in
- * 201-Files, searches, reports and analytics.
+ * Uploads are posted to 201-Files right away. The system flags the ones
+ * worth checking (documents.flag_reason): the type was detected with low
+ * confidence, no text could be read, the details were entered manually,
+ * or the uploader picked a different type than the one detected. A flag
+ * never blocks or hides a document. Check opens a pop-up
+ * (api/modal.php?view=review) with the file, the detected type and its
+ * confidence and the details read from it; the Admin corrects them if
+ * needed and marks it checked (review_save_document(),
+ * includes/document_review.php). The owner is notified only when the type
+ * is corrected. The Admin can correct any document the same way from its
+ * pop-up in 201-Files or Archived Docs.
  *
- * This is a classification check only -- the old Program Chair / Dean
- * approval stays removed. A wrong file is deleted with the normal Delete
- * action (with a reason; it can be restored from Archived Docs).
- * The Recently Posted tab lists what was reviewed (formerly Classification
- * Review's "Reviewed" list), with corrections marked.
+ * Tabs: Flagged for checking (oldest first) and Checked (the latest 100
+ * checked or corrected, with corrections marked).
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -22,7 +23,7 @@ require_role('admin');
 
 $page_title = 'Manage Document';
 $categories = document_categories();
-$tabs = ['review' => 'For Review', 'posted' => 'Recently Posted'];
+$tabs = ['review' => 'Flagged for checking', 'checked' => 'Checked'];
 
 // Filters (all optional). Anything invalid is ignored rather than erroring.
 $valid_date = function (string $d): string {
@@ -41,11 +42,11 @@ $filter_query = array_filter(['tab' => $tab !== 'review' ? $tab : '', 'from' => 
 $self_path = 'admin/manage_documents.php' . ($filter_query ? '?' . http_build_query($filter_query) : '');
 
 // ---------------------------------------------------------------------
-// Save corrections / Post -- from the review pop-up (POST + CSRF token)
+// Save corrections / mark as checked -- from the pop-up (POST + CSRF token)
 // ---------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $return = (string)($_POST['return'] ?? '');
-    if (!preg_match('#^admin/manage_documents\.php(\?[A-Za-z0-9_.%=&\-]*)?$#', $return)) { $return = 'admin/manage_documents.php'; }
+    if (!preg_match('#^(admin/[a-z_]+|archive|profile)\.php(\?[A-Za-z0-9_.%=&\-\[\]+]*)?$#', $return)) { $return = 'admin/manage_documents.php'; }
     if (!csrf_valid()) {
         $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
     } elseif (($_POST['action'] ?? '') !== 'review') {
@@ -57,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$doc) {
             $_SESSION['flash_error'] = 'That document could not be found.';
         } else {
-            [$ok, $message] = review_save_document($pdo, $doc, $_POST, current_user(), ($_POST['do'] ?? '') === 'post');
+            [$ok, $message] = review_save_document($pdo, $doc, $_POST, current_user(), ($_POST['do'] ?? '') === 'checked');
             $_SESSION[$ok ? 'flash_success' : 'flash_error'] = $message;
         }
     }
@@ -81,20 +82,20 @@ if ($tab === 'review') {
     $stmt = $pdo->prepare(
         "SELECT d.*, u.full_name, u.employment_type, " . delete_window_sql('d') . " AS delete_seconds_left
          FROM documents d JOIN users u ON u.user_id = d.faculty_id
-         WHERE d.status = 'for_review' $and
+         WHERE " . document_flagged_sql('d') . " $and
          ORDER BY d.filed_at ASC, d.document_id ASC"
     );
 } else {
     $stmt = $pdo->prepare(
-        "SELECT d.*, u.full_name, p.full_name AS posted_by_name
-         FROM documents d JOIN users u ON u.user_id = d.faculty_id LEFT JOIN users p ON p.user_id = d.posted_by
-         WHERE d.posted_by IS NOT NULL $and
-         ORDER BY d.posted_at DESC, d.document_id DESC LIMIT 100"
+        "SELECT d.*, u.full_name, rv.full_name AS reviewed_by_name
+         FROM documents d JOIN users u ON u.user_id = d.faculty_id LEFT JOIN users rv ON rv.user_id = d.reviewed_by
+         WHERE d.reviewed_at IS NOT NULL AND d.status IN ('active', 'archived') $and
+         ORDER BY d.reviewed_at DESC, d.document_id DESC LIMIT 100"
     );
 }
 $stmt->execute($params);
 $documents = $stmt->fetchAll();
-$review_total = documents_for_review_count($pdo);
+$review_total = documents_flagged_count($pdo);
 
 /** Category label for a stored key, or a dash when there is none. */
 $cat_label = fn(?string $type): string => $type ? ($categories[$type]['label'] ?? $type) : '—';
@@ -105,7 +106,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Delete button +
 ?>
 
 <?php $filtered = $from !== '' || $to !== '' || $category !== '' || $low_only; ?>
-<?= admin_intro('New uploads are checked by the system first. Open one to confirm or correct the document type it detected (and how confident it was) and the details it read, then <strong>Post</strong> it to 201-Files — the faculty member is notified. Uploads below ' . h(confidence_label(CONFIDENCE_THRESHOLD)) . ' confidence are highlighted.') ?>
+<?= admin_intro('Uploads go to 201-Files right away. The system flags the ones worth checking — the type was detected with low confidence (below ' . h(confidence_label(CONFIDENCE_THRESHOLD)) . '), no text could be read, or the details were entered manually. Open one to correct its type or details, then <strong>mark it as checked</strong>. The faculty member is notified only if you change the type. You can also correct any document from its pop-up in 201-Files.') ?>
 
 <div class="nav page-tabs" role="tablist" aria-label="Manage Document">
   <?php foreach ($tabs as $key => $label): ?>
@@ -136,35 +137,36 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Delete button +
     </div>
     <button class="btn btn-sm btn-brand ui-apply"><i class="fa-solid fa-filter" aria-hidden="true"></i> Apply</button>
     <?php if ($filtered): ?><a href="manage_documents.php<?= $tab !== 'review' ? '?tab=' . h($tab) : '' ?>" class="btn btn-sm btn-outline-secondary">Clear filters</a><?php endif; ?>
-    <span class="ui-count"><?= count($documents) ?> <?= $tab === 'review' ? 'waiting · oldest first' : 'posted · newest first' ?></span>
+    <span class="ui-count"><?= count($documents) ?> <?= $tab === 'review' ? 'flagged · oldest first' : 'checked · newest first' ?></span>
   </form>
 
   <div class="table-responsive">
   <?php if ($tab === 'review'): ?>
     <table class="table align-middle">
       <thead>
-        <tr><th>Faculty</th><th>Document</th><th>Detected type</th><th>Chosen by uploader</th><th>Confidence</th><th>Uploaded</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr>
+        <tr><th>Faculty</th><th>Document</th><th>Why flagged</th><th>Detected type</th><th>Saved as</th><th>Confidence</th><th>Uploaded</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr>
       </thead>
       <tbody>
         <?php if (!$documents): ?>
-          <?= admin_empty_row(7, $filtered ? 'Nothing matches these filters' : 'All caught up',
-                $filtered ? 'Try different filters, or clear them to see everything.' : 'No uploads are waiting for review.',
+          <?= admin_empty_row(8, $filtered ? 'Nothing matches these filters' : 'All caught up',
+                $filtered ? 'Try different filters, or clear them to see everything.' : 'No uploads are flagged for checking.',
                 $filtered ? 'manage_documents.php' : null, $filtered ? 'fa-inbox' : 'fa-circle-check') ?>
         <?php endif; ?>
         <?php foreach ($documents as $d): ?>
-        <tr class="row-clickable <?= $d['is_low_confidence'] ? 'row-attention' : '' ?>" tabindex="0" role="button" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>" data-app-modal-title="Review classification" aria-label="Review <?= h(document_title($d)) ?>">
+        <tr class="row-clickable <?= $d['is_low_confidence'] ? 'row-attention' : '' ?>" tabindex="0" role="button" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>" data-app-modal-title="Check document" aria-label="Check <?= h(document_title($d)) ?>">
           <td class="fw-semibold"><?= h($d['full_name']) ?></td>
           <td class="text-break">
             <?= h(document_title($d)) ?>
             <?php if (trim((string)$d['title']) !== ''): ?><div class="ui-cell-sub"><?= h(document_display_name($d['file_path'])) ?></div><?php endif; ?>
           </td>
+          <td><?php foreach (document_flag_labels($d['flag_reason']) as $fl): ?><span class="badge bg-review me-1 mb-1"><?= h($fl) ?></span><?php endforeach; ?></td>
           <td><?= $d['entry_method'] === 'manual' ? '<span class="text-muted">Entered manually</span>' : h($cat_label($d['predicted_category'])) ?></td>
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?><?php if ($p = document_period_label($d)): ?><div class="ui-cell-sub"><?= h($p) ?></div><?php endif; ?></td>
           <td><?= admin_confidence($d['confidence_score']) ?></td>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?><div class="ui-cell-sub"><?= h(date('g:i A', strtotime($d['filed_at']))) ?></div></td>
           <td>
             <div class="ui-actions">
-              <button type="button" class="btn btn-sm btn-brand" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>" data-app-modal-title="Review classification"><i class="fa-solid fa-list-check" aria-hidden="true"></i> Review</button>
+              <button type="button" class="btn btn-sm btn-brand" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>" data-app-modal-title="Check document"><i class="fa-solid fa-list-check" aria-hidden="true"></i> Check</button>
               <?= document_action_buttons($d, current_user()) ?>
             </div>
           </td>
@@ -175,18 +177,18 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Delete button +
   <?php else: ?>
     <table class="table align-middle">
       <thead>
-        <tr><th>Faculty</th><th>Document</th><th>Posted as</th><th>Confidence</th><th>Uploaded</th><th>Posted</th><th>Now</th></tr>
+        <tr><th>Faculty</th><th>Document</th><th>Type</th><th>Confidence</th><th>Uploaded</th><th>Checked</th><th>Now</th></tr>
       </thead>
       <tbody>
         <?php if (!$documents): ?>
-          <?= admin_empty_row(7, $filtered ? 'Nothing matches these filters' : 'Nothing posted yet',
-                $filtered ? 'Try different filters, or clear them to see everything.' : 'Documents posted from For Review appear here.',
-                $filtered ? 'manage_documents.php?tab=posted' : null) ?>
+          <?= admin_empty_row(7, $filtered ? 'Nothing matches these filters' : 'Nothing checked yet',
+                $filtered ? 'Try different filters, or clear them to see everything.' : 'Documents you check or correct appear here.',
+                $filtered ? 'manage_documents.php?tab=checked' : null) ?>
         <?php endif; ?>
         <?php foreach ($documents as $d):
           $corrected = $d['chosen_category'] !== null && $d['chosen_category'] !== $d['document_type'];
           [$st_label, $st_badge] = document_status_badge($d['status']); ?>
-        <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>" aria-label="Open <?= h(document_title($d)) ?>">
+        <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h($review_url((int)$d['document_id'])) ?>" data-app-modal-title="Correct document" aria-label="Open <?= h(document_title($d)) ?>">
           <td class="fw-semibold"><?= h($d['full_name']) ?></td>
           <td class="text-break"><?= h(document_title($d)) ?></td>
           <td>
@@ -195,7 +197,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Delete button +
           </td>
           <td><?= admin_confidence($d['confidence_score']) ?></td>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?></td>
-          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['posted_at']))) ?><?php if ($d['posted_by_name']): ?><div class="ui-cell-sub">by <?= h($d['posted_by_name']) ?></div><?php endif; ?></td>
+          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['reviewed_at']))) ?><?php if ($d['reviewed_by_name']): ?><div class="ui-cell-sub">by <?= h($d['reviewed_by_name']) ?></div><?php endif; ?><?php if ($d['flag_reason']): ?><div class="ui-cell-sub">was flagged: <?= h(implode(', ', document_flag_labels($d['flag_reason']))) ?></div><?php endif; ?></td>
           <td><span class="badge <?= $st_badge ?>"><?= h($st_label === 'Posted' ? 'In 201-Files' : $st_label) ?></span></td>
         </tr>
         <?php endforeach; ?>

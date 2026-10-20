@@ -10,7 +10,7 @@ require_role('admin');
 $page_title = 'Activity Logs';
 $actions = activity_actions();
 $roles = ['admin' => 'Admin', 'faculty' => 'Faculty', 'program_chair' => 'Program Chair', 'dean' => 'Dean'];
-$results = ['success' => 'Successful', 'failed' => 'Failed', 'blocked' => 'Blocked (locked out or deactivated)'];
+$results = ['success' => 'Successful', 'failed' => 'Failed', 'blocked' => 'Blocked (locked out, deactivated or deleted)'];
 const LOGS_PER_PAGE = 25;
 
 // Filters (all optional). Anything invalid is ignored rather than erroring.

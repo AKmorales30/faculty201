@@ -151,7 +151,7 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- Shown only when printing / saving as PDF -->
 <div class="report-print-header d-none d-print-block">
-  <div class="fw-bold">CCS Faculty 201-File Repository</div>
+  <div class="fw-bold"><?= h(SYSTEM_NAME) ?></div>
   <div class="small">College of Computing Studies, Universidad de Manila</div>
   <h4 class="fw-bold mt-2 mb-1">Faculty 201-File Documents Report</h4>
   <div class="small">Filters: <?= $applied ? h(implode('; ', $applied)) : 'None (all documents)' ?></div>
