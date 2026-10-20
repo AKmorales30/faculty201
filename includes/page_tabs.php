@@ -3,8 +3,8 @@
  * Tab bars that join the pages behind one menu entry, so pages that left
  * the menu stay one click away:
  *   Profile Preference   Profile | My PDS
- *   Public Docs (own)    Posted | Pending review | Upload history
- *   Public Docs (Admin)  All documents | By faculty (Faculty Records)
+ *   201-Files (own)    Posted | Pending review | Upload history
+ *   201-Files (Admin)  All documents | By faculty (Faculty Records)
  *   Document Status      Status report | Expiring documents | Data analytics
  */
 
@@ -33,7 +33,7 @@ function profile_tabs(string $active): string {
     ], $active);
 }
 
-/** A faculty member's (or Chair's / Dean's) own Public Docs. */
+/** A faculty member's (or Chair's / Dean's) own 201-Files. */
 function my_docs_tabs(PDO $pdo, string $active): string {
     return page_tabs([
         'posted'  => ['Posted', 'faculty/my_documents.php', 'fa-folder-open'],
@@ -42,7 +42,7 @@ function my_docs_tabs(PDO $pdo, string $active): string {
     ], $active);
 }
 
-/** The Admin's Public Docs: the document list or the per-faculty records. */
+/** The Admin's 201-Files: the document list or the per-faculty records. */
 function admin_docs_tabs(string $active): string {
     return page_tabs([
         'list'    => ['All documents', 'admin/public_docs.php', 'fa-table-list'],

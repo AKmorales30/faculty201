@@ -51,7 +51,6 @@ $suggest = array_map(fn($f) => [
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-3">Public Docs</h3>
 <?= admin_docs_tabs('faculty') ?>
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <p class="text-muted mb-0">Faculty Records: everyone with a 201 file. Open a person to see their posted documents by category.</p>

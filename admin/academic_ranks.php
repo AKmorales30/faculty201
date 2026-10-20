@@ -60,8 +60,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <a href="<?= BASE_URL ?>/admin/manage_faculty.php" class="small text-muted d-inline-block mb-3"><i class="fa-solid fa-arrow-left"></i> Back to Manage Faculty &amp; Accounts</a>
-<h3 class="fw-bold mb-1">Academic Ranks</h3>
-<p class="text-muted mb-4">The ranks offered when you set an account's academic rank. Hidden ranks stay on the accounts that already have them.</p>
+<?= admin_intro('The ranks offered when you set an account\'s academic rank. Hidden ranks stay on the accounts that already have them.') ?>
 
 <div class="row g-4">
   <div class="col-lg-4">

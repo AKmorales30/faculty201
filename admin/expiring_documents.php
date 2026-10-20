@@ -36,86 +36,69 @@ $documents = array_values(array_filter($all, function ($d) use ($status, $catego
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-3">Document Status</h3>
+<?= admin_intro('Faculty documents that have expired or will expire within 60 days, soonest first. The owner and every Admin are notified 60, 30 and 7 days before and on the expiration date.') ?>
 <?= report_tabs('expiring') ?>
-<p class="text-muted mb-4">Faculty documents that have expired or will expire within 60 days, soonest first. The owner and every Admin are notified 60, 30 and 7 days before and on the expiration date.</p>
 
-<div class="row g-3 mb-4">
+<?php $bucket_dots = ['expired' => 'var(--ad-red)', '7' => 'var(--ad-orange)', '30' => 'var(--ad-gold)', '60' => 'var(--ad-gray)']; ?>
+<div class="ui-tiles">
   <?php foreach ($buckets as $key => [$label, $class]): ?>
-  <div class="col-6 col-md-3">
-    <a href="expiring_documents.php?status=<?= h($key) ?>" class="text-decoration-none">
-      <div class="card stat-card p-3 h-100 <?= $status === $key ? 'border-2 border-primary' : '' ?>">
-        <div class="text-muted small"><span class="badge <?= $class ?>">&nbsp;</span> <?= h($label) ?></div>
-        <div class="stat-number"><?= (int)$counts[$key] ?></div>
-      </div>
+    <a class="ui-tile ui-tile-stack" href="expiring_documents.php?status=<?= h($key) ?>" style="--dot: <?= $bucket_dots[$key] ?? 'var(--ad-gray)' ?><?= $status === $key ? ';border-color:var(--ad-navy)' : '' ?>"<?= $status === $key ? ' aria-current="true"' : '' ?>>
+      <span class="ui-tile-dot"><?= h($label) ?></span>
+      <span class="ui-tile-n" data-count="<?= (int)$counts[$key] ?>"><?= (int)$counts[$key] ?></span>
     </a>
-  </div>
   <?php endforeach; ?>
 </div>
 
-<div class="card stat-card mb-4">
-  <div class="card-body">
-    <form method="GET" class="row g-2 align-items-end">
-      <div class="col-md-4 col-xl-3">
-        <label for="fStatus" class="form-label small fw-semibold">Status</label>
-        <select name="status" id="fStatus" class="form-select">
-          <option value="">All (expired and within 60 days)</option>
-          <?php foreach ($buckets as $key => [$label]): ?>
-            <option value="<?= h($key) ?>" <?= $status === $key ? 'selected' : '' ?>><?= h($label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-4 col-xl-3">
-        <label for="fCategory" class="form-label small fw-semibold">Category</label>
-        <select name="category" id="fCategory" class="form-select">
-          <option value="">All Categories</option>
-          <?php foreach ($categories as $key => $meta): ?>
-            <option value="<?= h($key) ?>" <?= $category === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-4 col-xl-3">
-        <label for="fFaculty" class="form-label small fw-semibold">Faculty Member</label>
-        <select name="faculty" id="fFaculty" class="form-select">
-          <option value="">All Faculty</option>
-          <?php foreach ($faculty_names as $id => $name): ?>
-            <option value="<?= (int)$id ?>" <?= $faculty_id === (int)$id ? 'selected' : '' ?>><?= h($name) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-6 col-xl-3 d-flex gap-2">
-        <button class="btn btn-brand flex-fill"><i class="fa-solid fa-filter"></i> Filter</button>
-        <a href="expiring_documents.php" class="btn btn-outline-secondary flex-fill">Reset</a>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="small text-muted mb-2"><?= count($documents) ?> document<?= count($documents) === 1 ? '' : 's' ?></div>
-
-<div class="card stat-card">
-  <div class="card-body p-0 table-responsive">
-    <table class="table mb-0 align-middle">
-      <thead class="table-light">
-        <tr><th>Faculty</th><th>Document</th><th>Category</th><th>Expires</th><th>Status</th><th></th></tr>
+<?php $filtered = $status !== '' || $category !== '' || $faculty_id; ?>
+<section class="ui-card" aria-label="Expiring and expired documents">
+  <form method="GET" class="ui-toolbar" data-autosubmit>
+    <label for="fStatus" class="visually-hidden">Status</label>
+    <select name="status" id="fStatus" class="form-select">
+      <option value="">All (expired and within 60 days)</option>
+      <?php foreach ($buckets as $key => [$label]): ?>
+        <option value="<?= h($key) ?>" <?= $status === $key ? 'selected' : '' ?>><?= h($label) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <label for="fCategory" class="visually-hidden">Category</label>
+    <select name="category" id="fCategory" class="form-select">
+      <option value="">All categories</option>
+      <?php foreach ($categories as $key => $meta): ?>
+        <option value="<?= h($key) ?>" <?= $category === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <label for="fFaculty" class="visually-hidden">Faculty member</label>
+    <select name="faculty" id="fFaculty" class="form-select">
+      <option value="">All faculty</option>
+      <?php foreach ($faculty_names as $id => $name): ?>
+        <option value="<?= (int)$id ?>" <?= $faculty_id === (int)$id ? 'selected' : '' ?>><?= h($name) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <button class="btn btn-sm btn-brand ui-apply" data-auto><i class="fa-solid fa-filter" aria-hidden="true"></i> Filter</button>
+    <?php if ($filtered): ?><a href="expiring_documents.php" class="btn btn-sm btn-outline-secondary">Clear filters</a><?php endif; ?>
+    <span class="ui-count"><?= count($documents) ?> document<?= count($documents) === 1 ? '' : 's' ?></span>
+  </form>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr><th>Faculty</th><th>Document</th><th>Category</th><th>Expires</th><th>Status</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr>
       </thead>
       <tbody>
         <?php if (!$documents): ?>
-          <tr><td colspan="6" class="text-center text-muted py-4">No documents match these filters.</td></tr>
+          <?= admin_empty_row(6, $filtered ? 'No documents match' : 'Nothing is expiring', $filtered ? 'Try different filters, or clear them to see everything.' : 'No documents are expired or expiring within 60 days.', $filtered ? 'expiring_documents.php' : null, 'fa-hourglass-half') ?>
         <?php endif; ?>
-        <?php foreach ($documents as $d): [$badge_label, $badge_class] = expiration_badge($d['days_left']); ?>
-        <tr>
-          <td><a href="<?= BASE_URL ?>/admin/faculty_documents.php?id=<?= (int)$d['faculty_id'] ?>"><?= h($d['full_name']) ?></a></td>
+        <?php foreach ($documents as $d): [$badge_label, $badge_class] = expiration_badge($d['days_left']); $view_url = BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']; ?>
+        <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h($view_url) ?>" aria-label="Open <?= h(document_display_name($d['file_path'])) ?>">
+          <td><a href="<?= BASE_URL ?>/admin/faculty_documents.php?id=<?= (int)$d['faculty_id'] ?>" class="text-body fw-semibold"><?= h($d['full_name']) ?></a></td>
           <td class="text-break"><?= h(document_display_name($d['file_path'])) ?></td>
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['expiration_date']))) ?></td>
           <td><span class="badge <?= $badge_class ?>"><?= h($badge_label) ?></span></td>
-          <td class="text-end"><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" data-tooltip title="View document" aria-label="View document" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><i class="fa-solid fa-eye"></i></a></td>
+          <td><div class="ui-actions"><?= admin_icon_link(document_url((int)$d['document_id']), 'fa-eye', 'View details', 'target="_blank" data-app-modal="' . h($view_url) . '"') ?></div></td>
         </tr>
         <?php endforeach; ?>
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

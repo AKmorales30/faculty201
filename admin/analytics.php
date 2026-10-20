@@ -34,7 +34,7 @@ $expiring = documents_expiring_soon($pdo, 60);
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-3">Document Status</h3>
+<?= admin_intro('Charts of the posted documents and the faculty who uploaded them.') ?>
 <?= report_tabs('analytics') ?>
 
 <div class="row g-3 mb-4">
@@ -88,15 +88,17 @@ include __DIR__ . '/../includes/header.php';
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
-const brand = '#1b4b93', teal = '#157975', gold = '#e0aa28', blue = '#0f89b8', charcoal='#38383c';
+const brand = '#003283', teal = '#006560', gold = '#D99C0B', blue = '#0077AE', charcoal = '#5A6577';
+Chart.defaults.font.family = "'Public Sans', system-ui, sans-serif";
+Chart.defaults.color = '#5A6577';
 
 new Chart(document.getElementById('chartType'), {
   type: 'doughnut',
   data: {
     labels: <?= json_encode($type_labels) ?>,
-    datasets: [{ data: <?= json_encode(array_values($by_type)) ?>, backgroundColor: [brand, gold, blue, teal, '#6f42c1', '#20c997', '#fd7e14', '#6c757d', charcoal] }]
+    datasets: [{ data: <?= json_encode(array_values($by_type)) ?>, backgroundColor: [brand, gold, blue, teal, '#5B7DB8', '#6FA9A4', '#8A6206', '#B8BEC9', charcoal] }]
   },
   options: { plugins: { legend: { position: 'bottom' } } }
 });
@@ -114,7 +116,7 @@ new Chart(document.getElementById('chartStatus'), {
   type: 'bar',
   data: {
     labels: <?= json_encode(array_keys($top_uploaders)) ?>,
-    datasets: [{ data: <?= json_encode(array_values($top_uploaders)) ?>, backgroundColor: brand }]
+    datasets: [{ data: <?= json_encode(array_values($top_uploaders)) ?>, backgroundColor: brand, borderRadius: 6 }]
   },
   options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
 });
@@ -123,7 +125,7 @@ new Chart(document.getElementById('chartMonthly'), {
   type: 'line',
   data: {
     labels: <?= json_encode(array_keys($monthly)) ?>,
-    datasets: [{ label: 'Posted documents', data: <?= json_encode(array_values($monthly)) ?>, borderColor: teal, backgroundColor: 'rgba(21,121,117,.15)', fill: true, tension: .3 }]
+    datasets: [{ label: 'Posted documents', data: <?= json_encode(array_values($monthly)) ?>, borderColor: teal, backgroundColor: 'rgba(0,101,96,.12)', fill: true, tension: .3 }]
   },
   options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
 });

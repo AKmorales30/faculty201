@@ -10,7 +10,7 @@ require_role('admin');
 $page_title = 'Activity Logs';
 $actions = activity_actions();
 $roles = ['admin' => 'Admin', 'faculty' => 'Faculty', 'program_chair' => 'Program Chair', 'dean' => 'Dean'];
-$results = ['success' => 'Successful', 'failed' => 'Failed', 'blocked' => 'Blocked (locked out)'];
+$results = ['success' => 'Successful', 'failed' => 'Failed', 'blocked' => 'Blocked (locked out or deactivated)'];
 const LOGS_PER_PAGE = 25;
 
 // Filters (all optional). Anything invalid is ignored rather than erroring.
@@ -89,144 +89,121 @@ $when = fn(string $ts): string => date('M j, Y g:i:s A', strtotime($ts));
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-1">Activity Logs</h3>
-<p class="text-muted mb-4">Who did what in the system, and every login attempt. Newest first; records are read-only.</p>
+<?= admin_intro('Everything users and the system did, and every login attempt — newest first. Records are read-only; filter by user, role or action to narrow the list.') ?>
 
-<ul class="nav nav-tabs mb-3">
-  <li class="nav-item">
-    <a class="nav-link <?= $tab === 'activity' ? 'active' : '' ?>" href="activity_logs.php?<?= h(http_build_query($common_query)) ?>"><i class="fa-solid fa-clock-rotate-left"></i> Activity Logs</a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link <?= $tab === 'logins' ? 'active' : '' ?>" href="activity_logs.php?<?= h(http_build_query($common_query + ['tab' => 'logins'])) ?>"><i class="fa-solid fa-right-to-bracket"></i> Login Attempts</a>
-  </li>
-</ul>
-
-<div class="card stat-card mb-4">
-  <div class="card-body">
-    <form method="GET" class="row g-2 align-items-end">
-      <?php if ($tab === 'logins'): ?><input type="hidden" name="tab" value="logins"><?php endif; ?>
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fFrom" class="form-label small fw-semibold">From</label>
-        <input type="date" name="from" id="fFrom" value="<?= h($from) ?>" class="form-control">
-      </div>
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fTo" class="form-label small fw-semibold">To</label>
-        <input type="date" name="to" id="fTo" value="<?= h($to) ?>" class="form-control">
-      </div>
-      <div class="col-md-6 col-xl-2">
-        <label for="fUser" class="form-label small fw-semibold">User</label>
-        <select name="user" id="fUser" class="form-select">
-          <option value="">All Users</option>
-          <?php foreach ($users as $u): ?>
-            <option value="<?= (int)$u['user_id'] ?>" <?= $user_id === (int)$u['user_id'] ? 'selected' : '' ?>><?= h($u['full_name']) ?> (<?= h($role_label($u['role'])) ?>)</option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fRole" class="form-label small fw-semibold">Role</label>
-        <select name="role" id="fRole" class="form-select">
-          <option value="">All Roles</option>
-          <?php foreach ($roles as $key => $label): ?>
-            <option value="<?= h($key) ?>" <?= $role_filter === $key ? 'selected' : '' ?>><?= h($label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <?php if ($tab === 'activity'): ?>
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fAction" class="form-label small fw-semibold">Action</label>
-        <select name="action" id="fAction" class="form-select">
-          <option value="">All Actions</option>
-          <?php foreach ($actions as $key => $label): ?>
-            <option value="<?= h($key) ?>" <?= $action === $key ? 'selected' : '' ?>><?= h($label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <?php else: ?>
-      <div class="col-6 col-md-3 col-xl-2">
-        <label for="fResult" class="form-label small fw-semibold">Result</label>
-        <select name="result" id="fResult" class="form-select">
-          <option value="">All</option>
-          <?php foreach ($results as $key => $label): ?>
-            <option value="<?= h($key) ?>" <?= $result === $key ? 'selected' : '' ?>><?= h($label) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <?php endif; ?>
-      <div class="col-md-6 col-xl-2">
-        <label for="fQ" class="form-label small fw-semibold">Keyword</label>
-        <input type="search" name="q" id="fQ" value="<?= h($q) ?>" class="form-control"
-               placeholder="<?= $tab === 'activity' ? 'Details or IP address' : 'Email or IP address' ?>">
-      </div>
-      <div class="col-md-6 col-xl-3 d-flex gap-2">
-        <button class="btn btn-brand flex-fill"><i class="fa-solid fa-filter"></i> Filter</button>
-        <a href="activity_logs.php<?= $tab === 'logins' ? '?tab=logins' : '' ?>" class="btn btn-outline-secondary flex-fill">Reset</a>
-      </div>
-    </form>
-  </div>
+<div class="nav page-tabs" role="tablist" aria-label="Logs">
+  <a class="nav-link <?= $tab === 'activity' ? 'active' : '' ?>" role="tab" aria-selected="<?= $tab === 'activity' ? 'true' : 'false' ?>" href="activity_logs.php?<?= h(http_build_query($common_query)) ?>"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Activity</a>
+  <a class="nav-link <?= $tab === 'logins' ? 'active' : '' ?>" role="tab" aria-selected="<?= $tab === 'logins' ? 'true' : 'false' ?>" href="activity_logs.php?<?= h(http_build_query($common_query + ['tab' => 'logins'])) ?>"><i class="fa-solid fa-right-to-bracket" aria-hidden="true"></i> Login attempts</a>
 </div>
 
-<div class="small text-muted mb-2">
-  <?= $total ?> record<?= $total === 1 ? '' : 's' ?><?= $total ? ' -- showing ' . (($page - 1) * LOGS_PER_PAGE + 1) . '-' . (($page - 1) * LOGS_PER_PAGE + count($rows)) : '' ?>
-</div>
+<?php $filtered = (bool)array_diff_key($filter_query, ['tab' => 1]); ?>
+<section class="ui-card" aria-label="<?= $tab === 'activity' ? 'Activity' : 'Login attempts' ?>">
+  <form method="GET" class="ui-toolbar" data-autosubmit role="search">
+    <?php if ($tab === 'logins'): ?><input type="hidden" name="tab" value="logins"><?php endif; ?>
+    <label class="ui-search" for="fQ">
+      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+      <span class="visually-hidden"><?= $tab === 'activity' ? 'Search details or IP address' : 'Search email or IP address' ?></span>
+      <input type="search" name="q" id="fQ" value="<?= h($q) ?>" class="ui-search-input" placeholder="<?= $tab === 'activity' ? 'Search details or IP address' : 'Search email or IP address' ?>">
+    </label>
+    <label for="fUser" class="visually-hidden">User</label>
+    <select name="user" id="fUser" class="form-select">
+      <option value="">All users</option>
+      <?php foreach ($users as $u): ?>
+        <option value="<?= (int)$u['user_id'] ?>" <?= $user_id === (int)$u['user_id'] ? 'selected' : '' ?>><?= h($u['full_name']) ?> (<?= h($role_label($u['role'])) ?>)</option>
+      <?php endforeach; ?>
+    </select>
+    <label for="fRole" class="visually-hidden">Role</label>
+    <select name="role" id="fRole" class="form-select">
+      <option value="">All roles</option>
+      <?php foreach ($roles as $key => $label): ?>
+        <option value="<?= h($key) ?>" <?= $role_filter === $key ? 'selected' : '' ?>><?= h($label) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <?php if ($tab === 'activity'): ?>
+      <label for="fAction" class="visually-hidden">Action</label>
+      <select name="action" id="fAction" class="form-select">
+        <option value="">All actions</option>
+        <?php foreach ($actions as $key => $label): ?>
+          <option value="<?= h($key) ?>" <?= $action === $key ? 'selected' : '' ?>><?= h($label) ?></option>
+        <?php endforeach; ?>
+      </select>
+    <?php else: ?>
+      <label for="fResult" class="visually-hidden">Result</label>
+      <select name="result" id="fResult" class="form-select">
+        <option value="">All results</option>
+        <?php foreach ($results as $key => $label): ?>
+          <option value="<?= h($key) ?>" <?= $result === $key ? 'selected' : '' ?>><?= h($label) ?></option>
+        <?php endforeach; ?>
+      </select>
+    <?php endif; ?>
+    <label for="fFrom" class="visually-hidden">From</label>
+    <input type="date" name="from" id="fFrom" value="<?= h($from) ?>" class="form-control" title="From">
+    <label for="fTo" class="visually-hidden">To</label>
+    <input type="date" name="to" id="fTo" value="<?= h($to) ?>" class="form-control" title="To">
+    <button class="btn btn-sm btn-brand ui-apply"><i class="fa-solid fa-filter" aria-hidden="true"></i> Apply</button>
+    <?php if ($filtered): ?><a href="activity_logs.php<?= $tab === 'logins' ? '?tab=logins' : '' ?>" class="btn btn-sm btn-outline-secondary">Clear filters</a><?php endif; ?>
+    <span class="ui-count"><?= $total ?> record<?= $total === 1 ? '' : 's' ?></span>
+  </form>
 
-<div class="card stat-card">
-  <div class="card-body p-0 table-responsive">
-    <table class="table mb-0 align-middle">
+  <div class="table-responsive">
+    <table class="table align-middle">
       <?php if ($tab === 'activity'): ?>
-      <thead class="table-light">
-        <tr><th class="text-nowrap">Date / Time</th><th>User</th><th>Role</th><th>Action</th><th>Details</th><th>IP Address</th></tr>
+      <thead>
+        <tr><th class="text-nowrap">Date / time</th><th>User</th><th>Role</th><th>Action</th><th>Details</th><th>IP address</th></tr>
       </thead>
       <tbody>
         <?php if (!$rows): ?>
-          <tr><td colspan="6" class="text-center text-muted py-4">No records found.</td></tr>
+          <?= admin_empty_row(6, $filtered ? 'No activity matches' : 'No activity yet', $filtered ? 'Try a different search, or clear the filters to see everything.' : '', $filtered ? 'activity_logs.php' : null, 'fa-clock-rotate-left') ?>
         <?php endif; ?>
         <?php foreach ($rows as $r): ?>
         <tr>
-          <td class="text-nowrap small"><?= h($when($r['created_at'])) ?></td>
-          <td><?= h($r['full_name'] ?? ($r['user_role'] === 'system' ? 'System (scheduled)' : '—')) ?></td>
+          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($r['created_at']))) ?><div class="ui-cell-sub"><?= h(date('g:i:s A', strtotime($r['created_at']))) ?></div></td>
+          <td class="fw-semibold"><?= h($r['full_name'] ?? ($r['user_role'] === 'system' ? 'System (scheduled)' : '—')) ?></td>
           <td class="text-nowrap"><?= h($role_label($r['user_role'])) ?></td>
-          <td class="text-nowrap"><span class="badge bg-light text-dark border"><?= h($actions[$r['action']] ?? $r['action']) ?></span></td>
-          <td class="small text-break"><?= h($r['details'] ?? '') ?></td>
-          <td><code><?= h($r['ip_address'] ?? '—') ?></code></td>
+          <td><?= h($actions[$r['action']] ?? $r['action']) ?></td>
+          <td class="text-break"><?= h($r['details'] ?? '') ?></td>
+          <td class="text-nowrap"><?= h($r['ip_address'] ?? '—') ?></td>
         </tr>
         <?php endforeach; ?>
       </tbody>
       <?php else: ?>
-      <thead class="table-light">
-        <tr><th class="text-nowrap">Date / Time</th><th>Email Entered</th><th>Account</th><th>Result</th><th>IP Address</th></tr>
+      <thead>
+        <tr><th class="text-nowrap">Date / time</th><th>Email entered</th><th>Account</th><th>Result</th><th>IP address</th></tr>
       </thead>
       <tbody>
         <?php if (!$rows): ?>
-          <tr><td colspan="5" class="text-center text-muted py-4">No records found.</td></tr>
+          <?= admin_empty_row(5, $filtered ? 'No login attempts match' : 'No login attempts yet', $filtered ? 'Try a different search, or clear the filters to see everything.' : '', $filtered ? 'activity_logs.php?tab=logins' : null, 'fa-right-to-bracket') ?>
         <?php endif; ?>
         <?php foreach ($rows as $r): ?>
         <tr>
-          <td class="text-nowrap small"><?= h($when($r['attempted_at'])) ?></td>
+          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($r['attempted_at']))) ?><div class="ui-cell-sub"><?= h(date('g:i:s A', strtotime($r['attempted_at']))) ?></div></td>
           <td class="text-break"><?= h($r['email']) ?></td>
           <td>
             <?php if ($r['full_name']): ?>
-              <?= h($r['full_name']) ?> <span class="text-muted small">(<?= h($role_label($r['role'])) ?>)</span>
+              <span class="fw-semibold"><?= h($r['full_name']) ?></span><div class="ui-cell-sub"><?= h($role_label($r['role'])) ?></div>
             <?php else: ?>
-              <span class="text-muted small">No matching account</span>
+              <span class="text-muted">No matching account</span>
             <?php endif; ?>
           </td>
           <td>
-            <?php [$res_label, $res_class] = $r['was_successful'] ? ['Success', 'bg-success'] : ($r['was_blocked'] ? ['Blocked (locked)', 'bg-secondary'] : ['Failed', 'bg-danger']); ?>
+            <?php [$res_label, $res_class] = $r['was_successful'] ? ['Success', 'bg-success'] : ($r['was_blocked'] ? ['Blocked', 'bg-secondary'] : ['Failed', 'bg-danger']); ?>
             <span class="badge <?= $res_class ?>"><?= h($res_label) ?></span>
           </td>
-          <td><code><?= h($r['ip_address'] ?? '—') ?></code></td>
+          <td class="text-nowrap"><?= h($r['ip_address'] ?? '—') ?></td>
         </tr>
         <?php endforeach; ?>
       </tbody>
       <?php endif; ?>
     </table>
   </div>
-</div>
-
-<?php
-$page_url = fn(int $p): string => 'activity_logs.php?' . http_build_query($filter_query + ($tab === 'logins' ? ['tab' => 'logins'] : []) + ['page' => $p]);
-$pagination_labels = ['&laquo; Newer', 'Older &raquo;'];
-include __DIR__ . '/../includes/pagination.php';
-?>
+  <div class="ui-card-foot">
+    <span><?= h(admin_range_label($page, LOGS_PER_PAGE, count($rows), $total)) ?></span>
+    <?php
+    $page_url = fn(int $p): string => 'activity_logs.php?' . http_build_query($filter_query + ($tab === 'logins' ? ['tab' => 'logins'] : []) + ['page' => $p]);
+    $pagination_labels = ['<i class="fa-solid fa-chevron-left" aria-hidden="true"></i><span class="visually-hidden">Newer</span>', '<i class="fa-solid fa-chevron-right" aria-hidden="true"></i><span class="visually-hidden">Older</span>'];
+    include __DIR__ . '/../includes/pagination.php';
+    ?>
+  </div>
+</section>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

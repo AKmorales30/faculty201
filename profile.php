@@ -124,13 +124,12 @@ include __DIR__ . '/includes/header.php';
 ?>
 
 <?php if ($is_own): ?>
-  <h3 class="fw-bold mb-3">Profile Preference</h3>
   <?= profile_tabs('profile') ?>
 <?php endif; ?>
 
 <?php if (!$is_own): ?>
   <a href="<?= BASE_URL ?>/<?= $viewer_admin ? 'admin/view_records.php' : 'faculty_directory.php' ?>" class="small text-muted d-inline-block mb-3">
-    <i class="fa-solid fa-arrow-left"></i> Back to <?= $viewer_admin ? 'Public Docs &rsaquo; By faculty' : 'Faculty Profiles' ?>
+    <i class="fa-solid fa-arrow-left"></i> Back to <?= $viewer_admin ? '201-Files &rsaquo; By faculty' : 'Faculty Profiles' ?>
   </a>
 <?php endif; ?>
 

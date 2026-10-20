@@ -1,7 +1,7 @@
 <?php
 /**
  * 201-file folder tiles + document list of posted documents, shared by the
- * faculty member's Public Docs and the Admin per-faculty drill-down. View
+ * faculty member's 201-Files and the Admin per-faculty drill-down. View
  * opens the preview pop-up.
  *
  * Expects: $pdo, $faculty (users row), $link_base (query-string prefix
@@ -57,6 +57,7 @@ foreach ($all_docs as $d) {
     }
 }
 include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + confirmation dialog
+$show_all_url = rtrim($link_base, '?&') ?: '?';
 ?>
 
 <div class="row g-3 mb-4">
@@ -77,20 +78,17 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
   <?php endforeach; ?>
 </div>
 
-<div class="card stat-card">
-  <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span class="fw-semibold">
-      <?= $active_type ? h($all_categories[$active_type]['label']) : 'All Documents (latest first)' ?>
-      <?php if ($active_type): ?><a href="<?= h(rtrim($link_base, '?&')) ?: '?' ?>" class="small ms-2 fw-normal">(show all)</a><?php endif; ?>
-    </span>
-    <form class="d-flex" method="GET">
-      <?php foreach (['id' => $_GET['id'] ?? null, 'type' => $active_type ?: null, 'sub' => $active_sub ?: null] as $k => $v): if ($v === null) continue; ?>
-        <input type="hidden" name="<?= $k ?>" value="<?= h((string)$v) ?>">
-      <?php endforeach; ?>
-      <input type="search" name="q" value="<?= h($q) ?>" class="form-control form-control-sm" placeholder="Search extracted text or filename...">
-      <button class="btn btn-sm btn-outline-brand ms-2" data-tooltip title="Search documents" aria-label="Search documents"><i class="fa-solid fa-magnifying-glass"></i></button>
-    </form>
-  </div>
+<section class="ui-card" aria-label="Documents">
+  <form class="ui-toolbar" method="GET" role="search">
+    <?php foreach (['id' => $_GET['id'] ?? null, 'type' => $active_type ?: null, 'sub' => $active_sub ?: null] as $k => $v): if ($v === null) continue; ?>
+      <input type="hidden" name="<?= $k ?>" value="<?= h((string)$v) ?>">
+    <?php endforeach; ?>
+    <label class="ui-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" name="q" value="<?= h($q) ?>" placeholder="Search extracted text or file name" aria-label="Search documents"></label>
+    <button class="btn btn-sm btn-brand"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Search</button>
+    <?php if ($q !== '' || $active_type): ?><a href="<?= h($show_all_url) ?>" class="btn btn-sm btn-outline-secondary">Clear filters</a><?php endif; ?>
+    <span class="ui-count"><?= $active_type ? h($all_categories[$active_type]['label']) . ' · ' : 'All documents, latest first · ' ?><?= count($documents) ?> result<?= count($documents) === 1 ? '' : 's' ?></span>
+  </form>
 
   <?php if ($active_type && !empty($all_categories[$active_type]['subtypes'])): ?>
   <div class="px-3 pt-3 d-flex flex-wrap gap-2">
@@ -107,14 +105,16 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
     <div class="px-3 pt-2 small text-muted"><?= h($all_categories[$active_type]['description']) ?></div>
   <?php endif; ?>
 
-  <div class="card-body p-0 table-responsive">
+  <div class="table-responsive">
     <table class="table mb-0 align-middle">
       <thead class="table-light">
-        <tr><th>Type</th><th>Period</th><th>File</th><th>Matched Name</th><th>Expiration</th><th>Uploaded</th><th></th></tr>
+        <tr><th>Type</th><th>Period</th><th>File</th><th>Matched Name</th><th>Expiration</th><th>Uploaded</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr>
       </thead>
       <tbody>
         <?php if (!$documents): ?>
-          <tr><td colspan="7" class="text-center text-muted py-4">No documents here yet.</td></tr>
+          <?= admin_empty_row(7, $q !== '' || $active_type ? 'No documents match' : 'No documents here yet',
+                $q !== '' || $active_type ? 'Try another search or folder, or clear the filters.' : 'Posted documents will appear here.',
+                $q !== '' || $active_type ? $show_all_url : null, 'fa-folder-open') ?>
         <?php endif; ?>
         <?php foreach ($documents as $d):
           $expiring = $d['expiration_date'] && strtotime($d['expiration_date']) <= strtotime('+60 days');
@@ -162,15 +162,12 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
           </td>
           <td class="text-nowrap"><?= date('M j, Y', strtotime($d['filed_at'])) ?></td>
           <td>
-            <div class="d-flex flex-wrap gap-1 align-items-start">
-              <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand text-nowrap"
-                 data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><i class="fa-solid fa-eye"></i> View</a>
-              <?php if ($d['document_type'] === 'PDS' && (current_user()['role'] === 'admin' || (int)$d['faculty_id'] === (int)current_user()['user_id'])): ?>
-                <a href="<?= BASE_URL ?>/faculty/pds_import.php?document=<?= (int)$d['document_id'] ?>" class="btn btn-sm btn-outline-brand text-nowrap" title="Read this PDS file and choose what to add to the digital PDS"><i class="fa-solid fa-file-import"></i> Import to PDS</a>
-              <?php endif; ?>
-              <?php if (can_edit_document_details(current_user(), $d)): ?>
-                <a href="<?= BASE_URL ?>/document_details.php?id=<?= (int)$d['document_id'] ?>&amp;return=<?= h(urlencode($doc_action_return)) ?>" class="btn btn-sm btn-outline-brand text-nowrap" title="Edit details (title, dates, organizer...)"><i class="fa-solid fa-pen-to-square"></i> Details</a>
-              <?php endif; ?>
+            <?php $can_import = $d['document_type'] === 'PDS' && (current_user()['role'] === 'admin' || (int)$d['faculty_id'] === (int)current_user()['user_id']); ?>
+            <div class="ui-actions">
+              <?= admin_icon_link(document_url((int)$d['document_id']), 'fa-eye', 'View file', 'target="_blank" data-app-modal="' . h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) . '"') ?>
+              <?php if ($can_import): ?><?= admin_icon_link(BASE_URL . '/faculty/pds_import.php?document=' . (int)$d['document_id'], 'fa-file-import', 'Import to PDS') ?><?php endif; ?>
+              <?php if (can_edit_document_details(current_user(), $d)): ?><?= admin_icon_link(BASE_URL . '/document_details.php?id=' . (int)$d['document_id'] . '&return=' . urlencode($doc_action_return), 'fa-pen-to-square', 'Edit details') ?><?php endif; ?>
+              <?= admin_icon_link(document_url((int)$d['document_id']) . '&download=1', 'fa-download', 'Download') ?>
               <?= document_action_buttons($d, current_user()) ?>
             </div>
           </td>
@@ -179,4 +176,4 @@ include_once __DIR__ . '/document_actions.php';   // Delete / Archive buttons + 
       </tbody>
     </table>
   </div>
-</div>
+</section>

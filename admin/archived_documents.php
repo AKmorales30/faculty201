@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_role('admin');
 
-// Files > Archived Docs: documents taken out of Public Docs -- archived
+// Files > Archived Docs: documents taken out of 201-Files -- archived
 // (automatically when nobody has opened them in ARCHIVE_UNVIEWED_YEARS
 // years, or by the Admin). They can be restored or deleted here. Opening an
 // archived document doesn't restore it. Each faculty member sees their own
@@ -49,80 +49,71 @@ include __DIR__ . '/../includes/header.php';
 include_once __DIR__ . '/../includes/document_actions.php';   // Restore / Delete buttons + confirmation dialog
 ?>
 
-<h3 class="fw-bold mb-1">Archived Docs</h3>
-<p class="text-muted mb-4">Documents taken out of Public Docs. A posted document that nobody has opened in <?= h(archive_period_label()) ?> is archived automatically (checked once a day).
-  Archived documents stay visible to their owner in their Archived Docs and don't appear in Public Docs, searches, reports or expiration alerts.
-  Opening an archived document does not restore it -- the file and record are kept and can be restored here (with a reason).
-  Deleted documents are in <a href="<?= BASE_URL ?>/recently_deleted.php">Recently Deleted</a><?= $deleted_count ? ' (' . $deleted_count . ')' : '' ?>.</p>
+<?= admin_intro('Documents taken out of 201-Files — archived by the Admin, or automatically when nobody has opened them in ' . h(archive_period_label()) . ' (checked once a day).
+  Their owners still see them in their Archived Docs. Opening one does not restore it; restore it here, with a reason.
+  Deleted documents are in <a href="' . BASE_URL . '/recently_deleted.php">Recently Deleted</a>' . ($deleted_count ? ' (' . $deleted_count . ')' : '') . '.') ?>
 
-<div class="card stat-card mb-4">
-  <div class="card-body">
-    <form method="GET" class="row g-2 align-items-end">
-      <div class="col-md-3">
-        <label for="fCategory" class="form-label small fw-semibold">Category</label>
-        <select name="category" id="fCategory" class="form-select">
-          <option value="">All Categories</option>
-          <?php foreach ($categories as $key => $meta): ?>
-            <option value="<?= h($key) ?>" <?= $category === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label for="fHow" class="form-label small fw-semibold">Archived</label>
-        <select name="how" id="fHow" class="form-select">
-          <option value="">Any way</option>
-          <option value="auto" <?= $how === 'auto' ? 'selected' : '' ?>>Automatically</option>
-          <option value="manual" <?= $how === 'manual' ? 'selected' : '' ?>>By the Admin</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label for="fFaculty" class="form-label small fw-semibold">Faculty Member</label>
-        <select name="faculty" id="fFaculty" class="form-select">
-          <option value="">All Faculty</option>
-          <?php foreach ($faculty_list as $id => $name): ?>
-            <option value="<?= (int)$id ?>" <?= $faculty_id === (int)$id ? 'selected' : '' ?>><?= h($name) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-4 d-flex gap-2">
-        <button class="btn btn-brand flex-fill"><i class="fa-solid fa-filter"></i> Filter</button>
-        <a href="archived_documents.php" class="btn btn-outline-secondary flex-fill">Reset</a>
-      </div>
-    </form>
-  </div>
-</div>
+<?php $filtered = $category !== '' || $faculty_id || $how !== ''; ?>
+<section class="ui-card" aria-label="Archived documents">
+  <form method="GET" class="ui-toolbar" data-autosubmit>
+    <label for="fCategory" class="visually-hidden">Category</label>
+    <select name="category" id="fCategory" class="form-select">
+      <option value="">All categories</option>
+      <?php foreach ($categories as $key => $meta): ?>
+        <option value="<?= h($key) ?>" <?= $category === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <label for="fHow" class="visually-hidden">How it was archived</label>
+    <select name="how" id="fHow" class="form-select">
+      <option value="">All reasons</option>
+      <option value="auto" <?= $how === 'auto' ? 'selected' : '' ?>>Auto-archived</option>
+      <option value="manual" <?= $how === 'manual' ? 'selected' : '' ?>>Archived by Admin</option>
+    </select>
+    <label for="fFaculty" class="visually-hidden">Faculty member</label>
+    <select name="faculty" id="fFaculty" class="form-select">
+      <option value="">All faculty</option>
+      <?php foreach ($faculty_list as $id => $name): ?>
+        <option value="<?= (int)$id ?>" <?= $faculty_id === (int)$id ? 'selected' : '' ?>><?= h($name) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <button class="btn btn-sm btn-brand ui-apply" data-auto><i class="fa-solid fa-filter" aria-hidden="true"></i> Filter</button>
+    <?php if ($filtered): ?><a href="archived_documents.php" class="btn btn-sm btn-outline-secondary">Clear filters</a><?php endif; ?>
+    <span class="ui-count"><?= count($documents) ?> result<?= count($documents) === 1 ? '' : 's' ?></span>
+  </form>
 
-<div class="card stat-card">
-  <div class="card-body p-0 table-responsive">
-    <table class="table mb-0 align-middle">
-      <thead class="table-light">
-        <tr><th>Faculty</th><th>Document</th><th>Category</th><th>Uploaded</th><th>Last Opened</th><th>Archived</th><th>Reason</th><th></th></tr>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr><th>File</th><th>Faculty</th><th>Type</th><th>Archived</th><th>Reason</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr>
       </thead>
       <tbody>
         <?php if (!$documents): ?>
-          <tr><td colspan="8" class="text-center text-muted py-4">No archived documents.</td></tr>
+          <?= admin_empty_row(6, $filtered ? 'No archived documents match' : 'No archived documents',
+                $filtered ? 'Try different filters, or clear them to see everything.' : 'Archived documents will appear here.',
+                $filtered ? 'archived_documents.php' : null, 'fa-box-archive') ?>
         <?php endif; ?>
-        <?php foreach ($documents as $d): ?>
-        <tr>
-          <td><a href="<?= BASE_URL ?>/archive.php?id=<?= (int)$d['faculty_id'] ?>" title="This faculty member's archive"><?= h($d['full_name']) ?></a></td>
-          <td class="text-break small"><a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="text-body"
-              data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><?= h(document_title($d)) ?></a></td>
-          <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>
-          <td class="text-nowrap small"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?></td>
-          <td class="text-nowrap small"><?= h(date('M j, Y', strtotime($d['last_viewed_at'] ?? $d['filed_at']))) ?></td>
-          <td class="small">
-            <?= $d['removed_at'] ? h(date('M j, Y g:i A', strtotime($d['removed_at']))) : '—' ?>
-            <?php if ($d['removed_by_name']): ?>
-              <div class="text-muted">by <?= h($d['removed_by_name']) ?><?= $d['removed_by_role'] !== 'admin' ? ' (owner)' : '' ?></div>
-            <?php else: ?>
-              <div class="text-muted">automatically</div>
-            <?php endif; ?>
+        <?php foreach ($documents as $d): $view_url = BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']; ?>
+        <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h($view_url) ?>" aria-label="Open <?= h(document_title($d)) ?>">
+          <td class="text-break">
+            <div class="fw-semibold"><?= h(document_title($d)) ?></div>
+            <div class="ui-cell-sub">Uploaded <?= h(date('M j, Y', strtotime($d['filed_at']))) ?> · last opened <?= h(date('M j, Y', strtotime($d['last_viewed_at'] ?? $d['filed_at']))) ?></div>
           </td>
-          <td class="small text-break"><?= $d['removed_reason'] !== null ? h($d['removed_reason']) : '<span class="text-muted">—</span>' ?></td>
+          <td><a href="<?= BASE_URL ?>/archive.php?id=<?= (int)$d['faculty_id'] ?>" class="text-body fw-semibold" title="This faculty member's archive"><?= h($d['full_name']) ?></a></td>
+          <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?></td>
+          <td class="text-nowrap"><?= $d['removed_at'] ? h(date('M j, Y', strtotime($d['removed_at']))) : '—' ?></td>
           <td>
-            <div class="d-flex flex-wrap gap-1">
-              <a href="<?= h(document_url((int)$d['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand" data-tooltip title="View document" aria-label="View document"
-                 data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) ?>"><i class="fa-solid fa-eye"></i></a>
+            <?php if ($d['removed_by_name']): ?>
+              <span class="badge bg-info">Archived by <?= $d['removed_by_role'] !== 'admin' ? 'owner' : 'Admin' ?></span>
+              <?php if ($d['removed_by_role'] === 'admin'): ?><div class="ui-cell-sub"><?= h($d['removed_by_name']) ?></div><?php endif; ?>
+            <?php else: ?>
+              <span class="badge bg-secondary">Auto-archived</span>
+              <div class="ui-cell-sub">Not opened in <?= h(archive_period_label()) ?></div>
+            <?php endif; ?>
+            <?php if ($d['removed_reason'] !== null && $d['removed_reason'] !== ''): ?><div class="ui-cell-sub text-break"><?= h($d['removed_reason']) ?></div><?php endif; ?>
+          </td>
+          <td>
+            <div class="ui-actions">
+              <?= admin_icon_link(document_url((int)$d['document_id']), 'fa-eye', 'View details', 'target="_blank" data-app-modal="' . h($view_url) . '"') ?>
               <?= document_action_buttons($d, current_user()) ?>
             </div>
           </td>
@@ -131,6 +122,6 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Restore / Delet
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

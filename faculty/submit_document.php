@@ -14,7 +14,7 @@ require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Dean
 //                          themselves (no OCR); the file is still attached, as
 //                          every 201-file record is a document
 // Either way the document is saved For Review: the Admin checks it in Manage
-// Document and posts it to the uploader's Public Docs.
+// Document and posts it to the uploader's 201-Files.
 $page_title = 'Upload Document';
 $me = current_user();
 $employment_type = faculty_employment_type($pdo, $me['user_id']);
@@ -71,15 +71,24 @@ function pending_classification(array $pending, array $categories): array {
         ? ['score' => null, 'predicted' => null, 'suggested' => null, 'low' => false, 'candidates' => []]
         : classification_check($pending['result'], $categories);
 }
-/** OCR + categorization of a scan; uses the cleaned-up page when there is one. Skipped for a manual entry. */
+/**
+ * OCR + categorization of a scan; uses the cleaned-up page when there is one. Skipped for a manual entry.
+ * Reading the file never stops the upload: if it fails, nothing is detected and the uploader picks the type.
+ */
 function ocr_pending(array $pending, string $name): array {
     if (!empty($pending['manual'])) {
         return manual_entry_result();
     }
-    if (!empty($pending['page_image'])) {
-        return OcrProcessor::process(ROOT_PATH . '/' . $pending['page_image'], $name, true);
+    try {
+        if (!empty($pending['page_image'])) {
+            return OcrProcessor::process(ROOT_PATH . '/' . $pending['page_image'], $name, true);
+        }
+        return OcrProcessor::process(ROOT_PATH . '/' . $pending['relative_path'], $name);
+    } catch (Throwable $e) {
+        error_log(sprintf('OCR / classification failed, continuing without it: %s: %s in %s:%d', get_class($e), $e->getMessage(), $e->getFile(), $e->getLine()));
+        return array_merge(manual_entry_result(), ['confidence' => 0.0, 'ocr_poor' => true,
+            'confidence_note' => 'The file could not be read automatically. Please choose the document type and check the details.']);
     }
-    return OcrProcessor::process(ROOT_PATH . '/' . $pending['relative_path'], $name);
 }
 
 // Preview images of the pending scan (temp_scans/ is not web-accessible)
@@ -113,7 +122,7 @@ if ($action !== '' && !csrf_valid()) {
 // Step 2a: faculty confirmed the previewed scan / entered details -> store it
 // For Review, update the PDS where applicable, then notify the Admin and the
 // Program Chair / Dean. (No approval step -- the Admin's review only checks
-// the document type and details before posting it to Public Docs.)
+// the document type and details before posting it to 201-Files.)
 // ---------------------------------------------------------------------
 if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $scan = $_SESSION['pending_scan'];
@@ -160,11 +169,15 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     $stmt->execute([$me['user_id'], $type, $subtype]);
     $reupload = (int)$stmt->fetchColumn() > 0;
 
-    $stored = store_faculty_upload($pdo, $me, $type, $meta, $scan['relative_path'], $scan['result']);
+    $stored = store_faculty_upload($pdo, $me, $type, $meta, $scan['relative_path'], $scan['result'], $failure);
     if ($stored === null) {
-        if (is_file(ROOT_PATH . '/' . $scan['relative_path'])) {
+        // The real cause is in the PHP error log ("Storing upload failed: ..."); the user gets a plain message
+        if (($failure['reason'] ?? '') === 'too_large') {
+            $_SESSION['flash_error'] = 'This file is too large to save right now (the limit is about ' . max(1, intdiv((int)$failure['max'], 1024)) . ' KB). '
+                . 'Please upload a smaller file, or ask the Admin to raise the limit.';
+        } elseif (is_file(ROOT_PATH . '/' . $scan['relative_path'])) {
             // Still have the scan: stay on the preview so it can simply be confirmed again
-            $_SESSION['flash_error'] = 'The document could not be saved just now. Please press "Save & Send for Review" again.';
+            $_SESSION['flash_error'] = 'The document could not be saved just now. Please press "Save Document" again. If it keeps failing, please contact the Admin.';
         } else {
             unset($_SESSION['pending_scan']);
             $_SESSION['flash_error'] = 'The uploaded file could not be stored. Please upload it again.';
@@ -213,14 +226,14 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     notify_new_upload($pdo, $stmt->fetch(), $type, $subtype, $request_id, $extra_lines, $reupload);
 
     unset($_SESSION['pending_scan']);
-    $_SESSION['flash_success'] = 'Your ' . document_type_label($type, $subtype) . ' has been uploaded and is waiting For Review: the Admin checks its document type and details, '
-        . 'then posts it to your Public Docs. You\'ll be notified when it is posted.'
-        . $pds_note . ($me['role'] === 'faculty' ? ' Your Program Chair and Dean have been notified.' : '');
-    header('Location: ' . BASE_URL . match (true) {
-        !empty($pds_import['sections']) => '/faculty/pds_import.php?document=' . $document_id,
-        $type === 'PDS'                 => '/faculty/pds.php',
-        default                         => '/faculty/my_documents.php?tab=pending',
-    });
+    if ($type === 'PDS') {   // next: the PDS import review (or the PDS itself), with the message as a toast
+        $_SESSION['flash_success'] = 'Your ' . document_type_label($type, $subtype) . ' has been uploaded and is waiting For Review: the Admin checks its document type and details, '
+            . 'then posts it to your 201-Files. You\'ll be notified when it is posted.'
+            . $pds_note . ($me['role'] === 'faculty' ? ' Your Program Chair and Dean have been notified.' : '');
+        header('Location: ' . BASE_URL . (!empty($pds_import['sections']) ? '/faculty/pds_import.php?document=' . $document_id : '/faculty/pds.php'));
+        exit;
+    }
+    header('Location: ' . BASE_URL . '/faculty/submit_document.php?submitted=' . $document_id);   // step 3: "Submitted for review"
     exit;
 }
 
@@ -368,18 +381,47 @@ if ($action === 'scan') {
 
 $pending = $_SESSION['pending_scan'] ?? null;
 
+// Step 3 ("Submitted for review"): only for the uploader's own document
+$submitted = null;
+if (!$pending && isset($_GET['submitted'])) {
+    $stmt = $pdo->prepare("SELECT document_id, document_type, document_subtype, title, file_path, status FROM documents WHERE document_id = ? AND faculty_id = ? AND status <> 'deleted'");
+    $stmt->execute([(int)$_GET['submitted'], (int)$me['user_id']]);
+    $submitted = $stmt->fetch() ?: null;
+}
+$step = $submitted ? 3 : ($pending ? 2 : 1);
+
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-1">Upload Document</h3>
-<p class="text-muted mb-4">Add any document to your 201 file -- PDS, certificates, diploma, TOR, FTA, IPCR<?= $employment_type === 'part_time' ? ', contract of service, affidavit of undertaking' : '' ?>, or other documents.
-  Upload it and let the system read it and detect its type, or enter its details yourself. Either way it waits For Review until the Admin checks it and posts it to your Public Docs.
-  Seminar and training certificates can also be added to your PDS.</p>
+<?php if ($step === 1): ?>
+<?= admin_intro('Add a document to your 201 file. Upload it and let the system read it and detect its type, or enter its details yourself. Either way it waits For Review until the Admin checks it and posts it to your 201-Files.') ?>
+<?php endif; ?>
 
-<?php if (!$pending):
+<ol class="ui-steps" aria-label="Steps">
+  <?php foreach ([1 => 'Choose a file', 2 => 'Check the details', 3 => 'Submitted'] as $n => $label): ?>
+    <li class="<?= $n < $step ? 'is-done' : ($n === $step ? 'is-current' : '') ?>"<?= $n === $step ? ' aria-current="step"' : '' ?>>
+      <span class="ui-step-n" aria-hidden="true"><?php if ($n < $step): ?><i class="fa-solid fa-check"></i><?php else: ?><?= $n ?><?php endif; ?></span><?= h($label) ?>
+    </li>
+  <?php endforeach; ?>
+</ol>
+
+<?php if ($submitted): ?>
+  <section class="ui-card ui-done" aria-labelledby="doneTitle">
+    <span class="ui-done-icon" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
+    <h2 class="ui-done-title" id="doneTitle">Submitted for review</h2>
+    <p class="ui-done-text">The Admin checks the category and details of <strong><?= h(document_title($submitted)) ?></strong>
+      (<?= h(document_type_label($submitted['document_type'], $submitted['document_subtype'])) ?>), then posts it to your 201-Files. You'll get a notification when it's posted.
+      <?php if ($me['role'] === 'faculty'): ?>Your Program Chair and Dean have been notified.<?php endif; ?></p>
+    <div class="ui-done-actions">
+      <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-outline-brand"><i class="fa-solid fa-plus" aria-hidden="true"></i> Upload another</a>
+      <a href="<?= BASE_URL ?>/faculty/my_documents.php?tab=pending" class="btn btn-brand">Go to 201-Files</a>
+    </div>
+  </section>
+
+<?php elseif (!$pending):
   $mode = ($_GET['mode'] ?? '') === 'manual' ? 'manual' : 'upload'; ?>
 
-  <div class="mx-auto" style="max-width:680px;">
+  <div style="max-width:820px;">
     <div class="row g-3 mb-3 create-options" role="tablist" aria-label="How to create the document">
       <div class="col-sm-6">
         <button type="button" class="create-option w-100 h-100 <?= $mode === 'upload' ? 'active' : '' ?>" id="optUpload" data-bs-toggle="pill" data-bs-target="#paneUpload"
@@ -417,9 +459,13 @@ include __DIR__ . '/../includes/header.php';
 
         <div class="mb-3">
           <label class="form-label small fw-semibold">Upload / Scan File</label>
+          <div class="ui-dropzone" id="dropZone">
+            <span class="ui-empty-icon" aria-hidden="true"><i class="fa-solid fa-cloud-arrow-up"></i></span>
+            <div class="ui-dropzone-title">Drop a file here, or choose one</div>
           <div class="d-flex gap-2 flex-wrap">
             <button type="button" class="btn btn-outline-brand flex-fill" id="chooseBtn"><i class="fa-solid fa-folder-open"></i> Choose File</button>
             <button type="button" class="btn btn-outline-brand flex-fill" id="photoBtn"><i class="fa-solid fa-camera"></i> Take Photo</button>
+          </div>
           </div>
           <!-- Only one of these carries name="scan_file" at a time: whichever was used last -->
           <input type="file" name="scan_file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf,.xlsx" class="d-none">
@@ -480,6 +526,21 @@ include __DIR__ . '/../includes/header.php';
   </div>
   </div>
 
+  <!-- Shown while the server reads the file (the form is still being sent) -->
+  <section class="ui-card ui-scan" id="scanProgress" hidden aria-live="polite" style="max-width:820px">
+    <div class="ui-scan-head">
+      <span class="ui-scan-icon" aria-hidden="true"><i class="fa-solid fa-magnifying-glass"></i></span>
+      <div class="min-w-0"><div class="ui-scan-title" id="scanTitle">Reading your document</div><div class="ui-cell-sub text-truncate" id="scanFile"></div></div>
+    </div>
+    <div class="ui-scan-bar" aria-hidden="true"><span></span></div>
+    <ul class="ui-scan-steps" id="scanSteps">
+      <li><i class="fa-solid fa-crop-simple" aria-hidden="true"></i> Photos are cropped and straightened</li>
+      <li><i class="fa-solid fa-font" aria-hidden="true"></i> The text is read (OCR)</li>
+      <li><i class="fa-solid fa-tags" aria-hidden="true"></i> The document type and details are detected</li>
+    </ul>
+    <p class="ui-cell-sub mb-0">This can take up to a minute. Please keep this page open.</p>
+  </section>
+
   <!-- Desktop "Take Photo": webcam capture -->
   <div class="modal fade" id="cameraModal" tabindex="-1" aria-labelledby="cameraTitle" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -526,6 +587,22 @@ include __DIR__ . '/../includes/header.php';
   cameraInput.addEventListener('change', function () { use(cameraInput); });
   document.getElementById('chooseBtn').addEventListener('click', function () { fileInput.click(); });
 
+  // Drop a file on the drop area (new layout) -- it goes into the same file input as Choose File
+  var zone = document.getElementById('dropZone');
+  if (zone && typeof DataTransfer !== 'undefined') {
+    ['dragenter', 'dragover'].forEach(function (t) { zone.addEventListener(t, function (e) { e.preventDefault(); zone.classList.add('is-over'); }); });
+    ['dragleave', 'drop'].forEach(function (t) { zone.addEventListener(t, function () { zone.classList.remove('is-over'); }); });
+    zone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      var dt = new DataTransfer();
+      dt.items.add(f);
+      fileInput.files = dt.files;
+      use(fileInput);
+    });
+  }
+
   // Phones / tablets open the camera app; desktops use the webcam (if any)
   var touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   document.getElementById('photoBtn').addEventListener('click', function () {
@@ -562,10 +639,24 @@ include __DIR__ . '/../includes/header.php';
     }, 'image/jpeg', 0.92);
   });
 
+  // While the server works, the choices give way to the "Reading your document" panel
+  function showProgress(f, manual) {
+    var panel = document.getElementById('scanProgress');
+    if (!panel) return;
+    document.getElementById('scanFile').textContent = f ? f.name : '';
+    if (manual) {
+      document.getElementById('scanTitle').textContent = 'Uploading your file';
+      document.getElementById('scanSteps').hidden = true;
+    }
+    panel.previousElementSibling.hidden = true;   // the options and forms
+    panel.hidden = false;
+  }
   form.addEventListener('submit', function (e) {
     if (scanBtn.disabled) { e.preventDefault(); return; }
     scanBtn.disabled = true;   // scanning can take a while on the server
     scanBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning document&hellip; this can take up to a minute';
+    var f = (fileInput.getAttribute('name') ? fileInput : cameraInput).files[0];
+    showProgress(f, false);
   });
   var manualForm = document.getElementById('manualForm'), manualFile = document.getElementById('manualFile');
   manualFile.addEventListener('change', function () {
@@ -573,6 +664,8 @@ include __DIR__ . '/../includes/header.php';
     manualFile.setCustomValidity(f && f.size > MAX ? 'Too large: the maximum is ' + Math.round(MAX / 1048576) + 'MB.' : '');
   });
   manualForm.addEventListener('submit', function () {
+    if (!manualForm.checkValidity()) return;
+    showProgress(manualFile.files[0], true);
     var btn = document.getElementById('manualBtn');
     setTimeout(function () { btn.disabled = true; }, 0);
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading&hellip;';
@@ -601,7 +694,7 @@ include __DIR__ . '/../includes/header.php';
   $ld_types = pds_ld_columns()['ld_type'][2];
 ?>
 
-  <div class="card stat-card mx-auto" style="max-width:820px;">
+  <div class="card stat-card" style="max-width:820px;">
     <div class="card-header bg-white fw-semibold">
       <?php if ($manual): ?>
         <i class="fa-solid fa-keyboard text-brand"></i> Enter the Document Details
@@ -854,7 +947,7 @@ include __DIR__ . '/../includes/header.php';
 
         <div class="d-flex gap-2">
           <button type="submit" name="action" value="confirm" class="btn btn-brand flex-grow-1">
-            <i class="fa-solid fa-check"></i> Save &amp; Send for Review
+            <i class="fa-solid fa-check"></i> Save Document
           </button>
           <button type="submit" name="action" value="cancel" formnovalidate class="btn btn-outline-secondary">
             <i class="fa-solid fa-xmark"></i> Cancel

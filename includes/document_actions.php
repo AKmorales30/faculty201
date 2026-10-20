@@ -27,8 +27,8 @@ function document_action_buttons(array $doc, array $me): string {
           . (!empty($doc['full_name']) && $me['role'] === 'admin' ? ' of ' . $doc['full_name'] : '');
     $button = fn(string $action, string $class, string $icon, string $label) =>
         '<button type="button" class="btn btn-sm ' . $class . ' doc-action-btn text-nowrap" data-bs-toggle="modal" data-bs-target="#docActionModal"'
-        . ' data-id="' . (int)$doc['document_id'] . '" data-action="' . $action . '" data-status="' . h($doc['status']) . '" data-name="' . h($name) . '" title="' . h($label) . '">'
-        . '<i class="fa-solid ' . $icon . '"></i> ' . h($label) . '</button>';
+        . ' data-id="' . (int)$doc['document_id'] . '" data-action="' . $action . '" data-status="' . h($doc['status']) . '" data-name="' . h($name) . '" title="' . h($label) . '"'
+        . ' data-tooltip aria-label="' . h($label) . '"><i class="fa-solid ' . $icon . '" aria-hidden="true"></i></button>';   // round icon-only button with a tooltip
 
     if ($doc['status'] === 'deleted') {
         $out = [];
@@ -41,8 +41,8 @@ function document_action_buttons(array $doc, array $me): string {
     }
     if ($me['role'] === 'admin') {
         $out = [];
-        if ($doc['status'] === 'archived') { $out[] = $button('restore', 'btn-outline-success', 'fa-rotate-left', 'Restore'); }
-        if ($doc['status'] === 'active')  { $out[] = $button('archive', 'btn-outline-secondary', 'fa-box-archive', 'Archive'); }
+        if ($doc['status'] === 'archived') { $out[] = $button('restore', 'btn-outline-success', 'fa-rotate-left', 'Restore to 201-Files'); }
+        if ($doc['status'] === 'active')  { $out[] = $button('archive', 'btn-outline-secondary', 'fa-box-archive', 'Move to Archived Docs'); }
         $out[] = $button('delete', 'btn-outline-danger', 'fa-trash-can', 'Delete');
         return implode(' ', $out);
     }
@@ -95,9 +95,9 @@ function document_action_buttons(array $doc, array $me): string {
   var TEXT = {
     delete:  ['Delete document', 'This document will be moved to Recently Deleted. You can restore it within ' + DAYS + ' days before it is permanently deleted.', 'btn-danger', 'Delete'],
     purge:   ['Delete permanently', 'This permanently deletes the document: its file and its record are removed for good. This cannot be undone.', 'btn-danger', 'Delete permanently'],
-    archive: ['Archive document', 'It will move to the faculty member\'s Archived Docs (they can still view it there) and no longer appear in Public Docs, searches, reports or expiration alerts. You can restore it later.', 'btn-secondary', 'Archive'],
-    restoreDeleted: ['Restore document', 'It goes back to where it was before it was deleted (Public Docs, Archived Docs or For Review), with its details.', 'btn-success', 'Restore'],
-    restore: ['Restore document', 'It will appear in the faculty member\'s Public Docs again (a document deleted before it was posted goes back to For Review). Restoring counts as opening it, so the <?= h(archive_period_label()) ?> archive rule starts over.', 'btn-success', 'Restore']
+    archive: ['Archive document', 'It will move to the faculty member\'s Archived Docs (they can still view it there) and no longer appear in 201-Files, searches, reports or expiration alerts. You can restore it later.', 'btn-secondary', 'Archive'],
+    restoreDeleted: ['Restore document', 'It goes back to where it was before it was deleted (201-Files, Archived Docs or For Review), with its details.', 'btn-success', 'Restore'],
+    restore: ['Restore document', 'It will appear in the faculty member\'s 201-Files again (a document deleted before it was posted goes back to For Review). Restoring counts as opening it, so the <?= h(archive_period_label()) ?> archive rule starts over.', 'btn-success', 'Restore']
   };
   var modal = document.getElementById('docActionModal');
   modal.addEventListener('show.bs.modal', function (e) {

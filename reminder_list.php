@@ -3,7 +3,7 @@
  * Faculty Needing Follow-up -- Admin, Program Chairs and Deans. The faculty
  * in the viewer's scope (profile_scope_sql()) with an open reminder of one
  * type, with the rule-based reason (not the AI-worded message). The
- * dashboard summary card (includes/reminders_summary_card.php) opens the
+ * Home follow-up card (approval/dashboard.php) opens the
  * list of each type in a pop-up, one type at a time
  * (api/modal.php?view=list&category=...); this page is the full-page
  * version, with all types as tabs.
@@ -27,7 +27,6 @@ try {
 
 include __DIR__ . '/includes/header.php';
 ?>
-<h3 class="fw-bold mb-1">Faculty Needing Follow-up</h3>
 <p class="text-muted mb-3">From the daily reminder check. Each person listed has already been reminded on their dashboard<?= $types[$type]['notify'] ? ' and in their notifications' : '' ?>; they leave the list once their 201 file is updated.
   <?php if ($me['role'] === 'program_chair'): ?>You see the faculty of your program.<?php elseif ($me['role'] === 'dean'): ?>You see the faculty and Program Chairs of your college.<?php endif; ?></p>
 

@@ -4,7 +4,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/pds.php';
 require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
 
-$page_title = 'My Personal Data Sheet';
+$page_title = 'Profile Preference';   // the top bar; My PDS is a tab of it
 $me = current_user();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save') {
@@ -120,7 +120,6 @@ function pds_table_attr(string $tkey, string $label): string {
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<h3 class="fw-bold mb-3">Profile Preference</h3>
 <?= profile_tabs('pds') ?>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">

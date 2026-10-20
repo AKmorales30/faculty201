@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
 
-$page_title = 'Upload History';   // the Upload history tab of Public Docs
+$page_title = 'Upload History';   // the Upload history tab of 201-Files
 $me = current_user();
 $categories = document_categories();
 
@@ -18,50 +18,44 @@ $requests = $stmt->fetchAll();
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-  <h3 class="fw-bold mb-0">Public Docs</h3>
-  <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand btn-sm">
-    <i class="fa-solid fa-file-circle-plus"></i> Upload Document
-  </a>
-</div>
-
+<?= admin_intro('Every document you\'ve uploaded, newest first, with where it is now: For Review, Posted, Archived or Deleted.',
+    '<a href="' . BASE_URL . '/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> Upload Document</a>') ?>
 <?= my_docs_tabs($pdo, 'history') ?>
-<p class="text-muted mb-4">Every document you've uploaded, newest first, with where it is now: For Review, Posted, Archived or Deleted.</p>
 
-<div class="card stat-card">
-  <div class="card-body p-0 table-responsive">
-    <table class="table mb-0 align-middle">
-      <thead class="table-light">
-        <tr><th>Document</th><th>Document Type</th><th>Status</th><th>Uploaded</th><th></th></tr>
-      </thead>
+<section class="ui-card" aria-label="Upload history">
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead><tr><th>Document</th><th>Type</th><th>Status</th><th>Uploaded</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr></thead>
       <tbody>
         <?php if (!$requests): ?>
-          <tr><td colspan="5" class="text-center text-muted py-4">You haven't uploaded any documents yet.</td></tr>
+          <?= admin_empty_row(5, 'No uploads yet', 'Documents you upload will be listed here.', null, 'fa-clock-rotate-left') ?>
         <?php endif; ?>
-        <?php foreach ($requests as $r): [$label, $badge] = upload_status_badge($r); ?>
-        <tr>
-          <td class="text-break small fw-semibold"><?= $r['document_id'] ? h(document_title($r)) : '<span class="text-muted">—</span>' ?></td>
+        <?php foreach ($requests as $r): [$label, $badge] = upload_status_badge($r);
+          $viewable = $r['file_path'] && in_array($r['document_status'], ['active', 'for_review', 'archived'], true);
+          $view_url = $viewable ? BASE_URL . '/api/modal.php?view=document&id=' . (int)$r['document_id'] : null; ?>
+        <tr<?php if ($view_url): ?> class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h($view_url) ?>" aria-label="Open <?= h(document_title($r)) ?>"<?php endif; ?>>
+          <td class="text-break fw-semibold"><?= $r['document_id'] ? h(document_title($r)) : '<span class="text-muted">—</span>' ?></td>
           <td><?= h(document_type_label($r['document_type'] ?? $r['document_type_hint'], $r['document_subtype'])) ?></td>
           <td>
             <span class="badge <?= $badge ?>"><?= h($label) ?></span>
-            <?php if ($r['status'] === 'rejected'): ?>
-              <div class="small text-danger mt-1"><?= h($r['rejection_reason']) ?></div>
-            <?php endif; ?>
+            <?php if ($r['status'] === 'rejected'): ?><div class="ui-cell-sub text-danger"><?= h($r['rejection_reason']) ?></div><?php endif; ?>
           </td>
-          <td><?= date('M j, Y g:ia', strtotime($r['submitted_at'])) ?></td>
-          <td class="text-nowrap">
-            <?php if ($r['file_path'] && in_array($r['document_status'], ['active', 'for_review', 'archived'], true)): ?>
-              <a href="<?= h(document_url((int)$r['document_id'])) ?>" target="_blank" class="btn btn-sm btn-outline-brand"
-                 data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$r['document_id']) ?>"><i class="fa-solid fa-eye"></i> View</a>
-            <?php elseif ($r['document_status'] === 'deleted'): ?>
-              <a href="<?= BASE_URL ?>/recently_deleted.php" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-trash-can-arrow-up"></i> Recently Deleted</a>
-            <?php endif; ?>
+          <td class="text-nowrap"><?= h(date('M j, Y', strtotime($r['submitted_at']))) ?><div class="ui-cell-sub"><?= h(date('g:i A', strtotime($r['submitted_at']))) ?></div></td>
+          <td>
+            <div class="ui-actions">
+              <?php if ($view_url): ?>
+                <?= admin_icon_link(document_url((int)$r['document_id']), 'fa-eye', 'View file', 'target="_blank" data-app-modal="' . h($view_url) . '"') ?>
+              <?php elseif ($r['document_status'] === 'deleted'): ?>
+                <?= admin_icon_link(BASE_URL . '/recently_deleted.php', 'fa-trash-can-arrow-up', 'In Recently Deleted') ?>
+              <?php endif; ?>
+            </div>
           </td>
         </tr>
         <?php endforeach; ?>
       </tbody>
     </table>
   </div>
-</div>
+</section>
+
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

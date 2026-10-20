@@ -20,7 +20,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-  <h3 class="fw-bold mb-0">Notifications</h3>
+  <p class="ui-intro-text">When the Admin posts your uploads, reminders about your 201 file, and other updates.</p>
   <form method="POST"><?= csrf_field() ?><input type="hidden" name="action" value="mark_all_read">
     <button class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-check-double"></i> Mark all as read</button>
   </form>

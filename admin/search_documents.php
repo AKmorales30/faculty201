@@ -1,6 +1,6 @@
 <?php
 /**
- * Old address of the Admin's document search, now Files > Public Docs
+ * Old address of the Admin's document search, now Files > 201-Files
  * (admin/public_docs.php). Kept so bookmarks and old links still work;
  * the filters in the query string are passed on.
  */

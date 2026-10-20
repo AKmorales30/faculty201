@@ -14,6 +14,8 @@
  *   view=list&category=  ONE category of records -- the one  per category, see
  *                        clicked (PDS for update, expired,   includes/modals/list.php
  *                        for review, recent uploads, ...)    (scope by role / ownership)
+ *   view=person&id=N     a faculty member's profile summary  can_view_profile(): Admin,
+ *                        (Faculty Profiles, Chair/Dean Home) Dean (college), Chair (program)
  *
  * Returns an HTML fragment for the shared pop-up (includes/app_modal.php):
  * its first element carries the title (data-modal-title), and an element
@@ -93,6 +95,14 @@ switch ($view) {
 
     case 'list':
         include __DIR__ . '/../includes/modals/list.php';   // checks the role for its category
+        break;
+
+    case 'person':
+        $person = user_row($pdo, (int)($_GET['id'] ?? 0));
+        if (!$person || !in_array($person['role'], ['faculty', 'program_chair', 'dean'], true) || !can_view_profile($pdo, $me, (int)$person['user_id'])) {
+            modal_fail(403, 'You do not have access to that profile.');
+        }
+        include __DIR__ . '/../includes/modals/person.php';
         break;
 
     default:

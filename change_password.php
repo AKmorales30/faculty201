@@ -72,39 +72,32 @@ function password_input(string $name, string $label, string $autocomplete): stri
 }
 ?>
 
-<h3 class="fw-bold mb-1">Change Password</h3>
-<p class="text-muted mb-4">Choose a password only you know. You'll use it the next time you log in.</p>
-
-<?php if ($forced): ?>
-<div class="alert alert-warning mx-auto" style="max-width:520px">
-  <i class="fa-solid fa-key"></i> You're signed in with a <strong>temporary password</strong> set by the Admin.
-  Please choose your own password to continue.
-</div>
-<?php endif; ?>
-
-<div class="card stat-card mx-auto" style="max-width:520px">
-  <div class="card-body">
-    <form method="POST" id="pwForm" novalidate>
-      <?= csrf_field() ?>
-      <?= password_input('current_password', $forced ? 'Temporary Password' : 'Current Password', 'current-password') ?>
-      <?= password_input('new_password', 'New Password', 'new-password') ?>
-
-      <ul class="list-unstyled small mb-3" id="pwRules">
-        <li data-rule="length"><i class="fa-solid fa-circle-xmark text-muted"></i> At least 8 characters</li>
-        <li data-rule="upper"><i class="fa-solid fa-circle-xmark text-muted"></i> An uppercase letter (A-Z)</li>
-        <li data-rule="lower"><i class="fa-solid fa-circle-xmark text-muted"></i> A lowercase letter (a-z)</li>
-        <li data-rule="number"><i class="fa-solid fa-circle-xmark text-muted"></i> A number (0-9)</li>
+<section class="ui-card ui-form-card narrow" aria-label="Change Password">
+  <form method="POST" id="pwForm" novalidate>
+    <?= csrf_field() ?>
+    <div class="card-body pt-4 px-4">
+      <p class="ui-intro-text mb-3">Choose a password you don't use anywhere else. You'll use it the next time you log in.</p>
+      <?php if ($forced): ?>
+        <div class="alert alert-warning"><i class="fa-solid fa-key" aria-hidden="true"></i> You're signed in with a <strong>temporary password</strong>. Please choose your own password to continue.</div>
+      <?php endif; ?>
+      <?= password_input('current_password', $forced ? 'Temporary password' : 'Current password', 'current-password') ?>
+      <?= password_input('new_password', 'New password', 'new-password') ?>
+      <?= password_input('confirm_password', 'Confirm new password', 'new-password') ?>
+      <div class="small text-danger mb-3" id="pwMismatch" hidden>The passwords don't match.</div>
+      <ul class="ui-rules mb-3" id="pwRules">
+        <li data-rule="length"><i class="fa-solid fa-circle-xmark text-muted" aria-hidden="true"></i> At least 8 characters</li>
+        <li data-rule="upper"><i class="fa-solid fa-circle-xmark text-muted" aria-hidden="true"></i> An uppercase letter (A-Z)</li>
+        <li data-rule="lower"><i class="fa-solid fa-circle-xmark text-muted" aria-hidden="true"></i> A lowercase letter (a-z)</li>
+        <li data-rule="number"><i class="fa-solid fa-circle-xmark text-muted" aria-hidden="true"></i> A number (0-9)</li>
       </ul>
       <div class="progress mb-1" style="height:6px" aria-hidden="true"><div class="progress-bar" id="pwMeter" style="width:0"></div></div>
-      <div class="small text-muted mb-3" id="pwStrength">Password strength: --</div>
-
-      <?= password_input('confirm_password', 'Confirm New Password', 'new-password') ?>
-      <div class="small text-danger mb-3" id="pwMismatch" hidden>The passwords don't match.</div>
-
-      <button class="btn btn-brand w-100"><i class="fa-solid fa-key"></i> Change Password</button>
-    </form>
-  </div>
-</div>
+      <div class="small text-muted" id="pwStrength">Password strength: --</div>
+    </div>
+    <div class="ui-form-actions">
+      <button class="btn btn-brand"><i class="fa-solid fa-key" aria-hidden="true"></i> Update password</button>
+    </div>
+  </form>
+</section>
 
 <script>
 // Strength hint and show / hide toggles. The server checks the same rules (password_rule_errors()).

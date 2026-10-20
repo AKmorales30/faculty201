@@ -5,7 +5,6 @@
  *
  *   AI report summary   includes/ai_report.php    (training_report.php)
  *   Reminders           includes/ai_reminders.php (dashboards, cron/reminder_check.php)
- *   Chatbot             includes/ai_chatbot.php   (api/chatbot.php, includes/chatbot_widget.php)
  *
  * Privacy: Gemini only ever receives what a feature needs -- names, counts,
  * document categories, dates, seminar titles and organizers. Never ID
@@ -13,7 +12,7 @@
  * no.), addresses, birth dates, contact numbers, e-mail addresses,
  * passwords, or file contents / images / OCR text. Every payload is built
  * from chosen fields and then passed through ai_private_filter() as a
- * safety net; user-typed text goes through ai_redact_text().
+ * safety net; free text goes through ai_redact_text().
  */
 require_once __DIR__ . '/GeminiService.php';
 
@@ -24,7 +23,6 @@ function ai_config(): array {
     $defaults = [
         'ai_enabled' => false, 'gemini_api_key' => '', 'gemini_model' => 'gemini-3.8-flash',
         'request_timeout' => 25, 'connect_timeout' => 5,
-        'chatbot_messages_per_hour' => 30, 'chatbot_context_messages' => 6,
         'report_send_full_names' => true, 'ca_bundle' => '',
     ];
     $file = getenv('AI_CONFIG_FILE') ?: ROOT_PATH . '/config/ai.php';
@@ -52,7 +50,7 @@ function ai_enabled(): bool {
 
 /**
  * One row per AI call in ai_usage_log: who, which feature (report /
- * reminder / chatbot), success, and the short error code on failure --
+ * reminder), success, and the short error code on failure --
  * never the key, the prompt or the answer. Never throws.
  */
 function ai_log_usage(PDO $pdo, ?int $user_id, string $feature, bool $success, ?string $error = null): void {

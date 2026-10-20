@@ -116,3 +116,67 @@ function redirect_to_dashboard() {
     }
     exit;
 }
+// ---------------------------------------------------------------------
+// Account status on every request. Active / Deactivated is users.is_active
+// (1 / 0), set only in Manage Faculty -- employment pause is a separate
+// field and doesn't affect logging in. login_process.php refuses a
+// deactivated account; the check below ends the session of one that is
+// deactivated (or removed) while signed in, on every page and AJAX request.
+// ---------------------------------------------------------------------
+
+const ACCOUNT_DEACTIVATED_MESSAGE = 'Your account has been deactivated. Please contact the administrator.';
+
+/** The landing page's login form a role uses ('faculty', or 'admin' for Admin / Program Chair / Dean). */
+function login_portal_for_role(?string $role): string {
+    return $role === 'faculty' ? 'faculty' : 'admin';
+}
+
+/**
+ * Sign out a session whose account is no longer active: log it, clear the
+ * session (new id, old data destroyed), keep only the message for the
+ * landing page, then send a page request to that role's login form and an
+ * AJAX request a 401 (assets/js/app.js reloads the page, which lands there).
+ */
+function end_deactivated_session(PDO $pdo): void {
+    $u = $_SESSION['user'];
+    try {
+        $pdo->prepare("INSERT INTO activity_logs (user_id, user_role, action, details, ip_address, user_agent) VALUES (?, ?, 'SESSION_ENDED', ?, ?, ?)")
+            ->execute([(int)$u['user_id'], $u['role'] ?? null, 'Signed out automatically: the account was deactivated.',
+                       $_SERVER['REMOTE_ADDR'] ?? null, isset($_SERVER['HTTP_USER_AGENT']) ? mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255) : null]);
+    } catch (Throwable $e) {
+        error_log('Deactivated session: could not log it: ' . $e->getMessage());
+    }
+    $portal = login_portal_for_role($u['role'] ?? null);
+    $_SESSION = [];
+    session_regenerate_id(true);
+    $_SESSION['login_error_' . $portal] = ACCOUNT_DEACTIVATED_MESSAGE;
+
+    $ajax = ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest'
+         || str_contains(str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? ''), '/api/');
+    if ($ajax) {
+        http_response_code(401);
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode(['ok' => false, 'error' => ACCOUNT_DEACTIVATED_MESSAGE]);
+        exit;
+    }
+    header('Location: ' . BASE_URL . '/index.php?role=' . $portal);
+    exit;
+}
+
+// Runs at the top level of every page / endpoint that includes this file (all of them), so the
+// connection lands in the global $pdo that includes/functions.php uses too.
+if (!empty($_SESSION['user']['user_id']) && PHP_SAPI !== 'cli') {
+    require_once __DIR__ . '/../config/db.php';
+    try {
+        $account_check = $pdo->prepare("SELECT is_active FROM users WHERE user_id = ?");
+        $account_check->execute([(int)$_SESSION['user']['user_id']]);
+        $account_active = $account_check->fetchColumn();
+    } catch (Throwable $e) {
+        $account_active = null;   // database problem: the page itself reports it
+        error_log('Account status check failed: ' . $e->getMessage());
+    }
+    if ($account_active !== null && (int)$account_active !== 1) {   // false (no such account) or 0 (deactivated)
+        end_deactivated_session($pdo);
+    }
+    unset($account_check, $account_active);
+}

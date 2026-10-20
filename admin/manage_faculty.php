@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_role('admin');
 
-$page_title = 'Manage Faculty & Accounts';
+$page_title = 'Manage Faculty';
 $me = current_user();
 $action = $_POST['action'] ?? '';
 
@@ -251,17 +251,30 @@ if ($action === 'unlock_login') {
 // Toggle active / inactive
 // ---------------------------------------------------------------------
 if ($action === 'toggle_active') {
+    // The form says which status it sets (active = 1 / 0), so a resent or out-of-date form can't flip it the other way.
+    // Active / Deactivated is users.is_active everywhere: the login and every page check it (includes/auth.php).
     $uid = (int)($_POST['user_id'] ?? 0);
-    if ($uid !== (int)$me['user_id']) {
-        $pdo->prepare("UPDATE users SET is_active = 1 - is_active WHERE user_id = ?")->execute([$uid]);
-        $target = account_for_log($pdo, $uid);
-        if ($target) {
-            log_my_activity($pdo, $target['is_active'] ? 'ACCOUNT_ACTIVATE' : 'ACCOUNT_DEACTIVATE',
-                ($target['is_active'] ? 'Activated ' : 'Deactivated ') . account_log_name($target) . '.');
-        }
-        $_SESSION['flash_success'] = 'Account status updated.';
-    } else {
+    $activate = ($_POST['active'] ?? '') === '1';
+    $stmt = $pdo->prepare("SELECT user_id, role, is_active FROM users WHERE user_id = ?");
+    $stmt->execute([$uid]);
+    $target = $stmt->fetch();
+    if (!$target) {
+        $_SESSION['flash_error'] = 'That account could not be found.';
+    } elseif (!$activate && $uid === (int)$me['user_id']) {
         $_SESSION['flash_error'] = 'You cannot deactivate your own account.';
+    } elseif (!$activate && $target['role'] === 'admin'
+              && (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")->fetchColumn() <= 1) {
+        $_SESSION['flash_error'] = 'You cannot deactivate the last active Admin account.';
+    } elseif ((int)$target['is_active'] === ($activate ? 1 : 0)) {
+        $_SESSION['flash_success'] = 'The account is already ' . ($activate ? 'active' : 'deactivated') . '.';
+    } else {
+        $pdo->prepare("UPDATE users SET is_active = ? WHERE user_id = ?")->execute([$activate ? 1 : 0, $uid]);
+        $target = account_for_log($pdo, $uid);
+        log_my_activity($pdo, $activate ? 'ACCOUNT_ACTIVATE' : 'ACCOUNT_DEACTIVATE',
+            ($activate ? 'Activated ' : 'Deactivated ') . account_log_name($target) . '.');
+        $_SESSION['flash_success'] = $activate
+            ? 'Account activated. ' . $target['full_name'] . ' can log in again.'
+            : 'Account deactivated. ' . $target['full_name'] . ' can no longer log in and has been signed out.';
     }
     header('Location: ' . $list_url);
     exit;
@@ -319,10 +332,9 @@ foreach (active_login_locks($pdo) as $lock) {
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-  <h3 class="fw-bold mb-0">Manage Faculty &amp; Accounts</h3>
-  <a href="<?= BASE_URL ?>/admin/academic_ranks.php" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-list-ol"></i> Academic Ranks</a>
-</div>
+<?= admin_intro('Accounts are created by the Admin. Deactivated accounts can\'t log in, but their 201 files stay in the system. Pausing a faculty member\'s employment only stops the FTA / IPCR reminders; the account can still log in.',
+    '<a href="' . BASE_URL . '/admin/academic_ranks.php" class="btn btn-outline-brand"><i class="fa-solid fa-list-ol" aria-hidden="true"></i> Academic Ranks</a>'
+  . '<button type="button" class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#createModal"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Add account</button>') ?>
 
 <?php if (!empty($_SESSION['temp_password_notice'])):
   // Temporary password from the last create / reset: shown this once, then removed from the session
@@ -346,102 +358,36 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
 </script>
 <?php endif; ?>
 
-<div class="row g-4">
-  <div class="col-lg-4">
-    <div class="card stat-card">
-      <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-user-plus text-brand"></i> Create Account</div>
-      <div class="card-body">
-        <form method="POST">
-          <?= csrf_field() ?>
-          <input type="hidden" name="action" value="create">
-          <div class="mb-2">
-            <label class="form-label small">Full Name</label>
-            <input type="text" name="full_name" class="form-control form-control-sm" required>
-          </div>
-          <div class="mb-2">
-            <label class="form-label small">Email</label>
-            <input type="email" name="email" class="form-control form-control-sm" required>
-          </div>
-          <div class="mb-2">
-            <label class="form-label small">Role</label>
-            <select name="role" id="roleSelect" class="form-select form-select-sm" required onchange="
-                document.getElementById('empTypeWrap').style.display = ['faculty','program_chair','dean'].includes(this.value) ? 'block' : 'none';
-                document.getElementById('programWrap').style.display = ['faculty','program_chair'].includes(this.value) ? 'block' : 'none';
-                document.getElementById('collegeWrap').style.display = this.value === 'dean' ? 'block' : 'none';">
-              <option value="">-- Select role --</option>
-              <option value="faculty">Faculty</option>
-              <option value="program_chair">Program Chair</option>
-              <option value="dean">Dean</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <div class="mb-2" id="empTypeWrap" style="display:none;">
-            <label class="form-label small">Employment Type</label>
-            <select name="employment_type" class="form-select form-select-sm">
-              <option value="full_time">Full-Time</option>
-              <option value="part_time">Part-Time</option>
-            </select>
-          </div>
-          <div class="mb-2" id="programWrap" style="display:none;">
-            <label class="form-label small">Program</label>
-            <select name="program" class="form-select form-select-sm">
-              <option value="">-- Select program --</option>
-              <?php foreach (PROGRAMS as $key => $p): ?>
-                <option value="<?= h($key) ?>"><?= h($p['label']) ?> (<?= h($p['college']) ?>)</option>
-              <?php endforeach; ?>
-            </select>
-            <div class="form-text">The Program Chair of this program is notified of this person's uploads.</div>
-          </div>
-          <div class="mb-2" id="collegeWrap" style="display:none;">
-            <label class="form-label small">College</label>
-            <select name="college" class="form-select form-select-sm">
-              <?php foreach (COLLEGES as $key => $label): ?>
-                <option value="<?= h($key) ?>"><?= h($label) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label small">Temporary Password</label>
-            <div class="input-group input-group-sm">
-              <input type="text" name="password" id="createPassword" class="form-control" minlength="8" autocomplete="off" required>
-              <button type="button" class="btn btn-outline-secondary pw-generate" data-target="createPassword"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate</button>
-            </div>
-            <div class="form-text">At least 8 characters with an uppercase letter, a lowercase letter and a number. The account holder must change it at their first login.</div>
-          </div>
-          <button class="btn btn-brand btn-sm w-100"><i class="fa-solid fa-user-plus"></i> Create Account</button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-lg-8">
-    <div class="card stat-card">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <span class="fw-semibold">All Accounts <span class="text-muted fw-normal small">(<?= count($users) ?>)</span></span>
-        <div class="d-flex flex-wrap gap-2">
-          <div class="btn-group btn-group-sm" role="group" aria-label="Filter by role">
-            <?php foreach (['' => 'All roles', 'faculty' => 'Faculty', 'program_chair' => 'Chair', 'dean' => 'Dean', 'admin' => 'Admin'] as $key => $label): ?>
-              <a href="<?= h($filter_url(['role' => $key])) ?>" class="btn btn-outline-brand <?= $role_filter === $key ? 'active' : '' ?>"><?= h($label) ?></a>
-            <?php endforeach; ?>
-          </div>
-          <div class="btn-group btn-group-sm" role="group" aria-label="Filter by status">
-            <?php foreach (['' => ['All', array_sum($status_counts)], 'active' => ['Active', $status_counts[1] ?? 0], 'deactivated' => ['Deactivated', $status_counts[0] ?? 0]] as $key => [$label, $n]): ?>
-              <a href="<?= h($filter_url(['status' => $key])) ?>" class="btn btn-outline-secondary <?= $status_filter === $key ? 'active' : '' ?>"><?= h($label) ?> <span class="small opacity-75"><?= (int)$n ?></span></a>
-            <?php endforeach; ?>
-          </div>
-        </div>
-      </div>
-      <div class="card-body p-0 table-responsive">
-        <table class="table mb-0 align-middle">
-          <thead class="table-light"><tr><th>Name</th><th>Role</th><th>Program / College</th><th>Status</th><th></th></tr></thead>
+<section class="ui-card" aria-label="All accounts">
+      <form method="GET" class="ui-toolbar" data-autosubmit>
+        <label for="fRole" class="visually-hidden">Role</label>
+        <select name="role" id="fRole" class="form-select">
+          <?php foreach (['' => 'All roles', 'faculty' => 'Faculty', 'program_chair' => 'Program Chair', 'dean' => 'Dean', 'admin' => 'Admin'] as $key => $label): ?>
+            <option value="<?= h($key) ?>" <?= $role_filter === $key ? 'selected' : '' ?>><?= h($label) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <label for="fStatus" class="visually-hidden">Status</label>
+        <select name="status" id="fStatus" class="form-select">
+          <?php foreach (['' => ['All statuses', array_sum($status_counts)], 'active' => ['Active', $status_counts[1] ?? 0], 'deactivated' => ['Deactivated', $status_counts[0] ?? 0]] as $key => [$label, $n]): ?>
+            <option value="<?= h($key) ?>" <?= $status_filter === $key ? 'selected' : '' ?>><?= h($label) ?> (<?= (int)$n ?>)</option>
+          <?php endforeach; ?>
+        </select>
+        <button class="btn btn-sm btn-brand ui-apply" data-auto><i class="fa-solid fa-filter" aria-hidden="true"></i> Filter</button>
+        <?php if ($role_filter !== '' || $status_filter !== ''): ?><a href="manage_faculty.php" class="btn btn-sm btn-outline-secondary">Clear filters</a><?php endif; ?>
+        <span class="ui-count"><?= count($users) ?> account<?= count($users) === 1 ? '' : 's' ?></span>
+      </form>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th>Name</th><th>Role</th><th>Program / College</th><th>Status</th><th class="text-end"><span class="visually-hidden">Actions</span></th></tr></thead>
           <tbody>
+            <?php if (!$users): ?><?= admin_empty_row(5, 'No accounts match', 'Try a different filter, or clear the filters to see everyone.', 'manage_faculty.php', 'fa-users') ?><?php endif; ?>
             <?php foreach ($users as $u): ?>
             <tr>
               <td>
                 <div class="d-flex align-items-center gap-2">
                   <?= user_avatar($u, 32) ?>
                   <div class="min-w-0">
-                    <a href="<?= BASE_URL ?>/profile.php?id=<?= (int)$u['user_id'] ?>" class="text-body"><?= h($u['full_name']) ?></a>
+                    <a href="<?= BASE_URL ?>/profile.php?id=<?= (int)$u['user_id'] ?>" class="text-body fw-semibold"><?= h($u['full_name']) ?></a>
                     <div class="text-muted small"><?= h($u['email']) ?></div>
                     <?php if ($u['academic_rank']): ?><div class="text-muted small"><?= h($u['academic_rank']) ?></div><?php endif; ?>
                   </div>
@@ -485,16 +431,16 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   <button class="btn btn-sm btn-outline-brand" data-tooltip title="<?= h($save_label) ?>" aria-label="<?= h($save_label) ?>"><i class="fa-solid fa-floppy-disk"></i></button>
                 </form>
                 <?php if (($u['role'] === 'dean' && !$u['college']) || ($u['role'] !== 'dean' && !$u['program'])): ?>
-                  <div class="small text-danger mt-1">Not set -- no upload notifications</div>
+                  <div class="small text-danger mt-1">Not set — no upload notifications</div>
                 <?php endif; ?>
                 <?php else: ?><span class="text-muted small">—</span><?php endif; ?>
               </td>
               <td>
-                <span class="status-pill <?= $u['is_active'] ? 'status-pill-active' : 'status-pill-off' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
+                <span class="badge <?= $u['is_active'] ? 'bg-success' : 'bg-secondary' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
                 <?php if (isset($locked[mb_strtolower($u['email'])])): ?>
                   <div class="mt-1 d-flex align-items-center gap-1 flex-wrap small text-muted">
                     <span title="Too many failed login attempts -- unlocks by itself"><i class="fa-solid fa-lock"></i> Login locked until <?= h(date('g:i A', time() + $locked[mb_strtolower($u['email'])])) ?></span>
-                    <form method="POST" action="?<?= h($list_query) ?>" class="d-inline" onsubmit="return confirm('Unlock login for this account now?');">
+                    <form method="POST" action="?<?= h($list_query) ?>" class="d-inline" data-confirm="This account can try logging in again right away." data-confirm-title="Unlock login?" data-confirm-ok="Unlock">
                       <?= csrf_field() ?>
                       <input type="hidden" name="action" value="unlock_login">
                       <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
@@ -509,7 +455,8 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   <div class="small text-muted mt-1" title="Employment paused: no FTA / IPCR expected this semester. The account can still log in."><i class="fa-solid fa-pause"></i> Employment paused</div>
                 <?php endif; ?>
               </td>
-              <td class="text-nowrap">
+              <td><div class="ui-actions">
+                <?= admin_icon_link(BASE_URL . '/profile.php?id=' . (int)$u['user_id'], 'fa-eye', 'View profile') ?>
                 <?php
                   // Tooltip / screen-reader text of each icon button. Pause only marks the employment as paused
                   // (the account can still log in); Deactivate is what blocks the login.
@@ -541,23 +488,97 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   <i class="fa-solid fa-key"></i>
                 </button>
                 <?php if ($self): ?></span><?php endif; ?>
-                <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure?');">
+                <form method="POST" class="d-inline" data-confirm="<?= h($u['is_active'] ? $u['full_name'] . ' won\'t be able to log in until the account is activated again. Their 201 file and documents stay in the system.' : $u['full_name'] . ' will be able to log in again.') ?>"
+                      data-confirm-title="<?= $u['is_active'] ? 'Deactivate account?' : 'Activate account?' ?>" data-confirm-ok="<?= $u['is_active'] ? 'Deactivate' : 'Activate' ?>" data-confirm-danger="<?= $u['is_active'] ? '1' : '' ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="toggle_active">
                   <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
+                  <input type="hidden" name="active" value="<?= $u['is_active'] ? '0' : '1' ?>">
                   <?php if ($self): ?><span class="d-inline-block" tabindex="0" data-tooltip title="You cannot deactivate your own account"><?php endif; ?>
                   <button class="btn btn-sm btn-outline-danger" <?= $self ? 'disabled' : 'data-tooltip' ?> title="<?= h($active_label) ?>" aria-label="<?= h($active_label) ?>">
                     <i class="fa-solid <?= $u['is_active'] ? 'fa-user-slash' : 'fa-user-check' ?>"></i>
                   </button>
                   <?php if ($self): ?></span><?php endif; ?>
                 </form>
-              </td>
+              </div></td>
             </tr>
             <?php endforeach; ?>
           </tbody>
         </table>
       </div>
-    </div>
+</section>
+
+<!-- Add account (the create form) -->
+<div class="modal fade" id="createModal" tabindex="-1" aria-labelledby="createTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <form method="POST" class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="createTitle">Add account</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+          <?= csrf_field() ?>
+          <input type="hidden" name="action" value="create">
+          <div class="mb-3">
+            <label class="form-label">Full Name</label>
+            <input type="text" name="full_name" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" name="email" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Role</label>
+            <select name="role" id="roleSelect" class="form-select" required onchange="
+                document.getElementById('empTypeWrap').style.display = ['faculty','program_chair','dean'].includes(this.value) ? 'block' : 'none';
+                document.getElementById('programWrap').style.display = ['faculty','program_chair'].includes(this.value) ? 'block' : 'none';
+                document.getElementById('collegeWrap').style.display = this.value === 'dean' ? 'block' : 'none';">
+              <option value="">-- Select role --</option>
+              <option value="faculty">Faculty</option>
+              <option value="program_chair">Program Chair</option>
+              <option value="dean">Dean</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="mb-3" id="empTypeWrap" style="display:none;">
+            <label class="form-label">Employment Type</label>
+            <select name="employment_type" class="form-select">
+              <option value="full_time">Full-Time</option>
+              <option value="part_time">Part-Time</option>
+            </select>
+          </div>
+          <div class="mb-3" id="programWrap" style="display:none;">
+            <label class="form-label">Program</label>
+            <select name="program" class="form-select">
+              <option value="">-- Select program --</option>
+              <?php foreach (PROGRAMS as $key => $p): ?>
+                <option value="<?= h($key) ?>"><?= h($p['label']) ?> (<?= h($p['college']) ?>)</option>
+              <?php endforeach; ?>
+            </select>
+            <div class="form-text">The Program Chair of this program is notified of this person's uploads.</div>
+          </div>
+          <div class="mb-3" id="collegeWrap" style="display:none;">
+            <label class="form-label">College</label>
+            <select name="college" class="form-select">
+              <?php foreach (COLLEGES as $key => $label): ?>
+                <option value="<?= h($key) ?>"><?= h($label) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Temporary Password</label>
+            <div class="input-group">
+              <input type="text" name="password" id="createPassword" class="form-control" minlength="8" autocomplete="off" required>
+              <button type="button" class="btn btn-outline-secondary pw-generate" data-target="createPassword"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate</button>
+            </div>
+            <div class="form-text">At least 8 characters with an uppercase letter, a lowercase letter and a number. The account holder must change it at their first login.</div>
+          </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button class="btn btn-brand"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Create account</button>
+      </div>
+    </form>
   </div>
 </div>
 

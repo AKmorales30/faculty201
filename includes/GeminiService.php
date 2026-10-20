@@ -1,10 +1,9 @@
 <?php
 /**
  * The one place the system talks to an AI provider (Google Gemini, REST
- * generateContent endpoint, cURL). Everything else -- the report summary,
- * reminder wording, the chatbot -- uses only the provider-neutral methods
- * below, with messages as ['role' => 'user'|'assistant', 'text' => ...] and
- * tools as ['name', 'description', 'parameters' (JSON schema)]. Switching
+ * generateContent endpoint, cURL). Everything else -- the report summary
+ * and reminder wording -- uses only the provider-neutral generate() below
+ * (a system instruction and a prompt in, text or JSON out). Switching
  * to another provider (e.g. Ollama for an offline demo) means changing
  * this class and config/ai.php only.
  *
@@ -61,65 +60,6 @@ class GeminiService
         return $json;
     }
 
-    /**
-     * A conversation with function calling. $messages are the earlier turns
-     * plus the new question; $tools the functions the model may ask for.
-     * Whenever the model asks for one, $run_tool($name, $args) is called --
-     * it must do its own permission checks and return an array -- and the
-     * result is sent back, until the model answers in text (at most
-     * $max_rounds tool rounds; then it must answer with what it has).
-     * Returns the answer text, or null.
-     */
-    public function chat(string $system, array $messages, array $tools, callable $run_tool, int $max_rounds = 4, array $options = []): ?string
-    {
-        $contents = $this->toContents($messages);
-        if (!$contents) { return $this->fail('empty', 'No message to answer'); }
-        $declarations = array_map(fn($t) => [
-            'name'        => $t['name'],
-            'description' => $t['description'],
-            'parameters'  => $t['parameters'] ?? ['type' => 'object', 'properties' => new stdClass()],
-        ], $tools);
-
-        for ($round = 0; $round <= $max_rounds; $round++) {
-            $body = $this->baseBody($system, $contents, $options);
-            if ($declarations) {
-                $body['tools'] = [['functionDeclarations' => $declarations]];
-                // The last round must be answered in words
-                $body['toolConfig'] = ['functionCallingConfig' => ['mode' => $round < $max_rounds ? 'AUTO' : 'NONE']];
-            }
-            $response = $this->request($body);
-            if ($response === null) { return null; }
-
-            $content = $response['candidates'][0]['content'] ?? null;
-            $calls = [];
-            foreach ((array)($content['parts'] ?? []) as $part) {
-                if (isset($part['functionCall']['name'])) { $calls[] = $part['functionCall']; }
-            }
-            if (!$calls) {
-                return $this->textOf($response);
-            }
-
-            // The model's turn goes back exactly as received -- newer models
-            // attach a thoughtSignature to it that must be returned unchanged
-            $contents[] = $content;
-            $results = [];
-            foreach ($calls as $call) {
-                $args = isset($call['args']) && is_array($call['args']) ? $call['args'] : [];
-                try {
-                    $result = $run_tool((string)$call['name'], $args);
-                } catch (Throwable $e) {
-                    error_log('AI tool ' . $call['name'] . ' failed: ' . $e->getMessage());
-                    $result = ['error' => 'This information could not be loaded right now.'];
-                }
-                $response_part = ['name' => (string)$call['name'], 'response' => ['result' => $result]];
-                if (isset($call['id'])) { $response_part['id'] = $call['id']; }
-                $results[] = ['functionResponse' => $response_part];
-            }
-            $contents[] = ['role' => 'user', 'parts' => $results];
-        }
-        return $this->fail('tool_loop', 'No answer after the tool rounds');
-    }
-
     // -----------------------------------------------------------------
     // Gemini specifics
     // -----------------------------------------------------------------
@@ -144,26 +84,6 @@ class GeminiService
         }
         if ($gen) { $body['generationConfig'] = $gen; }
         return $body;
-    }
-
-    /** Neutral messages -> Gemini contents; consecutive turns of one role are merged (Gemini expects them to alternate). */
-    private function toContents(array $messages): array
-    {
-        $contents = [];
-        foreach ($messages as $m) {
-            $text = trim((string)($m['text'] ?? ''));
-            if ($text === '') { continue; }
-            $role = ($m['role'] ?? 'user') === 'assistant' ? 'model' : 'user';
-            $last = count($contents) - 1;
-            if ($last >= 0 && $contents[$last]['role'] === $role) {
-                $contents[$last]['parts'][0]['text'] .= "\n\n" . $text;
-            } else {
-                $contents[] = ['role' => $role, 'parts' => [['text' => $text]]];
-            }
-        }
-        // The conversation must start with the user (context cut-off can leave an answer first)
-        while ($contents && $contents[0]['role'] !== 'user') { array_shift($contents); }
-        return $contents;
     }
 
     /** The answer's text (thought summaries left out), or null with the reason. */

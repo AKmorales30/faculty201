@@ -34,5 +34,9 @@ if ($action === 'run_check') {
     }
     redirect_to_dashboard();
 }
-dismiss_reminder($pdo, (int)current_user()['user_id'], (int)($_POST['id'] ?? 0));
+$hidden = dismiss_reminder($pdo, (int)current_user()['user_id'], (int)($_POST['id'] ?? 0));
+// Shown as a toast on Home
+if ($hidden) {
+    $_SESSION['flash_success'] = 'Reminder hidden. It comes back in ' . (int)REMINDER_REPEAT_DAYS . ' days if it still applies.';
+}
 redirect_to_dashboard();

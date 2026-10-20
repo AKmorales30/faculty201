@@ -1,81 +1,57 @@
 <?php
 /**
- * "Reminders" card at the top of every dashboard (faculty, Program Chair,
- * Dean, Admin): the user's own open reminders (includes/ai_reminders.php)
- * -- about their 201 file, or the follow-up of the people in their scope --
- * each with a link to the page that fixes it and a Dismiss button
- * (api/reminders.php, POST + CSRF token). With none open, a status card
- * instead: "You're all set" once the account has been checked.
- *
- * Optional, set by the including page:
- *   $reminders_title    card title (default "Reminders"; the Admin's is "AI Overview")
- *   $reminders_compact  true: messages only, no Dismiss / link buttons -- the
- *                       Admin dashboard shows the breakdown right below it
- *                       (includes/reminders_summary_card.php)
+ * "Reminders" card on the Faculty, Program Chair and Dean Home: the
+ * user's own open reminders (includes/ai_reminders.php, AI-worded when AI
+ * is on) -- each with a link to the page that fixes it and Dismiss
+ * (api/reminders.php, POST + CSRF token). With none open, a status line
+ * instead ("You're all set" only once the account has been checked).
  */
-$reminder_viewer = current_user();
-$reminders_title = $reminders_title ?? 'Reminders';
-$reminders_compact = $reminders_compact ?? false;
-$my_reminders = open_reminders_for_user($pdo, (int)$reminder_viewer['user_id']);
 $reminder_meta = reminder_types();
-if (!$my_reminders):
-  $reminder_status = reminder_check_status($pdo, (int)$reminder_viewer['user_id']);
-  if ($reminder_status['checked_at'] === null) { return; }   // not checked yet: nothing to claim
-  $all_set = match ($reminder_viewer['role']) {
-      'admin'         => 'No faculty need follow-up on their 201 files right now.',
-      'program_chair' => 'Your 201 file is up to date, and no one in your program needs follow-up.',
-      'dean'          => 'Your 201 file is up to date, and no one in your college needs follow-up.',
-      default         => 'Your 201 file is up to date.',
-  };
+$my_reminders = array_values(array_filter(open_reminders_for_user($pdo, (int)current_user()['user_id']), fn($r) => isset($reminder_meta[$r['reminder_type']])));
+$reminder_status = reminder_check_status($pdo, (int)current_user()['user_id']);
 ?>
-<div class="card stat-card mb-4 reminder-card">
-  <div class="card-body d-flex align-items-start gap-3">
-    <?php if ($reminder_status['dismissed']): ?>
-      <i class="fa-solid fa-bell-slash fa-lg text-muted mt-1" aria-hidden="true"></i>
-      <div>
-        <div class="fw-semibold">No new reminders</div>
-        <div class="small text-muted">You hid <?= (int)$reminder_status['dismissed'] ?> reminder<?= $reminder_status['dismissed'] === 1 ? '' : 's' ?>; <?= $reminder_status['dismissed'] === 1 ? 'it comes' : 'they come' ?> back in <?= (int)REMINDER_REPEAT_DAYS ?> days if still pending. Checked <?= h(time_ago($reminder_status['checked_at'])) ?>.</div>
-      </div>
-    <?php else: ?>
-      <i class="fa-solid fa-circle-check fa-lg text-success mt-1" aria-hidden="true"></i>
-      <div>
-        <div class="fw-semibold">You're all set!</div>
-        <div class="small text-muted"><?= h($all_set) ?> Checked <?= h(time_ago($reminder_status['checked_at'])) ?>.</div>
-      </div>
-    <?php endif; ?>
+<section class="ui-card" aria-labelledby="remTitle">
+  <div class="ui-card-head">
+    <span class="ui-head-icon tone-gold" aria-hidden="true"><i class="fa-solid fa-bell"></i></span>
+    <h2 class="ui-card-title" id="remTitle">Reminders</h2>
+    <?php if ($my_reminders): ?><span class="ui-pill tone-gold"><?= count($my_reminders) ?></span><?php endif; ?>
   </div>
-</div>
-<?php return; endif; ?>
-<div class="card stat-card mb-4 reminder-card">
-  <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
-    <span><i class="fa-solid <?= $reminders_compact ? 'fa-wand-magic-sparkles' : 'fa-bell' ?> text-accent-gold"></i> <?= h($reminders_title) ?></span>
-    <span class="badge bg-warning"><?= count($my_reminders) ?></span>
-  </div>
-  <ul class="list-group list-group-flush">
-    <?php foreach ($my_reminders as $r): $meta = $reminder_meta[$r['reminder_type']] ?? null; if (!$meta) continue; ?>
-      <li class="list-group-item d-flex flex-wrap flex-md-nowrap align-items-start gap-2 gap-md-3">
-        <i class="fa-solid <?= h($meta['icon']) ?> text-brand mt-1" aria-hidden="true"></i>
-        <div class="flex-grow-1 min-w-0">
-          <div><?= h($r['message']) ?></div>
-          <div class="small text-muted"><?= h($meta['label']) ?> · <?= h(time_ago($r['created_at'])) ?></div>
+  <?php if ($my_reminders): ?>
+    <?php foreach ($my_reminders as $r): $meta = $reminder_meta[$r['reminder_type']]; ?>
+      <div class="ui-rem-row">
+        <span class="ui-head-icon tone-navy" aria-hidden="true"><i class="fa-solid <?= h($meta['icon']) ?>"></i></span>
+        <div class="ui-rem-text">
+          <div class="ui-rem-msg"><?= h($r['message']) ?></div>
+          <div class="ui-cell-sub"><?= h($meta['label']) ?> · <?= h(time_ago($r['created_at'])) ?></div>
         </div>
-        <?php if (!$reminders_compact): ?>
-        <div class="d-flex gap-2 flex-shrink-0">
+        <div class="ui-rem-actions">
           <?php if ($url = notification_link_url($r['link'])): ?>
             <a href="<?= h($url) ?>" class="btn btn-sm btn-brand text-nowrap"><?= h($meta['link_text']) ?></a>
           <?php endif; ?>
-          <form method="POST" action="<?= BASE_URL ?>/api/reminders.php" class="m-0">
+          <form method="POST" action="<?= BASE_URL ?>/api/reminders.php">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="dismiss">
             <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
-            <button class="btn btn-sm btn-outline-secondary text-nowrap" title="Hide this reminder (it comes back only if it still applies in <?= (int)REMINDER_REPEAT_DAYS ?> days)">Dismiss</button>
+            <button class="btn btn-sm btn-outline-secondary text-nowrap" title="Hide this reminder. It comes back in <?= (int)REMINDER_REPEAT_DAYS ?> days if it still applies.">Dismiss</button>
           </form>
         </div>
-        <?php endif; ?>
-      </li>
+      </div>
     <?php endforeach; ?>
-  </ul>
-  <?php if (array_filter(array_column($my_reminders, 'ai_generated'))): ?>
-    <div class="card-footer bg-white py-2"><?= ai_disclaimer_html() ?></div>
+    <?php if (array_filter(array_column($my_reminders, 'ai_generated'))): ?>
+      <div class="ui-card-foot"><?= ai_disclaimer_html() ?></div>
+    <?php endif; ?>
+  <?php else: ?>
+    <div class="ui-rem-row">
+      <?php if ($reminder_status['checked_at'] === null): ?>
+        <span class="ui-head-icon tone-navy" aria-hidden="true"><i class="fa-solid fa-clock"></i></span>
+        <div class="ui-rem-text"><div class="fw-bold">No reminders yet</div><div class="ui-cell-sub">Your 201 file is checked once a day; reminders appear here.</div></div>
+      <?php elseif ($reminder_status['dismissed']): ?>
+        <span class="ui-head-icon tone-teal" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
+        <div class="ui-rem-text"><div class="fw-bold">No new reminders</div><div class="ui-cell-sub">Hidden reminders come back in <?= (int)REMINDER_REPEAT_DAYS ?> days if still pending. Checked <?= h(time_ago($reminder_status['checked_at'])) ?>.</div></div>
+      <?php else: ?>
+        <span class="ui-head-icon tone-teal" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
+        <div class="ui-rem-text"><div class="fw-bold">You're all set</div><div class="ui-cell-sub">Your 201 file is up to date. Checked <?= h(time_ago($reminder_status['checked_at'])) ?>.</div></div>
+      <?php endif; ?>
+    </div>
   <?php endif; ?>
-</div>
+</section>

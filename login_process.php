@@ -97,7 +97,9 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
 // password -- stops it with the generic message; side tasks fail safe.
 try {
     require_once __DIR__ . '/includes/functions.php';   // connects to the database
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? AND is_active = 1 LIMIT 1");
+    // Deactivated accounts are found too, so the right password gets the "deactivated" message
+    // below instead of "Invalid email or password" (a wrong password still gets the generic one)
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 } catch (Throwable $e) {
@@ -132,6 +134,14 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
         . ($attempts_left !== null && $attempts_left > 0 && $attempts_left <= WARN_REMAINING_ATTEMPTS
             ? ' ' . $attempts_left . ' attempt' . ($attempts_left === 1 ? '' : 's') . ' left before login is locked for ' . LOCKOUT_MINUTES . ' minutes.'
             : ''), true);
+}
+
+// Deactivated (users.is_active = 0, set in Manage Faculty): right password, but no session. Logged as a
+// blocked attempt -- blocked attempts don't count toward the brute-force lockout.
+if ((int)$user['is_active'] !== 1) {
+    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip, true));
+    log_activity($pdo, $user_id, 'LOGIN_BLOCKED', 'Login refused: the account is deactivated.', $user['role']);
+    login_fail(ACCOUNT_DEACTIVATED_MESSAGE);
 }
 
 // Confirm the account actually belongs to the portal it logged in through

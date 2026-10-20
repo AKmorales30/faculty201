@@ -85,6 +85,6 @@ $rows = array_slice($rows, 0, $limit);
     </table>
   </div>
   <div data-modal-footer>
-    <a href="<?= h($full_page) ?>"><i class="fa-solid fa-sliders"></i> Search with more filters in <?= $is_admin ? 'Public Docs' : 'your Public Docs' ?></a>
+    <a href="<?= h($full_page) ?>"><i class="fa-solid fa-sliders"></i> Search with more filters in <?= $is_admin ? '201-Files' : 'your 201-Files' ?></a>
   </div>
 <?php endif; ?>

@@ -239,16 +239,16 @@ include __DIR__ . '/includes/header.php';
   <div class="small">Generated: <?= h(date('F j, Y g:i A')) ?> by <?= h($me['full_name']) ?> (<?= h(user_position_label($viewer)) ?>)</div>
 </div>
 
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4 no-print">
-  <div>
-    <h3 class="fw-bold mb-1">Training Summary</h3>
-    <p class="text-muted mb-0">The Seminar &amp; Training Report: every posted seminar, training and certificate in the faculty 201 files, with its details. Print it, save it as PDF or export it to CSV.
-      <?php if ($me['role'] === 'program_chair'): ?>You see the faculty of your program.<?php elseif ($me['role'] === 'dean'): ?>You see the faculty and Program Chairs of your college.<?php endif; ?></p>
-  </div>
-  <div class="d-flex gap-2">
-    <button type="button" class="btn btn-outline-brand" onclick="window.print()"><i class="fa-solid fa-print"></i> Print / Save as PDF</button>
-    <a href="training_report.php?<?= h(http_build_query($filter_query + ['export' => 'csv'])) ?>" class="btn btn-brand"><i class="fa-solid fa-file-csv"></i> Export CSV</a>
-  </div>
+<?php
+  $scope_note = match ($me['role']) {
+      'program_chair' => ' You see the faculty of your program' . (($pl = PROGRAMS[$viewer['program'] ?? '']['label'] ?? null) ? ' (' . h($pl) . ')' : '') . '.',
+      'dean'          => ' You see the faculty and Program Chairs of your college.',
+      default         => '',
+  }; ?>
+<div class="no-print">
+<?= admin_intro('Seminars and trainings taken from uploaded certificates in the faculty 201 files, with their details. Filter the report, then print it, save it as PDF or export it to CSV.' . $scope_note,
+    '<button type="button" class="btn btn-outline-brand" onclick="window.print()"><i class="fa-solid fa-print" aria-hidden="true"></i> Print / Save as PDF</button>'
+  . '<a href="training_report.php?' . h(http_build_query($filter_query + ['export' => 'csv'])) . '" class="btn btn-brand"><i class="fa-solid fa-file-csv" aria-hidden="true"></i> Export CSV</a>') ?>
 </div>
 
 <div class="card stat-card mb-4 no-print">
@@ -357,19 +357,11 @@ include __DIR__ . '/includes/header.php';
 </div>
 <?php endif; ?>
 
-<div class="row g-3 mb-3">
-  <div class="col-6 col-md-3">
-    <div class="card stat-card p-3 h-100"><div class="text-muted small">Seminars / Trainings</div><div class="stat-number text-brand"><?= count($rows) ?></div></div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="card stat-card p-3 h-100"><div class="text-muted small">Faculty</div><div class="stat-number text-accent-teal"><?= count($groups) ?></div></div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="card stat-card p-3 h-100"><div class="text-muted small">Total Hours (where given)</div><div class="stat-number text-accent-gold"><?= h($hours_label($total_hours)) ?></div></div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="card stat-card p-3 h-100"><div class="text-muted small">Missing Details</div><div class="stat-number <?= $missing ? 'text-danger' : 'text-accent-teal' ?>"><?= $missing ?></div></div>
-  </div>
+<div class="ui-tiles">
+  <div class="ui-tile"><span class="ui-stat-icon tone-navy" aria-hidden="true"><i class="fa-solid fa-chalkboard-user"></i></span><div><div class="ui-tile-n" data-count="<?= count($rows) ?>"><?= count($rows) ?></div><div class="ui-tile-l">Seminars / trainings</div></div></div>
+  <div class="ui-tile"><span class="ui-stat-icon tone-teal" aria-hidden="true"><i class="fa-regular fa-clock"></i></span><div><div class="ui-tile-n"><?= h($hours_label($total_hours)) ?></div><div class="ui-tile-l">Total hours (where given)</div></div></div>
+  <div class="ui-tile"><span class="ui-stat-icon tone-gold" aria-hidden="true"><i class="fa-solid fa-users"></i></span><div><div class="ui-tile-n" data-count="<?= count($groups) ?>"><?= count($groups) ?></div><div class="ui-tile-l">Faculty with trainings</div></div></div>
+  <div class="ui-tile"><span class="ui-stat-icon <?= $missing ? 'tone-red' : 'tone-teal' ?>" aria-hidden="true"><i class="fa-solid fa-circle-exclamation"></i></span><div><div class="ui-tile-n"><?= $missing ?></div><div class="ui-tile-l">Missing details</div></div></div>
 </div>
 <?php if ($missing): ?>
   <p class="small text-muted mb-3 no-print"><i class="fa-solid fa-circle-info"></i> <?= $missing ?> certificate<?= $missing === 1 ? ' is' : 's are' ?> missing a title, date or organizer and show<?= $missing === 1 ? 's' : '' ?> "Not specified".

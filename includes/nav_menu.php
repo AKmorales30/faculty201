@@ -1,6 +1,6 @@
 <?php
 /**
- * The left menu of each role, in one place. includes/sidebar.php draws
+ * The left menu of each role, in one place. includes/header.php draws
  * whatever app_menu() returns, so every page of a role shows the same menu
  * and nothing is copied into pages.
  *
@@ -11,9 +11,8 @@
  * ('admin/public_docs.php'), from nav_current_page(). A page that isn't in
  * the menu (e.g. Faculty Records) highlights the entry it belongs to.
  *
- * Pages reached another way: notifications (bell icon), the 201 File
- * Assistant (floating button), search (header), Faculty Needing Follow-up
- * (pop-up on Home).
+ * Pages reached another way: notifications (bell icon), search (header),
+ * Faculty Needing Follow-up (pop-up on Home).
  */
 
 /** The script being shown, relative to the app root, e.g. 'admin/public_docs.php'. */
@@ -44,7 +43,7 @@ function app_menu(PDO $pdo, array $user): array {
         return [
             ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'admin/dashboard.php', 'active' => nav_on('admin/dashboard.php', 'reminder_list.php')],
             ['group' => 'Files', 'icon' => 'fa-folder', 'items' => [
-                ['label' => 'Public Docs', 'icon' => 'fa-folder-open', 'url' => 'admin/public_docs.php',
+                ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'admin/public_docs.php',
                  'active' => nav_on('admin/public_docs.php', 'admin/search_documents.php', 'admin/view_records.php', 'admin/faculty_documents.php', 'document_details.php')],
                 ['label' => 'Archived Docs', 'icon' => 'fa-box-archive', 'url' => 'admin/archived_documents.php',
                  'active' => nav_on('admin/archived_documents.php', 'archive.php')],
@@ -80,7 +79,7 @@ function app_menu(PDO $pdo, array $user): array {
             ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'faculty/dashboard.php', 'active' => nav_on('faculty/dashboard.php')],
             ['label' => 'Upload Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
             ['group' => 'File', 'icon' => 'fa-folder', 'items' => [
-                ['label' => 'Public Docs', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public,
+                ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public,
                  'badge' => $pending, 'badge_title' => 'Waiting for review', 'badge_class' => 'bg-review'],
                 ['label' => 'Archived Docs', 'icon' => 'fa-box-archive', 'url' => 'archive.php', 'active' => $own_archive],
                 ['label' => 'Recently Deleted', 'icon' => 'fa-trash-can-arrow-up', 'url' => 'recently_deleted.php', 'active' => nav_on('recently_deleted.php')],
@@ -94,7 +93,7 @@ function app_menu(PDO $pdo, array $user): array {
         ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'approval/dashboard.php', 'active' => nav_on('approval/dashboard.php', 'reminder_list.php')],
         ['label' => 'Upload Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
         ['group' => 'Files', 'icon' => 'fa-folder', 'items' => [
-            ['label' => 'Public Docs', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public,
+            ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public,
              'badge' => $pending, 'badge_title' => 'Waiting for review', 'badge_class' => 'bg-review'],
             ['label' => 'Archived Docs', 'icon' => 'fa-box-archive', 'url' => 'archive.php', 'active' => $own_archive],
             ['label' => 'Recently Deleted', 'icon' => 'fa-trash-can-arrow-up', 'url' => 'recently_deleted.php', 'active' => nav_on('recently_deleted.php')],

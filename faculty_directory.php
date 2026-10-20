@@ -3,7 +3,8 @@
  * Faculty Profiles -- the accounts whose profile the viewer may open
  * (profile_scope_sql()): a Dean sees their college's faculty and Program
  * Chairs, a Program Chair their program's faculty, the Admin everyone with
- * a 201 file. Each opens profile.php?id=N.
+ * a 201 file. Each opens the profile pop-up (api/modal.php?view=person),
+ * or profile.php?id=N without JavaScript / with Ctrl-click.
  */
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/functions.php';
@@ -32,50 +33,50 @@ $page_title = 'Faculty Profiles';
 include __DIR__ . '/includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
-  <h3 class="fw-bold mb-0">Faculty Profiles</h3>
-  <input type="search" id="directoryFilter" class="form-control form-control-sm directory-filter" placeholder="Filter by name, position or rank..." aria-label="Filter faculty">
-</div>
-<p class="text-muted mb-4">
-  <?php if ($scope_label): ?>
-    Faculty in <strong><?= h($scope_label) ?></strong>. Open a profile to see their details, 201-file summary and archive.
-  <?php else: ?>
-    Your <?= $me['role'] === 'dean' ? 'college' : 'program' ?> hasn't been set yet, so no faculty are listed -- please ask the Admin to set it.
-  <?php endif; ?>
-</p>
+<?= admin_intro(
+    $scope_label
+        ? 'Faculty in <strong>' . h($scope_label) . '</strong>. Open a profile to see their details, 201-file summary and archive.'
+        : 'Your ' . ($me['role'] === 'dean' ? 'college' : 'program') . ' hasn\'t been set yet, so no faculty are listed. Please ask the Admin to set it.',
+    $people ? '<label class="ui-search ui-search-wide"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>'
+            . '<input type="search" id="directoryFilter" placeholder="Filter by name, position or rank" aria-label="Filter faculty" autocomplete="off"></label>' : ''
+) ?>
 
 <?php if (!$people): ?>
-  <div class="text-center text-muted py-5">No faculty to show.</div>
+  <section class="ui-card"><?= admin_empty('No faculty to show', $scope_label ? 'Faculty in ' . $scope_label . ' will appear here once their accounts are added.' : '', null, 'fa-users') ?></section>
 <?php endif; ?>
 
-<div class="row g-3" id="directoryList">
+<div class="ui-people" id="directoryList">
   <?php foreach ($people as $p): ?>
-  <div class="col-md-6 col-xl-4 directory-item" data-search="<?= h(mb_strtolower($p['full_name'] . ' ' . user_position_line($p) . ' ' . $p['academic_rank'])) ?>">
-    <a href="<?= BASE_URL ?>/profile.php?id=<?= (int)$p['user_id'] ?>" class="text-decoration-none">
-      <div class="card folder-card h-100">
-        <div class="card-body d-flex align-items-center gap-3">
-          <?= user_avatar($p, 52) ?>
-          <div class="min-w-0">
-            <div class="fw-semibold text-charcoal text-truncate"><?= h($p['full_name']) ?></div>
-            <div class="small text-muted text-truncate"><?= h(user_position_line($p)) ?></div>
-            <div class="small text-muted">
-              <?= $p['academic_rank'] ? h($p['academic_rank']) : 'Rank not set' ?>
-              <?php if ((int)$p['archived']): ?> · <?= (int)$p['archived'] ?> archived<?php endif; ?>
-              <?php if (!$p['is_active']): ?> · <span class="text-danger">Deactivated</span><?php endif; ?>
-            </div>
-          </div>
-        </div>
-      </div>
+    <a class="ui-person-card directory-item" href="<?= BASE_URL ?>/profile.php?id=<?= (int)$p['user_id'] ?>"
+       data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=person&id=' . (int)$p['user_id']) ?>" data-app-modal-size="lg" data-app-modal-title="Faculty profile"
+       data-search="<?= h(mb_strtolower($p['full_name'] . ' ' . user_position_line($p) . ' ' . $p['academic_rank'])) ?>">
+      <span class="ui-person-avatar<?= $p['is_active'] ? '' : ' is-off' ?>"><?= user_avatar($p, 52) ?></span>
+      <span class="ui-person-body">
+        <span class="ui-person-name"><?= h($p['full_name']) ?></span>
+        <span class="ui-cell-sub text-truncate"><?= h(user_position_line($p)) ?></span>
+        <span class="ui-cell-sub">
+          <?= $p['academic_rank'] ? h($p['academic_rank']) : 'Rank not set' ?>
+          <?php if ((int)$p['archived']): ?> · <?= (int)$p['archived'] ?> archived<?php endif; ?>
+          <?php if (!$p['is_active']): ?> · <span class="text-danger">Deactivated</span><?php endif; ?>
+        </span>
+      </span>
+      <i class="fa-solid fa-chevron-right ui-person-chevron" aria-hidden="true"></i>
     </a>
-  </div>
   <?php endforeach; ?>
 </div>
-<p class="text-center text-muted py-4" id="directoryNone" hidden>No faculty match that filter.</p>
+<section class="ui-card" id="directoryNone" hidden>
+  <div class="ui-empty">
+    <span class="ui-empty-icon" aria-hidden="true"><i class="fa-solid fa-users"></i></span>
+    <div class="ui-empty-title">No faculty match that filter</div>
+    <button type="button" class="btn btn-sm btn-outline-brand" id="directoryClear">Clear filter</button>
+  </div>
+</section>
 
 <script>
 (function () {
   var input = document.getElementById('directoryFilter'), items = document.querySelectorAll('.directory-item');
-  input.addEventListener('input', function () {
+  if (!input) return;
+  var apply = function () {
     var terms = input.value.toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
     items.forEach(function (el) {
       var ok = terms.every(function (t) { return el.dataset.search.indexOf(t) !== -1; });
@@ -83,7 +84,9 @@ include __DIR__ . '/includes/header.php';
       if (ok) shown++;
     });
     document.getElementById('directoryNone').hidden = shown > 0 || !items.length;
-  });
+  };
+  input.addEventListener('input', apply);
+  document.getElementById('directoryClear').addEventListener('click', function () { input.value = ''; apply(); input.focus(); });
 })();
 </script>
 
