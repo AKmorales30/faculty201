@@ -460,16 +460,16 @@ function pds_snapshot(PDO $pdo, int $faculty_id, string $reason): void {
 /** Write Parts I-VI, VIII etc. (creates the record if needed). */
 function pds_write_data(PDO $pdo, int $faculty_id, array $data, ?int $source_document_id = null): void {
     $pdo->prepare(
-        "INSERT INTO pds_records (faculty_id, data, source_document_id) VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE data = VALUES(data), source_document_id = COALESCE(VALUES(source_document_id), source_document_id), updated_at = CURRENT_TIMESTAMP"
+        "INSERT INTO pds_records (faculty_id, data, source_document_id) VALUES (?, ?, ?) "
+        . sql_on_duplicate('faculty_id', 'data = ' . sql_inserted('data') . ', source_document_id = COALESCE(' . sql_inserted('source_document_id')
+                                         . ', pds_records.source_document_id), updated_at = CURRENT_TIMESTAMP')
     )->execute([$faculty_id, json_encode($data), $source_document_id]);
 }
 
 /** Mark the PDS as updated (e.g. after an L&D entry was added). */
 function pds_touch(PDO $pdo, int $faculty_id): void {
     $pdo->prepare(
-        "INSERT INTO pds_records (faculty_id, data) VALUES (?, '{}')
-         ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP"
+        "INSERT INTO pds_records (faculty_id, data) VALUES (?, '{}') " . sql_on_duplicate('faculty_id', 'updated_at = CURRENT_TIMESTAMP')
     )->execute([$faculty_id]);
 }
 
@@ -633,7 +633,7 @@ function pds_status(PDO $pdo, int $faculty_id): array {
     $stmt->execute([$faculty_id]);
     $updated = $stmt->fetchColumn() ?: null;
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' AND (period_year = ? OR YEAR(filed_at) = ?)");
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' AND (period_year = ? OR EXTRACT(YEAR FROM filed_at) = ?)");
     $stmt->execute([$faculty_id, $year, $year]);
     $uploaded_this_year = (int)$stmt->fetchColumn() > 0;
 

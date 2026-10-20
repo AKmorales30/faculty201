@@ -62,8 +62,9 @@ $use_dates = $date_error === null;
 $where = [$include_archived ? "d.status IN ('active', 'archived')" : "d.status = 'active'"];
 $params = [];
 if ($q !== '') {
-    $where[] = "(u.full_name LIKE ? OR d.ocr_extracted_text LIKE ? OR d.ocr_matched_name LIKE ? OR d.file_path LIKE ?
-                 OR d.title LIKE ? OR d.conducted_by LIKE ? OR d.venue LIKE ?)";
+    $like = sql_like();
+    $where[] = "(u.full_name $like ? OR d.ocr_extracted_text $like ? OR d.ocr_matched_name $like ? OR d.file_path $like ?
+                 OR d.title $like ? OR d.conducted_by $like ? OR d.venue $like ?)";
     array_push($params, "%$q%", "%$q%", "%$q%", "%$q%", "%$q%", "%$q%", "%$q%");
 }
 if ($type !== '') {
@@ -71,14 +72,14 @@ if ($type !== '') {
     $params[] = $type;
 }
 if ($expiring_only) {
-    $where[] = "d.expiration_date IS NOT NULL AND d.expiration_date <= DATE_ADD(CURDATE(), INTERVAL 60 DAY)";
+    $where[] = "d.expiration_date IS NOT NULL AND d.expiration_date <= CURRENT_DATE + INTERVAL '60' DAY";
 }
 if ($use_dates && $from !== '') {
     $where[] = "d.filed_at >= ?";
     $params[] = $from . ' 00:00:00';
 }
 if ($use_dates && $to !== '') {
-    $where[] = "d.filed_at < DATE_ADD(?, INTERVAL 1 DAY)";
+    $where[] = "d.filed_at < CAST(? AS DATE) + INTERVAL '1' DAY";
     $params[] = $to;
 }
 if ($program !== '') {

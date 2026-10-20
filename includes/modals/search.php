@@ -26,9 +26,10 @@ if (mb_strlen($q) >= 2) {
     }
 
     $like = '%' . addcslashes($q, '%_\\') . '%';
-    $match = ["d.title LIKE ?", "d.file_path LIKE ?", "d.conducted_by LIKE ?"];
+    $like_op = sql_like();
+    $match = ["d.title $like_op ?", "d.file_path $like_op ?", "d.conducted_by $like_op ?"];
     $params = [$like, $like, $like];
-    if ($is_admin) { $match[] = "u.full_name LIKE ?"; $params[] = $like; }
+    if ($is_admin) { $match[] = "u.full_name $like_op ?"; $params[] = $like; }
     if ($type_keys) {
         $match[] = "d.document_type IN (" . implode(',', array_fill(0, count($type_keys), '?')) . ")";
         array_push($params, ...array_keys($type_keys));

@@ -39,7 +39,7 @@ if (!$is_admin)       { $where[] = "d.faculty_id = ?"; $params[] = (int)$me['use
 if ($faculty_id)      { $where[] = "d.faculty_id = ?"; $params[] = $faculty_id; }
 if ($category !== '') { $where[] = "d.document_type = ?"; $params[] = $category; }
 if ($from !== '')     { $where[] = "d.deleted_at >= ?"; $params[] = $from . ' 00:00:00'; }
-if ($to !== '')       { $where[] = "d.deleted_at < DATE_ADD(?, INTERVAL 1 DAY)"; $params[] = $to; }
+if ($to !== '')       { $where[] = "d.deleted_at < CAST(? AS DATE) + INTERVAL '1' DAY"; $params[] = $to; }
 $stmt = $pdo->prepare(
     "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title, d.status, d.filed_at,
             d.deleted_at, d.deleted_by, d.delete_reason, d.status_before_delete, d.posted_at,

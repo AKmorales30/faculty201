@@ -456,8 +456,9 @@ function save_profile_picture(PDO $pdo, int $user_id, string $jpeg): string {
     $pdo->beginTransaction();
     try {
         $stmt = $pdo->prepare(
-            "INSERT INTO profile_pictures (user_id, mime_type, file_size, data) VALUES (?, 'image/jpeg', ?, ?)
-             ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_size = VALUES(file_size), data = VALUES(data)"
+            "INSERT INTO profile_pictures (user_id, mime_type, file_size, data) VALUES (?, 'image/jpeg', ?, ?) "
+            . sql_on_duplicate('user_id', 'mime_type = ' . sql_inserted('mime_type') . ', file_size = ' . sql_inserted('file_size')
+                                          . ', data = ' . sql_inserted('data'))
         );
         $stmt->bindValue(1, $user_id, PDO::PARAM_INT);
         $stmt->bindValue(2, strlen($jpeg), PDO::PARAM_INT);

@@ -201,7 +201,7 @@ if ($action === 'create') {
                     'Employment type' => employment_type_label($emp_type), 'Program' => PROGRAMS[$program]['label'] ?? '', 'College' => COLLEGES[$college] ?? '',
                 ])) . '.');
             if ($role === 'faculty') {
-                $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, 'engaged', CURDATE(), 'Account created by Admin')")
+                $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, 'engaged', CURRENT_DATE, 'Account created by Admin')")
                     ->execute([$new_id]);
             }
             $_SESSION['flash_success'] = "Account created for {$full_name}.";
@@ -360,7 +360,7 @@ if ($action === 'pause' || $action === 'resume') {
     $uid = (int)($_POST['user_id'] ?? 0);
     $new_status = $action === 'pause' ? 'paused' : 'active';
     $pdo->prepare("UPDATE users SET employment_status = ? WHERE user_id = ? AND role = 'faculty'")->execute([$new_status, $uid]);
-    $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, ?, CURDATE(), ?)")
+    $pdo->prepare("INSERT INTO employment_history (faculty_id, event_type, event_date, remarks) VALUES (?, ?, CURRENT_DATE, ?)")
         ->execute([$uid, $action === 'pause' ? 'paused' : 'resumed', $_POST['remarks'] ?? null]);
     $target = account_for_log($pdo, $uid);
     if ($target) {

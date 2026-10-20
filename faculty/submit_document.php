@@ -169,7 +169,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     }
 
     // A re-upload is a new version of a document type the uploader already has
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND document_subtype <=> ? AND status IN ('active', 'for_review')");
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND document_type = ? AND " . sql_same('document_subtype', '?') . " AND status IN ('active', 'for_review')");
     $stmt->execute([$me['user_id'], $type, $subtype]);
     $reupload = (int)$stmt->fetchColumn() > 0;
 

@@ -23,8 +23,9 @@ if (!$picture) {
     exit;
 }
 
+$bytes = db_blob($picture['data']);
 header('Content-Type: ' . $picture['mime_type']);
-header('Content-Length: ' . strlen($picture['data']));
+header('Content-Length: ' . strlen($bytes));
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, max-age=86400');
-echo $picture['data'];
+echo $bytes;

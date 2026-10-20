@@ -2,6 +2,62 @@
 require_once __DIR__ . '/auth.php';   // config, session, h()
 require_once __DIR__ . '/../config/db.php';
 
+// ---------------------------------------------------------------------
+// SQL that differs between MySQL / MariaDB (XAMPP, SkySQL) and PostgreSQL
+// (Supabase), so the same queries run on both (config/db.php picks the
+// database). Everything else is written in SQL both understand: CURRENT_DATE,
+// INTERVAL '60' DAY, CASE, EXTRACT(YEAR FROM ...).
+// ---------------------------------------------------------------------
+
+/** Whether the database is PostgreSQL (Supabase) rather than MySQL / MariaDB. */
+function db_is_pgsql(): bool {
+    return DB_DRIVER === 'pgsql';
+}
+
+/** Case-insensitive LIKE: MySQL's LIKE already ignores case, PostgreSQL's needs ILIKE. */
+function sql_like(): string {
+    return db_is_pgsql() ? 'ILIKE' : 'LIKE';
+}
+
+/** $a equals $b, two NULLs counting as equal (MySQL's <=>). */
+function sql_same(string $a, string $b): string {
+    return db_is_pgsql() ? "{$a} IS NOT DISTINCT FROM {$b}" : "{$a} <=> {$b}";
+}
+
+/** Whole seconds from now until timestamp expression $expr (negative once it has passed). */
+function sql_seconds_until(string $expr): string {
+    return db_is_pgsql() ? "CAST(FLOOR(EXTRACT(EPOCH FROM (({$expr}) - LOCALTIMESTAMP))) AS INTEGER)" : "TIMESTAMPDIFF(SECOND, NOW(), {$expr})";
+}
+
+/** "2026-10" from date / timestamp expression $expr. */
+function sql_year_month(string $expr): string {
+    return db_is_pgsql() ? "to_char({$expr}, 'YYYY-MM')" : "DATE_FORMAT({$expr}, '%Y-%m')";
+}
+
+/** INSERT that skips a row whose key is already taken: sql_insert_ignore("t (a, b) VALUES (?, ?)"). */
+function sql_insert_ignore(string $into): string {
+    return db_is_pgsql() ? "INSERT INTO {$into} ON CONFLICT DO NOTHING" : "INSERT IGNORE INTO {$into}";
+}
+
+/**
+ * The end of an INSERT that updates the existing row instead when the key
+ * $key (the conflicting column(s)) is taken; $set as in an UPDATE, with
+ * sql_inserted('col') for the value the INSERT tried to write.
+ */
+function sql_on_duplicate(string $key, string $set): string {
+    return db_is_pgsql() ? "ON CONFLICT ({$key}) DO UPDATE SET {$set}" : "ON DUPLICATE KEY UPDATE {$set}";
+}
+
+/** In sql_on_duplicate()'s $set: the value the INSERT tried to write to $column. */
+function sql_inserted(string $column): string {
+    return db_is_pgsql() ? "EXCLUDED.{$column}" : "VALUES({$column})";
+}
+
+/** A binary column's value as a string (PostgreSQL hands bytea back as a stream). */
+function db_blob($value): string {
+    return is_resource($value) ? (string)stream_get_contents($value) : (string)$value;
+}
+
 /**
  * Apply any database migration in database/ that hasn't run yet, so a
  * deploy doesn't depend on someone running SQL by hand. Applied files
@@ -14,8 +70,14 @@ require_once __DIR__ . '/../config/db.php';
  * Each file is applied on its own: one that fails is logged and retried
  * later, without holding back the ones after it (a failure there once left
  * later tables -- login_lockouts -- missing, which broke every login).
+ * MySQL / MariaDB only: these files are MySQL SQL, and a PostgreSQL
+ * (Supabase) database gets all of them at once from
+ * database/supabase/01_schema.sql.
  */
 function run_pending_migrations(PDO $pdo): void {
+    if (db_is_pgsql()) {
+        return;
+    }
     $migrations = ['migration_add_expiration.sql', 'migration_add_security_alerts.sql',
                    'migration_201_contents_pds.sql', 'migration_programs_colleges.sql', 'migration_document_files.sql',
                    'migration_classification_confidence.sql', 'migration_activity_logs.sql', 'migration_expiration_alerts.sql',
@@ -54,7 +116,7 @@ function run_pending_migrations(PDO $pdo): void {
                     }
                 }
             }
-            $pdo->prepare("INSERT IGNORE INTO schema_migrations (name) VALUES (?)")->execute([$file]);
+            $pdo->prepare(sql_insert_ignore("schema_migrations (name) VALUES (?)"))->execute([$file]);
         } catch (Throwable $e) {
             error_log("Database migration {$file} failed (retried on the next request; database/repair_schema.sql adds everything by hand): " . $e->getMessage());
         }
@@ -268,7 +330,7 @@ function document_file_chunks_ready(PDO $pdo): bool {
     static $ready = null;
     if ($ready === null) {
         try {
-            $ready = (bool)$pdo->query("SHOW TABLES LIKE 'document_file_chunks'")->fetchColumn();
+            $ready = (bool)$pdo->query(db_is_pgsql() ? "SELECT to_regclass('document_file_chunks') IS NOT NULL" : "SHOW TABLES LIKE 'document_file_chunks'")->fetchColumn();
         } catch (PDOException $e) {
             $ready = false;
         }
@@ -295,7 +357,8 @@ function store_document_file(PDO $pdo, int $document_id, string $abs_path, strin
         throw new RuntimeException("Could not read $abs_path to store it");
     }
     $size = strlen($bytes);
-    $limit = (int)$pdo->query("SELECT @@max_allowed_packet")->fetchColumn();
+    // PostgreSQL has no packet limit: 0 = none (pieces of 8 MB below)
+    $limit = db_is_pgsql() ? 0 : (int)$pdo->query("SELECT @@max_allowed_packet")->fetchColumn();
     $chunked = document_file_chunks_ready($pdo);
     if (!$chunked) {
         // Room for the rest of the query: 1 MB, or an eighth of a small limit
@@ -308,8 +371,9 @@ function store_document_file(PDO $pdo, int $document_id, string $abs_path, strin
     if ($own) { $pdo->beginTransaction(); }
     try {
         $stmt = $pdo->prepare(
-            "INSERT INTO document_files (document_id, mime_type, file_size, data) VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_size = VALUES(file_size), data = VALUES(data)"
+            "INSERT INTO document_files (document_id, mime_type, file_size, data) VALUES (?, ?, ?, ?) "
+            . sql_on_duplicate('document_id', 'mime_type = ' . sql_inserted('mime_type') . ', file_size = ' . sql_inserted('file_size')
+                                              . ', data = ' . sql_inserted('data'))
         );
         $stmt->bindValue(1, $document_id, PDO::PARAM_INT);
         $stmt->bindValue(2, document_mime_type($file_path));
@@ -350,7 +414,7 @@ function document_file_each(PDO $pdo, int $document_id, array $info, callable $o
     if ((int)$info['inline_size'] > 0) {   // saved in one row (before files were stored in pieces)
         $stmt = $pdo->prepare("SELECT data FROM document_files WHERE document_id = ?");
         $stmt->execute([$document_id]);
-        $out((string)$stmt->fetchColumn());
+        $out(db_blob($stmt->fetchColumn()));
         return;
     }
     if (!document_file_chunks_ready($pdo)) {
@@ -359,7 +423,7 @@ function document_file_each(PDO $pdo, int $document_id, array $info, callable $o
     $stmt = $pdo->prepare("SELECT data FROM document_file_chunks WHERE document_id = ? ORDER BY seq");
     $stmt->execute([$document_id]);
     while (($piece = $stmt->fetchColumn()) !== false) {
-        $out((string)$piece);
+        $out(db_blob($piece));
     }
 }
 
@@ -426,7 +490,7 @@ function document_removal_reasons(): array {
  * Asia/Manila (delete_deadline_label()).
  */
 function delete_window_sql(string $alias = 'd'): string {
-    return "TIMESTAMPDIFF(SECOND, NOW(), {$alias}.filed_at + INTERVAL " . (int)FACULTY_DELETE_WINDOW_HOURS . " HOUR)";
+    return sql_seconds_until("{$alias}.filed_at + INTERVAL '" . (int)FACULTY_DELETE_WINDOW_HOURS . "' HOUR");
 }
 
 /**
@@ -508,24 +572,25 @@ function change_document_status(PDO $pdo, array $doc, string $action, int $actor
         }
         $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
         // MySQL applies SET left to right: work out the place it returns to before clearing status_before_delete
+        // (PostgreSQL reads every value from before the update, which gives the same result)
         $pdo->prepare(
-            "UPDATE documents d SET
-                    d.last_viewed_at = IF(d.status_before_delete = 'archived', d.last_viewed_at, NOW()),
-                    d.status = IF(d.status_before_delete = 'archived', 'archived', 'active'),
-                    d.file_path = ?, d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
-                    d.status_before_delete = NULL, d.purge_warned_at = NULL
-             WHERE d.document_id = ? AND d.status = 'deleted'"
+            "UPDATE documents SET
+                    last_viewed_at = CASE WHEN status_before_delete = 'archived' THEN last_viewed_at ELSE NOW() END,
+                    status = CASE WHEN status_before_delete = 'archived' THEN 'archived' ELSE 'active' END,
+                    file_path = ?, deleted_at = NULL, deleted_by = NULL, delete_reason = NULL,
+                    status_before_delete = NULL, purge_warned_at = NULL
+             WHERE document_id = ? AND status = 'deleted'"
         )->execute([$path, $doc['document_id']]);
         return true;
     }
     if ($action === 'restore' && $status === 'archived') {
         $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
         $pdo->prepare(
-            "UPDATE documents d SET d.status = 'active', d.posted_at = COALESCE(d.posted_at, d.filed_at), d.file_path = ?,
-                    d.archived_at = NULL, d.archived_by = NULL, d.archive_reason = NULL,
-                    d.deleted_at = NULL, d.deleted_by = NULL, d.delete_reason = NULL,
-                    d.last_viewed_at = NOW()
-             WHERE d.document_id = ?"
+            "UPDATE documents SET status = 'active', posted_at = COALESCE(posted_at, filed_at), file_path = ?,
+                    archived_at = NULL, archived_by = NULL, archive_reason = NULL,
+                    deleted_at = NULL, deleted_by = NULL, delete_reason = NULL,
+                    last_viewed_at = NOW()
+             WHERE document_id = ?"
         )->execute([$path, $doc['document_id']]);
         return true;
     }
@@ -583,7 +648,7 @@ function can_restore_deleted(array $user, array $doc): bool {
 
 /** SQL condition: deleted documents whose restore window is over. */
 function deleted_expired_sql(string $alias = 'd'): string {
-    return "{$alias}.status = 'deleted' AND {$alias}.deleted_at < NOW() - INTERVAL " . (int)DELETED_RETENTION_DAYS . " DAY";
+    return "{$alias}.status = 'deleted' AND {$alias}.deleted_at < NOW() - INTERVAL '" . (int)DELETED_RETENTION_DAYS . "' DAY";
 }
 
 /**
@@ -668,9 +733,10 @@ function cleanup_recently_deleted(PDO $pdo): array {
             "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.title, d.deleted_at, d.deleted_by
              FROM documents d
              WHERE d.status = 'deleted' AND d.purge_warned_at IS NULL
-               AND d.deleted_at < NOW() - INTERVAL ? DAY AND NOT (" . deleted_expired_sql('d') . ")"
+               AND d.deleted_at < NOW() - INTERVAL '" . ((int)DELETED_RETENTION_DAYS - (int)DELETED_PURGE_WARNING_DAYS) . "' DAY
+               AND NOT (" . deleted_expired_sql('d') . ")"
         );
-        $stmt->execute([(int)DELETED_RETENTION_DAYS - (int)DELETED_PURGE_WARNING_DAYS]);
+        $stmt->execute();
         $claim = $pdo->prepare("UPDATE documents SET purge_warned_at = NOW() WHERE document_id = ? AND purge_warned_at IS NULL");
         foreach ($stmt->fetchAll() as $d) {
             $claim->execute([$d['document_id']]);
@@ -713,7 +779,7 @@ function purge_deleted_account(PDO $pdo, int $user_id): ?int {
         $stmt = $pdo->prepare(
             "SELECT user_id, full_name, role, email, deleted_at, delete_reason FROM users
              WHERE user_id = ? AND deleted_at IS NOT NULL AND purged_at IS NULL
-               AND deleted_at < NOW() - INTERVAL " . (int)DELETED_RETENTION_DAYS . " DAY FOR UPDATE"
+               AND deleted_at < NOW() - INTERVAL '" . (int)DELETED_RETENTION_DAYS . "' DAY FOR UPDATE"
         );
         $stmt->execute([$user_id]);
         $u = $stmt->fetch();
@@ -750,7 +816,7 @@ function purge_deleted_account(PDO $pdo, int $user_id): ?int {
 function cleanup_deleted_accounts(PDO $pdo): array {
     try {
         $ids = $pdo->query("SELECT user_id FROM users WHERE deleted_at IS NOT NULL AND purged_at IS NULL
-                            AND deleted_at < NOW() - INTERVAL " . (int)DELETED_RETENTION_DAYS . " DAY")->fetchAll(PDO::FETCH_COLUMN);
+                            AND deleted_at < NOW() - INTERVAL '" . (int)DELETED_RETENTION_DAYS . "' DAY")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
         return ['purged' => 0, 'user_ids' => []];   // migration not applied yet
     }
@@ -1183,11 +1249,11 @@ function documents_expiring_soon(PDO $pdo, int $days = 60): array {
          JOIN users u ON u.user_id = d.faculty_id
          WHERE d.expiration_date IS NOT NULL
            AND d.status = 'active'
-           AND d.expiration_date >= CURDATE()
-           AND d.expiration_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+           AND d.expiration_date >= CURRENT_DATE
+           AND d.expiration_date <= CURRENT_DATE + INTERVAL '" . $days . "' DAY
          ORDER BY d.expiration_date ASC"
     );
-    $stmt->execute([$days]);
+    $stmt->execute();
     return $stmt->fetchAll();
 }
 
@@ -1280,8 +1346,8 @@ function expiring_documents(PDO $pdo, ?int $faculty_id = null, int $days = 60): 
               AND NOT EXISTS (
                   SELECT 1 FROM documents n
                   WHERE n.status = 'active' AND n.faculty_id = d.faculty_id AND n.document_type = d.document_type
-                    AND n.document_subtype <=> d.document_subtype AND n.academic_year <=> d.academic_year
-                    AND n.semester <=> d.semester AND n.period_year <=> d.period_year
+                    AND " . sql_same('n.document_subtype', 'd.document_subtype') . " AND " . sql_same('n.academic_year', 'd.academic_year') . "
+                    AND " . sql_same('n.semester', 'd.semester') . " AND " . sql_same('n.period_year', 'd.period_year') . "
                     AND n.document_id > d.document_id AND n.expiration_date > d.expiration_date
               )";
     $params = [(new DateTimeImmutable('today'))->modify("+{$days} days")->format('Y-m-d')];
@@ -1320,14 +1386,14 @@ function expiration_alert_messages(array $doc): array {
  * Send every expiration alert that is due: for each expired / expiring
  * document, the milestone it is in now, unless already sent for this
  * expiration date. The expiration_alerts_sent row is written first
- * (INSERT IGNORE on the unique key), so two runs at once can't both send
- * it; it's rolled back if the notifications fail, to be retried.
+ * (sql_insert_ignore() on the unique key), so two runs at once can't both
+ * send it; it's rolled back if the notifications fail, to be retried.
  * @return array{documents: int, alerts: int}
  */
 function check_expiration_alerts(PDO $pdo): array {
     $documents = expiring_documents($pdo);
     $sent = 0;
-    $claim = $pdo->prepare("INSERT IGNORE INTO expiration_alerts_sent (document_id, milestone, expiration_date) VALUES (?, ?, ?)");
+    $claim = $pdo->prepare(sql_insert_ignore("expiration_alerts_sent (document_id, milestone, expiration_date) VALUES (?, ?, ?)"));
     foreach ($documents as $doc) {
         $milestone = expiration_milestone($doc['days_left']);
         if ($milestone === null) { continue; }
@@ -1367,10 +1433,15 @@ function run_once_a_day(PDO $pdo, string $key, callable $job, bool $force = fals
         $running = 'running:' . date('Y-m-d H:i:s');
         $stale = 'running:' . date('Y-m-d H:i:s', time() - 60 * DAILY_JOB_STALE_MINUTES);
         // Leaves the row alone (0 rows) when today is recorded or a run started less than
-        // DAILY_JOB_STALE_MINUTES ago (a date sorts before any "running:" value)
-        $stmt = $pdo->prepare(
-            "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
-             ON DUPLICATE KEY UPDATE setting_value = IF(? = 0 AND (setting_value <=> ? OR setting_value > ?), setting_value, VALUES(setting_value))"
+        // DAILY_JOB_STALE_MINUTES ago (a date sorts before any "running:" value).
+        // MySQL counts a row set to its own value as 0 rows; PostgreSQL skips the update by its WHERE.
+        $stmt = $pdo->prepare(db_is_pgsql()
+            ? "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
+               ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
+               WHERE NOT (CAST(? AS INTEGER) = 0 AND (system_settings.setting_value IS NOT DISTINCT FROM CAST(? AS VARCHAR)
+                                                      OR system_settings.setting_value > CAST(? AS VARCHAR)))"
+            : "INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)
+               ON DUPLICATE KEY UPDATE setting_value = IF(? = 0 AND (setting_value <=> ? OR setting_value > ?), setting_value, VALUES(setting_value))"
         );
         $stmt->execute([$key, $running, $force ? 1 : 0, $today, $stale]);
         if ($stmt->rowCount() === 0 && !$force) {
@@ -1462,7 +1533,7 @@ function auto_archive_unviewed_documents(PDO $pdo): array {
 
     // Checked again in the UPDATE: not taken by a run at the same moment, and not opened in the meantime
     $archive = $pdo->prepare(
-        "UPDATE documents d SET d.status = 'archived', d.archived_at = NOW(), d.archived_by = NULL, d.archive_reason = ?
+        "UPDATE documents d SET status = 'archived', archived_at = NOW(), archived_by = NULL, archive_reason = ?
          WHERE d.document_id = ? AND d.status = 'active' AND d.archive_exempt = 0 AND $last_viewed < ?"
     );
     $done = [];
@@ -1641,7 +1712,7 @@ function record_login_attempt(PDO $pdo, string $email, ?int $user_id, bool $succ
 // lock further logins for LOCKOUT_MINUTES (config.php). Failures are
 // counted from login_attempts by time window; login_lockouts holds one row
 // per lock, so the Admins are notified once and can unlock early. All
-// times are compared inside MySQL (NOW(), session time zone +08:00).
+// times are compared inside the database (NOW(), session time zone Asia/Manila).
 // ---------------------------------------------------------------------
 
 /**
@@ -1650,7 +1721,7 @@ function record_login_attempt(PDO $pdo, string $email, ?int $user_id, bool $succ
  */
 function active_login_lock(PDO $pdo, string $type, string $key): ?array {
     $stmt = $pdo->prepare(
-        "SELECT id, locked_until, TIMESTAMPDIFF(SECOND, NOW(), locked_until) AS seconds_left
+        "SELECT id, locked_until, " . sql_seconds_until('locked_until') . " AS seconds_left
          FROM login_lockouts
          WHERE lock_type = ? AND lock_key = ? AND cleared_at IS NULL AND locked_until > NOW()
          ORDER BY locked_until DESC LIMIT 1"
@@ -1668,14 +1739,14 @@ function active_login_lock(PDO $pdo, string $type, string $key): ?array {
  */
 function recent_login_failures(PDO $pdo, string $type, string $key): int {
     $column = $type === 'account' ? 'email' : 'ip_address';
-    $since = "GREATEST(NOW() - INTERVAL ? MINUTE,
+    $since = "GREATEST(NOW() - INTERVAL '" . (int)FAILED_ATTEMPT_WINDOW_MINUTES . "' MINUTE,
                        COALESCE((SELECT MAX(GREATEST(locked_at, COALESCE(cleared_at, locked_at))) FROM login_lockouts
                                  WHERE lock_type = ? AND lock_key = ?), '1000-01-01')"
            . ($type === 'account'
                 ? ", COALESCE((SELECT MAX(attempted_at) FROM login_attempts WHERE email = ? AND was_successful = 1), '1000-01-01')"
                 : '')
            . ")";
-    $params = [(int)FAILED_ATTEMPT_WINDOW_MINUTES, $type, $key];
+    $params = [$type, $key];
     if ($type === 'account') { $params[] = $key; }
     $params[] = $key;
     $stmt = $pdo->prepare(
@@ -1714,8 +1785,8 @@ function register_failed_login(PDO $pdo, string $email, string $ip, ?int &$attem
 
         $pdo->prepare(
             "INSERT INTO login_lockouts (lock_type, lock_key, failed_count, locked_at, locked_until)
-             VALUES (?, ?, ?, NOW(), NOW() + INTERVAL ? MINUTE)"
-        )->execute([$type, $key, $failures, (int)LOCKOUT_MINUTES]);
+             VALUES (?, ?, ?, NOW(), NOW() + INTERVAL '" . (int)LOCKOUT_MINUTES . "' MINUTE)"
+        )->execute([$type, $key, $failures]);
         $lock = active_login_lock($pdo, $type, $key);
         $until = date('g:i A', time() + $lock['seconds_left']);
         $what = $type === 'account' ? "Login for {$email} locked" : "Logins from IP address {$ip} locked";
@@ -1744,7 +1815,7 @@ function clear_login_lock(PDO $pdo, string $type, string $key, int $admin_id): b
 /** Locks in force now: rows of login_lockouts plus seconds_left, latest first. */
 function active_login_locks(PDO $pdo): array {
     return $pdo->query(
-        "SELECT id, lock_type, lock_key, failed_count, locked_at, locked_until, TIMESTAMPDIFF(SECOND, NOW(), locked_until) AS seconds_left
+        "SELECT id, lock_type, lock_key, failed_count, locked_at, locked_until, " . sql_seconds_until('locked_until') . " AS seconds_left
          FROM login_lockouts WHERE cleared_at IS NULL AND locked_until > NOW() ORDER BY locked_at DESC"
     )->fetchAll();
 }
@@ -1773,7 +1844,7 @@ function flag_suspicious_login(PDO $pdo, int $user_id, string $full_name, string
         "SELECT COUNT(*) FROM login_attempts
          WHERE email = (SELECT email FROM users WHERE user_id = ?)
            AND was_successful = 0
-           AND attempted_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
+           AND attempted_at >= NOW() - INTERVAL '15' MINUTE"
     );
     $stmt->execute([$user_id]);
     if ((int)$stmt->fetchColumn() >= 3) {

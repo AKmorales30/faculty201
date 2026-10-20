@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $where = [];
 $params = [];
 if ($from !== '')     { $where[] = "d.filed_at >= ?"; $params[] = $from . ' 00:00:00'; }
-if ($to !== '')       { $where[] = "d.filed_at < DATE_ADD(?, INTERVAL 1 DAY)"; $params[] = $to; }
+if ($to !== '')       { $where[] = "d.filed_at < CAST(? AS DATE) + INTERVAL '1' DAY"; $params[] = $to; }
 if ($category !== '') { $where[] = "d.document_type = ?"; $params[] = $category; }
 if ($low_only)        { $where[] = "d.is_low_confidence = 1"; }
 $and = $where ? ' AND ' . implode(' AND ', $where) : '';

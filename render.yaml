@@ -5,6 +5,12 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     envVars:
+      # Supabase: the Session pooler connection string (config/database.example.php).
+      # When set, it is used instead of the DB_* values below.
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_DRIVER
+        sync: false
       - key: DB_HOST
         sync: false
       - key: DB_PORT

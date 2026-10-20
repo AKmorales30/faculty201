@@ -363,8 +363,8 @@ function check_reminders(PDO $pdo, ?int $only_user = null): array {
 
     // Done for today: the accounts checked without errors
     $mark = $pdo->prepare(
-        "INSERT INTO ai_reminder_checks (user_id, checked_at, started_at) VALUES (?, ?, NULL)
-         ON DUPLICATE KEY UPDATE checked_at = VALUES(checked_at), started_at = NULL"
+        "INSERT INTO ai_reminder_checks (user_id, checked_at, started_at) VALUES (?, ?, NULL) "
+        . sql_on_duplicate('user_id', 'checked_at = ' . sql_inserted('checked_at') . ', started_at = NULL')
     );
     $now = date('Y-m-d H:i:s');
     foreach ($users as $u) {
@@ -495,10 +495,15 @@ function ensure_reminders_checked(PDO $pdo, int $user_id): void {
         if (is_string($daily) && $daily > 'running:' . date('Y-m-d H:i:s', $stale)) {
             return;   // the day's run is checking everyone right now
         }
-        $claim = $pdo->prepare(
-            "INSERT INTO ai_reminder_checks (user_id, started_at) VALUES (?, ?)
-             ON DUPLICATE KEY UPDATE started_at = IF((checked_at IS NULL OR checked_at < ?) AND (started_at IS NULL OR started_at < ?),
-                                                     VALUES(started_at), started_at)"
+        // MySQL counts a row set to its own value as 0 rows; PostgreSQL skips the update by its WHERE
+        $claim = $pdo->prepare(db_is_pgsql()
+            ? "INSERT INTO ai_reminder_checks (user_id, started_at) VALUES (?, ?)
+               ON CONFLICT (user_id) DO UPDATE SET started_at = EXCLUDED.started_at
+               WHERE (ai_reminder_checks.checked_at IS NULL OR ai_reminder_checks.checked_at < CAST(? AS TIMESTAMP))
+                 AND (ai_reminder_checks.started_at IS NULL OR ai_reminder_checks.started_at < CAST(? AS TIMESTAMP))"
+            : "INSERT INTO ai_reminder_checks (user_id, started_at) VALUES (?, ?)
+               ON DUPLICATE KEY UPDATE started_at = IF((checked_at IS NULL OR checked_at < ?) AND (started_at IS NULL OR started_at < ?),
+                                                       VALUES(started_at), started_at)"
         );
         $claim->execute([$user_id, date('Y-m-d H:i:s'), date('Y-m-d 00:00:00'), date('Y-m-d H:i:s', $stale)]);
         if ($claim->rowCount() === 0) {

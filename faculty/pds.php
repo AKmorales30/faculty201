@@ -93,7 +93,7 @@ function pds_source_badge(?int $document_id, array $doc_types): string {
          . ($pds ? 'Imported from uploaded PDS' : 'Added automatically from an uploaded certificate') . '"><i class="fa-solid '
          . ($pds ? 'fa-file-import' : 'fa-certificate') . '"></i></a>';
 }
-$stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' ORDER BY COALESCE(period_year, YEAR(filed_at)) DESC, filed_at DESC");
+$stmt = $pdo->prepare("SELECT * FROM documents WHERE faculty_id = ? AND document_type = 'PDS' AND status = 'active' ORDER BY COALESCE(period_year, EXTRACT(YEAR FROM filed_at)) DESC, filed_at DESC");
 $stmt->execute([$me['user_id']]);
 $pds_files = $stmt->fetchAll();
 

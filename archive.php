@@ -44,7 +44,8 @@ $sql = "SELECT d.*, " . document_date_sql('d') . " AS doc_date, u.full_name, r.f
 $params = [$target_id];
 if ($category !== '') { $sql .= " AND d.document_type = ?"; $params[] = $category; }
 if ($q !== '') {
-    $sql .= " AND (d.title LIKE ? OR d.file_path LIKE ? OR d.conducted_by LIKE ? OR d.venue LIKE ?)";
+    $like = sql_like();
+    $sql .= " AND (d.title $like ? OR d.file_path $like ? OR d.conducted_by $like ? OR d.venue $like ?)";
     array_push($params, "%$q%", "%$q%", "%$q%", "%$q%");
 }
 $stmt = $pdo->prepare($sql . " ORDER BY doc_date DESC, d.document_id DESC");

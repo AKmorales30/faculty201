@@ -67,7 +67,7 @@ function ai_report_data(PDO $pdo, array $faculty, array $rows, array $applied, s
     $archived_certs = 0;
     if ($ids) {
         $in = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $pdo->prepare("SELECT faculty_id, COUNT(*) AS n, SUM(document_type = 'Certificate') AS certs FROM documents
+        $stmt = $pdo->prepare("SELECT faculty_id, COUNT(*) AS n, SUM(CASE WHEN document_type = 'Certificate' THEN 1 ELSE 0 END) AS certs FROM documents
                                WHERE status = 'archived' AND faculty_id IN ($in) GROUP BY faculty_id");
         $stmt->execute($ids);
         foreach ($stmt->fetchAll() as $a) { $archived[(int)$a['faculty_id']] = (int)$a['n']; $archived_certs += (int)$a['certs']; }

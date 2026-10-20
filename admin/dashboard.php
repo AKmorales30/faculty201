@@ -16,7 +16,9 @@ $card_admin = true;
 $total_faculty = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND is_active=1")->fetchColumn();
 $full_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='full_time' AND is_active=1")->fetchColumn();
 $part_time     = $pdo->query("SELECT COUNT(*) FROM users WHERE role='faculty' AND employment_type='part_time' AND is_active=1")->fetchColumn();
-$month_count   = $pdo->query("SELECT COUNT(*) FROM documents WHERE status='active' AND filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")->fetchColumn();
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE status='active' AND filed_at >= ?");
+$stmt->execute([date('Y-m-01')]);
+$month_count   = $stmt->fetchColumn();
 $filed_count   = $pdo->query("SELECT COUNT(*) FROM documents WHERE status='active'")->fetchColumn();
 $flagged_count = documents_flagged_count($pdo);
 $alert_count   = unresolved_security_alert_count($pdo);
@@ -45,7 +47,7 @@ $breakdown_max = max(1, ...array_column($breakdown, 'n'));
 
 // Uploads per month: the upload log over the last 6 months (this month included)
 $month_start = (new DateTimeImmutable('first day of this month'))->modify('-5 months');
-$stmt = $pdo->prepare("SELECT DATE_FORMAT(submitted_at, '%Y-%m') AS ym, COUNT(*) FROM submission_requests WHERE submitted_at >= ? GROUP BY ym");
+$stmt = $pdo->prepare("SELECT " . sql_year_month('submitted_at') . " AS ym, COUNT(*) FROM submission_requests WHERE submitted_at >= ? GROUP BY ym");
 $stmt->execute([$month_start->format('Y-m-d 00:00:00')]);
 $per_month = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 $months = [];

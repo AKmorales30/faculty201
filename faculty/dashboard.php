@@ -30,8 +30,8 @@ $stmt = $pdo->prepare("SELECT status, COUNT(*) FROM documents WHERE faculty_id =
 $stmt->execute([$uid]);
 $by_status = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 $flagged_count = documents_flagged_count($pdo, $uid);
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND status IN ('active', 'for_review') AND filed_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
-$stmt->execute([$uid]);
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND status IN ('active', 'for_review') AND filed_at >= ?");
+$stmt->execute([$uid, date('Y-m-01')]);
 $this_month = (int)$stmt->fetchColumn();
 
 $stmt = $pdo->prepare(

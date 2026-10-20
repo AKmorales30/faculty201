@@ -79,7 +79,7 @@ if ($faculty_id)       { $where[] = "d.faculty_id = ?"; $params[] = $faculty_id;
 if ($program !== '')   { $where[] = "u.program = ?"; $params[] = $program; }
 if ($from !== '')      { $where[] = "COALESCE(d.date_end, d.date_start) >= ?"; $params[] = $from; }
 if ($to !== '')        { $where[] = "d.date_start <= ?"; $params[] = $to; }
-if ($org !== '')       { $where[] = "d.conducted_by LIKE ?"; $params[] = '%' . $org . '%'; }
+if ($org !== '')       { $where[] = "d.conducted_by " . sql_like() . " ?"; $params[] = '%' . $org . '%'; }
 if ($type === TYPE_NOT_SET) { $where[] = "d.training_type IS NULL"; }
 elseif ($type !== '')  { $where[] = "d.training_type = ?"; $params[] = $type; }
 if ($category !== '')  { $where[] = "d.document_subtype = ?"; $params[] = $category; }
