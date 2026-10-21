@@ -64,40 +64,6 @@ function generate_temporary_password(int $length = 12): string {
     return implode('', $chars);
 }
 
-/**
- * The login waiting for its second step (includes/two_factor.php): the
- * right username and password were given, the code (or the email to send it
- * to) is still missing. No session user exists until it's done. Expires
- * after PENDING_LOGIN_SECONDS.
- * @return array{user_id: int, portal: string, step: string, purpose: string, otp_id: ?int, email: ?string, sent_at: int, started: int}|null
- *         step 'email' (asking for an email to verify) or 'code'; purpose 'login' or 'setup_email'
- */
-function login_pending(): ?array {
-    return session_flow('pending_login');
-}
-
-/**
- * A forgotten-password request in progress (forgot_password.php), the same
- * way: step 'code' or 'password'. user_id is null when the username doesn't
- * exist or has no verified email -- it then looks the same, but no code works.
- */
-function password_reset_pending(): ?array {
-    return session_flow('password_reset');
-}
-
-/** $_SESSION[$key] while younger than PENDING_LOGIN_SECONDS (dropped once older). */
-function session_flow(string $key): ?array {
-    $flow = $_SESSION[$key] ?? null;
-    if (!is_array($flow)) {
-        return null;
-    }
-    if (time() - (int)($flow['started'] ?? 0) > PENDING_LOGIN_SECONDS) {
-        unset($_SESSION[$key]);
-        return null;
-    }
-    return $flow;
-}
-
 function current_user() {
     return $_SESSION['user'] ?? null;
 }
@@ -220,7 +186,7 @@ if (!empty($_SESSION['user']['user_id']) && PHP_SAPI !== 'cli') {
         $_SESSION['user']['full_name'] = $account_row['full_name'];
         $_SESSION['user']['first_name'] = $account_row['first_name'] ?? null;
         $_SESSION['user']['username'] = $account_row['username'] ?? null;   // also after the Admin changes it
-        $_SESSION['user']['email'] = !empty($account_row['email_verified_at']) ? $account_row['email'] : null;   // the verified two-factor email
+        $_SESSION['user']['email'] = $account_row['email'] ?? null;
     }
     unset($account_check, $account_row);
 }

@@ -23,16 +23,6 @@ services:
         sync: false
       - key: APP_BASE_URL
         sync: false
-      # Email for the login codes, email verification and password reset
-      # (config/mail.example.php). Required: without it nobody can log in.
-      # Postmark: the Server API token and a confirmed Sender Signature address.
-      # (For SendGrid instead: MAIL_PROVIDER=sendgrid and SENDGRID_API_KEY.)
-      - key: POSTMARK_SERVER_TOKEN
-        sync: false
-      - key: MAIL_FROM_EMAIL
-        sync: false
-      - key: MAIL_FROM_NAME
-        value: "Faculty-201 File Management System"
       # AI features (config/ai.example.php); without it AI is off and everything else works
       - key: GEMINI_API_KEY
         sync: false

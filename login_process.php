@@ -59,6 +59,21 @@ function login_fail(string $message, bool $bad_fields = false): never {
     exit;
 }
 
+/**
+ * Run a side task of logging in (lockout check, attempt log, suspicious-login
+ * screening, hash upgrade). If it fails -- e.g. a table missing because a
+ * migration didn't run -- the error is logged and $fallback returned, so it
+ * can't stop a user with the right password from signing in.
+ */
+function login_side_task(string $what, callable $task, $fallback = null) {
+    try {
+        return $task();
+    } catch (Throwable $e) {
+        error_log("Login: {$what} failed (sign-in continues): " . $e->getMessage());
+        return $fallback;
+    }
+}
+
 const LOGIN_BAD_CREDENTIALS = 'Invalid username or password.';
 // password_verify() against this when the username doesn't exist, so a wrong
 // username takes as long to answer as a wrong password (doesn't reveal which)
@@ -157,35 +172,32 @@ if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
         ->execute([password_hash($password, PASSWORD_DEFAULT), $user_id]));
 }
 
-// Right username and password: the second step (includes/two_factor.php).
-// No session user yet -- only this pending login, finished in login_verify.php.
-unset($_SESSION['password_reset'], $_SESSION['login_username'], $_SESSION['login_bad_fields']);
-$email = verified_email($user);
-if ($email !== null) {
-    try {
-        $sent = otp_issue($pdo, $user, 'login', $email);
-    } catch (Throwable $e) {
-        error_log('Login code for ' . $username . ' failed: ' . $e->getMessage());
-        $sent = ['ok' => false, 'error' => OTP_SEND_FAILED];
-    }
-    if (!$sent['ok']) {
-        login_fail($sent['error']);
-    }
-    log_activity($pdo, $user_id, 'LOGIN_CODE_SENT', 'Password accepted; login code sent to ' . mask_email($email) . '.', $user['role']);
-}
-$_SESSION['pending_login'] = [
-    'user_id' => $user_id,
-    'portal'  => $portal_key,
-    'step'    => $email !== null ? 'code' : 'email',   // no verified email yet: ask for one first
-    'purpose' => $email !== null ? 'login' : 'setup_email',
-    'otp_id'  => $email !== null ? $sent['otp_id'] : null,
-    'email'   => $email,
-    'sent_at' => time(),
-    'started' => time(),
+// Successful login: log it, then screen for suspicious patterns (RBAC /
+// suspicious-login-alerts module, Ch.3 3.1 of the capstone paper) before
+// the session is established.
+login_side_task('recording the login', fn() => record_login_attempt($pdo, $username, $user_id, true, $ip));
+login_side_task('suspicious-login screening', fn() => flag_suspicious_login($pdo, $user_id, $user['full_name'], $ip));
+log_activity($pdo, $user_id, 'LOGIN', 'Signed in through the ' . ($portal_key === 'faculty' ? 'Faculty' : 'Admin') . ' login page.', $user['role']);
+
+session_regenerate_id(true);   // new session id on login (prevents session fixation)
+unset($_SESSION['login_username'], $_SESSION['login_bad_fields'], $_SESSION['csrf_token']);   // new CSRF token for the new session too
+
+// Store only what's needed in session — never the password hash
+$_SESSION['user'] = [
+    'user_id'   => (int)$user['user_id'],
+    'role'      => $user['role'],
+    'full_name' => $user['full_name'],
+    'first_name' => $user['first_name'] ?? null,   // greetings: person_first_name()
+    'username'  => $user['username'],
+    'email'     => $user['email'],
+    'profile_picture' => $user['profile_picture'] ?? null,   // header picture; updated when it's changed on My Profile
+    // Temporary password from the Admin: require_login() allows only Change Password until it's replaced
+    'must_change_password' => !empty($user['must_change_password']),
 ];
-if ($email === null) {
-    log_activity($pdo, $user_id, 'EMAIL_SETUP', 'Password accepted; no verified email yet -- asked to set one up.', $user['role']);
+
+if ($_SESSION['user']['must_change_password']) {
+    header('Location: ' . BASE_URL . '/change_password.php');
+    exit;
 }
-$_SESSION['step_slide'] = true;   // the landing page slides over to the next step
-header('Location: ' . login_page_url($portal_key));
-exit;
+
+redirect_to_dashboard();

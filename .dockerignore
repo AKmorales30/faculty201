@@ -9,4 +9,3 @@ tools/
 !temp_scans/.htaccess
 config/ai.php
 config/database.php
-config/mail.php

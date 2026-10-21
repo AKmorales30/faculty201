@@ -1,6 +1,5 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
-require_once __DIR__ . '/includes/mailer.php';   // mask_email() -- no database needed on this page
 if (is_logged_in()) { redirect_to_dashboard(); }
 
 // Logo files live in assets/img/ (any of these extensions). Until one is
@@ -23,7 +22,6 @@ $icons = [
     'back'    => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>',
     'eye'     => '<svg class="ld-eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg>',
     'eye_off' => '<svg class="ld-eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="2" x2="22" y1="2" y2="22"/></svg>',
-    'check'   => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>',
     'alert'   => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>',
 ];
 
@@ -41,47 +39,16 @@ if (!is_string($role) || !isset($roles[$role])) {
     $role = '';
 }
 
-// The second step of logging in (login_verify.php) or a forgotten-password
-// request (forgot_password.php) in progress: shown on the third pane, for
-// the role it was started from.
-$pending = login_pending();
-$reset = $pending ? null : password_reset_pending();
-if ($pending || $reset) {
-    $role = ($pending ?? $reset)['portal'];
-}
-
 // Flash from login_process.php: the error, the username typed, and whether the
 // username / password were wrong (only then are the boxes outlined in red).
 $error = $role !== '' ? ($_SESSION['login_error_' . $role] ?? null) : null;
-$notice = $role !== '' ? ($_SESSION['login_notice_' . $role] ?? null) : null;   // e.g. "Your password has been reset."
 $general_error = $_SESSION['login_error'] ?? null;   // e.g. the form came without a role
 $username = $role !== '' ? (string)($_SESSION['login_username'] ?? '') : '';
 $bad_fields = $error && !empty($_SESSION['login_bad_fields']);
-// Flash for the third pane, and whether to slide over to it (just arrived from the login form)
-$step_error = $_SESSION['step_error'] ?? null;
-$step_notice = $_SESSION['step_notice'] ?? null;
-$slide = !empty($_SESSION['step_slide']);
-$step_view = $_SESSION['step_view'] ?? null;
-unset($_SESSION['login_error_faculty'], $_SESSION['login_error_admin'], $_SESSION['login_error'], $_SESSION['login_notice_faculty'],
-      $_SESSION['login_notice_admin'], $_SESSION['login_username'], $_SESSION['login_bad_fields'],
-      $_SESSION['step_error'], $_SESSION['step_notice'], $_SESSION['step_slide'], $_SESSION['step_view']);
+unset($_SESSION['login_error_faculty'], $_SESSION['login_error_admin'], $_SESSION['login_error'],
+      $_SESSION['login_username'], $_SESSION['login_bad_fields']);
 
 $active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the form starts with
-
-// The third pane: '' (holds the Forgot password form, for landing.js to slide to), or the step to show now
-$step = match (true) {
-    $pending && $pending['step'] === 'email'      => 'setup_email',
-    $pending && $pending['purpose'] === 'login'   => 'login_code',
-    (bool)$pending                                 => 'setup_code',
-    $reset && $reset['step'] === 'password'       => 'reset_password',
-    (bool)$reset                                   => 'reset_code',
-    $role !== '' && ($step_view === 'reset_start' || ($_GET['forgot'] ?? '') === '1') => 'reset_start',
-    default                                        => '',
-};
-$flow = $pending ?? $reset;
-$resend_wait = $flow ? max(0, (int)$flow['sent_at'] + OTP_RESEND_SECONDS - time()) : 0;
-$code_minutes = (int)ceil(OTP_TTL_SECONDS / 60);
-$view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -127,7 +94,7 @@ $view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
     </p>
   </section>
 
-  <div class="ld-panel" id="ld-panel" data-view="<?= $view ?>"<?= $view === 'step' && $slide ? ' data-slide-from="login"' : '' ?>>
+  <div class="ld-panel" id="ld-panel" data-view="<?= $role !== '' ? 'login' : 'roles' ?>">
 
     <!-- State a: choose a role. Each card is a real link (?role=...), so this works without JavaScript too. -->
     <section class="ld-pane ld-pane-roles" aria-labelledby="ld-roles-title">
@@ -181,12 +148,6 @@ $view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
             <?= $icons['alert'] ?>
             <span id="ld-error-text"><?= h($error ?? '') ?></span>
           </div>
-          <?php if ($notice && !$error): ?>
-            <div class="ld-alert ld-alert-success" id="ld-notice" role="status">
-              <?= $icons['check'] ?>
-              <span><?= h($notice) ?></span>
-            </div>
-          <?php endif; ?>
 
           <div class="ld-field">
             <label for="ld-username">Username</label>
@@ -194,7 +155,7 @@ $view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
                    value="<?= h($username) ?>" placeholder="e.g. juan.delacruz" maxlength="150"
                    autocomplete="username" autocapitalize="none" spellcheck="false" required
                    <?= $bad_fields ? 'aria-invalid="true" aria-describedby="ld-error"' : '' ?>
-                   <?= $view === 'login' && $username === '' ? 'autofocus' : '' ?>>
+                   <?= $role !== '' && $username === '' ? 'autofocus' : '' ?>>
           </div>
 
           <div class="ld-field">
@@ -203,16 +164,12 @@ $view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
               <input type="password" id="ld-password" name="password" class="ld-input<?= $bad_fields ? ' is-invalid' : '' ?>"
                      placeholder="Enter your password" autocomplete="current-password" required
                      <?= $bad_fields ? 'aria-invalid="true" aria-describedby="ld-error"' : '' ?>
-                     <?= $view === 'login' && $username !== '' ? 'autofocus' : '' ?>>
+                     <?= $role !== '' && $username !== '' ? 'autofocus' : '' ?>>
               <button type="button" class="ld-toggle" id="ld-toggle" aria-label="Show password" aria-pressed="false" aria-controls="ld-password" hidden>
                 <?= $icons['eye'] ?><?= $icons['eye_off'] ?>
               </button>
             </div>
           </div>
-
-          <p class="ld-forgot-row">
-            <a class="ld-forgot" id="ld-forgot" href="<?= BASE_URL ?>/index.php?role=<?= h($active) ?>&amp;forgot=1">Forgot password?</a>
-          </p>
 
           <button type="submit" class="ld-submit" id="ld-submit">
             <span class="ld-spinner" aria-hidden="true"></span>
@@ -221,8 +178,6 @@ $view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
         </form>
       </div>
     </section>
-
-<?php require __DIR__ . '/includes/login_step_pane.php'; ?>
 
   </div>
 

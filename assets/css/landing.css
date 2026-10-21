@@ -160,7 +160,7 @@ body.landing {
   line-height: 1.6;
 }
 
-/* ---------- Right panel: panes that slide ---------- */
+/* ---------- Right panel: two panes that slide ---------- */
 .ld-panel {
   position: relative;
   display: grid;
@@ -186,22 +186,6 @@ body.landing {
 }
 .ld-panel[data-view="login"] .ld-pane-roles { transform: translateX(-100%); }
 .ld-panel[data-view="roles"] .ld-pane-login { transform: translateX(100%); }
-
-/* Third pane: the next step after the password (the emailed code, setting
-   up the two-factor email) or Forgot password -- slides in from the right. */
-.ld-panel[data-view="step"] .ld-pane-roles,
-.ld-panel[data-view="step"] .ld-pane-login,
-.ld-panel[data-view="roles"] .ld-pane-step,
-.ld-panel[data-view="login"] .ld-pane-step {
-  visibility: hidden;
-  transition: transform var(--ld-slide) var(--ld-ease), visibility 0s linear var(--ld-slide);
-}
-.ld-panel[data-view="step"] .ld-pane-roles,
-.ld-panel[data-view="step"] .ld-pane-login { transform: translateX(-100%); }
-.ld-panel[data-view="roles"] .ld-pane-step,
-.ld-panel[data-view="login"] .ld-pane-step { transform: translateX(100%); }
-/* Set for a moment by landing.js to place a pane without animating it */
-.ld-panel.ld-no-anim .ld-pane { transition: none; }
 
 .ld-pane-inner { width: 100%; max-width: 730px; }
 
@@ -342,7 +326,6 @@ body.landing {
   font-weight: 600;
 }
 .ld-alert svg { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 1px; }
-.ld-alert-success { background: #ECFDF3; border-color: #ABEFC6; color: #067647; }
 .ld-pane-roles .ld-alert { margin: -16px 0 24px; }
 
 .ld-field { margin-bottom: 18px; }
@@ -435,60 +418,16 @@ body.landing {
 
 @keyframes ld-spin { to { transform: rotate(360deg); } }
 
-/* ---------- Two-factor steps and Forgot password ---------- */
-.ld-sub strong { color: var(--ld-ink); }
-.ld-note { margin: -24px 0 28px; color: var(--ld-gray); font-size: .95rem; }
-
-.ld-forgot-row { display: flex; justify-content: flex-end; margin: -6px 0 18px; }
-
-.ld-forgot,
-.ld-link-button {
-  padding: 0;
-  background: none;
-  border: 0;
-  border-radius: 4px;
-  color: var(--ld-link);
-  font: inherit;
-  font-size: .95rem;
-  font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-}
-.ld-forgot:hover,
-.ld-link-button:hover:not(:disabled) { text-decoration: underline; }
-.ld-link-button:disabled { color: var(--ld-placeholder); cursor: default; }
-button.ld-back { padding: 0; background: none; border: 0; font: inherit; font-size: 1rem; font-weight: 600; cursor: pointer; }
-
-.ld-code {
-  font-size: 1.6rem;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: .5em;
-  text-align: center;
-}
-
-.ld-step-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 12px 24px;
-  margin-top: 20px;
-}
-.ld-step-actions form { margin: 0; }
-
 /* ---------- Focus (keyboard) ---------- */
 .role-card:focus,
 .ld-back:focus,
 .ld-toggle:focus,
-.ld-submit:focus,
-.ld-forgot:focus,
-.ld-link-button:focus { outline: none; }
+.ld-submit:focus { outline: none; }
 
 .role-card:focus-visible,
 .ld-back:focus-visible,
 .ld-toggle:focus-visible,
-.ld-submit:focus-visible,
-.ld-forgot:focus-visible,
-.ld-link-button:focus-visible {
+.ld-submit:focus-visible {
   outline: 3px solid var(--ld-focus);
   outline-offset: 3px;
 }
