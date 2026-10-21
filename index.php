@@ -39,14 +39,14 @@ if (!is_string($role) || !isset($roles[$role])) {
     $role = '';
 }
 
-// Flash from login_process.php: the error, the email typed, and whether the
-// email / password were wrong (only then are the boxes outlined in red).
+// Flash from login_process.php: the error, the username typed, and whether the
+// username / password were wrong (only then are the boxes outlined in red).
 $error = $role !== '' ? ($_SESSION['login_error_' . $role] ?? null) : null;
 $general_error = $_SESSION['login_error'] ?? null;   // e.g. the form came without a role
-$email = $role !== '' ? (string)($_SESSION['login_email'] ?? '') : '';
+$username = $role !== '' ? (string)($_SESSION['login_username'] ?? '') : '';
 $bad_fields = $error && !empty($_SESSION['login_bad_fields']);
 unset($_SESSION['login_error_faculty'], $_SESSION['login_error_admin'], $_SESSION['login_error'],
-      $_SESSION['login_email'], $_SESSION['login_bad_fields']);
+      $_SESSION['login_username'], $_SESSION['login_bad_fields']);
 
 $active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the form starts with
 ?>
@@ -150,12 +150,12 @@ $active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the f
           </div>
 
           <div class="ld-field">
-            <label for="ld-email">Email</label>
-            <input type="email" id="ld-email" name="email" class="ld-input<?= $bad_fields ? ' is-invalid' : '' ?>"
-                   value="<?= h($email) ?>" placeholder="name@ccs.udm.edu.ph" maxlength="150"
-                   autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" required
+            <label for="ld-username">Username</label>
+            <input type="text" id="ld-username" name="username" class="ld-input<?= $bad_fields ? ' is-invalid' : '' ?>"
+                   value="<?= h($username) ?>" placeholder="e.g. juan.delacruz" maxlength="150"
+                   autocomplete="username" autocapitalize="none" spellcheck="false" required
                    <?= $bad_fields ? 'aria-invalid="true" aria-describedby="ld-error"' : '' ?>
-                   <?= $role !== '' && $email === '' ? 'autofocus' : '' ?>>
+                   <?= $role !== '' && $username === '' ? 'autofocus' : '' ?>>
           </div>
 
           <div class="ld-field">
@@ -164,7 +164,7 @@ $active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the f
               <input type="password" id="ld-password" name="password" class="ld-input<?= $bad_fields ? ' is-invalid' : '' ?>"
                      placeholder="Enter your password" autocomplete="current-password" required
                      <?= $bad_fields ? 'aria-invalid="true" aria-describedby="ld-error"' : '' ?>
-                     <?= $role !== '' && $email !== '' ? 'autofocus' : '' ?>>
+                     <?= $role !== '' && $username !== '' ? 'autofocus' : '' ?>>
               <button type="button" class="ld-toggle" id="ld-toggle" aria-label="Show password" aria-pressed="false" aria-controls="ld-password" hidden>
                 <?= $icons['eye'] ?><?= $icons['eye_off'] ?>
               </button>

@@ -29,7 +29,7 @@ include __DIR__ . '/../includes/header.php';
     <?= user_avatar($faculty, 56) ?>
     <div>
       <h4 class="fw-bold mb-0"><?= h($faculty['full_name']) ?></h4>
-      <div class="text-muted small text-capitalize"><?= h($faculty['role'] === 'faculty' ? str_replace('_', ' ', (string)$faculty['employment_type']) . ' Faculty' : str_replace('_', ' ', $faculty['role'])) ?> · <span class="text-lowercase"><?= h($faculty['email']) ?></span></div>
+      <div class="text-muted small text-capitalize"><?= h($faculty['role'] === 'faculty' ? str_replace('_', ' ', (string)$faculty['employment_type']) . ' Faculty' : str_replace('_', ' ', $faculty['role'])) ?> · <span class="text-lowercase"><?= h((string)$faculty['username']) ?></span></div>
     </div>
   </div>
   <div class="d-flex flex-wrap gap-2">

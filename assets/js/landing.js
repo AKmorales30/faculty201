@@ -3,7 +3,7 @@
  * the login form, all on this page. Without JavaScript the role cards and
  * "Change role" are ordinary links (?role=...), and the server renders the
  * matching panel, so everything still works.
- *   - role card      -> slide to the form for that role, then focus Email
+ *   - role card      -> slide to the form for that role, then focus Username
  *   - Change role    -> slide back to the role cards
  *   - Back / Forward -> follow the ?role= in the address bar
  *   - eye button     -> show / hide the password
@@ -17,7 +17,7 @@
   if (!panel || !form) return;
 
   var portalInput = document.getElementById('ld-portal');
-  var email = document.getElementById('ld-email');
+  var username = document.getElementById('ld-username');
   var password = document.getElementById('ld-password');
   var errorBox = document.getElementById('ld-error');
   var toggle = document.getElementById('ld-toggle');
@@ -46,7 +46,7 @@
   // them; once the person goes back to choose a role they no longer apply.
   function clearError() {
     errorBox.hidden = true;
-    [email, password].forEach(function (input) {
+    [username, password].forEach(function (input) {
       input.classList.remove('is-invalid');
       input.removeAttribute('aria-invalid');
       input.removeAttribute('aria-describedby');
@@ -69,7 +69,7 @@
     if (portalInput.value !== role) clearError();
     setRole(role);
     panel.setAttribute('data-view', 'login');
-    afterSlide(function () { email.focus(); });
+    afterSlide(function () { username.focus(); });
   }
 
   function showRoles() {

@@ -85,7 +85,7 @@ function run_pending_migrations(PDO $pdo): void {
                    'migration_search_indexes.sql', 'migration_profile_reports_archive.sql', 'migration_ai_features.sql',
                    'migration_reminder_checks.sql', 'migration_review_archive_views.sql',
                    'migration_recently_deleted.sql', 'migration_account_names_delete.sql', 'migration_document_file_chunks.sql',
-                   'migration_flags_pds_versions.sql'];
+                   'migration_flags_pds_versions.sql', 'migration_username_2fa.sql', 'migration_remove_two_factor.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -797,7 +797,7 @@ function purge_deleted_account(PDO $pdo, int $user_id): ?int {
             $pdo->prepare("DELETE FROM {$table} WHERE user_id = ?")->execute([$user_id]);
         }
         $pdo->prepare(
-            "UPDATE users SET email = ?, password_hash = ?, profile_picture = NULL, contact_number = NULL, must_change_password = 0,
+            "UPDATE users SET email = ?, username = NULL, password_hash = ?, profile_picture = NULL, contact_number = NULL, must_change_password = 0,
                               is_active = 0, purged_at = NOW() WHERE user_id = ?"
         )->execute(['deleted-' . $user_id . '-' . bin2hex(random_bytes(4)) . '@deleted.invalid',
                     password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $user_id]);
@@ -1699,15 +1699,19 @@ function role_notifications_path(string $role): string {
 // every Admin through the existing notification system.
 // ---------------------------------------------------------------------
 
-/** $blocked: refused because of a lockout, password not checked (not counted as a failure). */
-function record_login_attempt(PDO $pdo, string $email, ?int $user_id, bool $success, string $ip, bool $blocked = false): void {
+/**
+ * One login attempt, by the username typed (lowercased). $blocked: refused
+ * because of a lockout, password not checked (not counted as a failure).
+ * login_attempts.email is kept for the attempts from before usernames.
+ */
+function record_login_attempt(PDO $pdo, string $username, ?int $user_id, bool $success, string $ip, bool $blocked = false): void {
     $pdo->prepare(
-        "INSERT INTO login_attempts (email, user_id, ip_address, was_successful, was_blocked) VALUES (?, ?, ?, ?, ?)"
-    )->execute([$email, $user_id, $ip, $success ? 1 : 0, $blocked ? 1 : 0]);
+        "INSERT INTO login_attempts (username, user_id, ip_address, was_successful, was_blocked) VALUES (?, ?, ?, ?, ?)"
+    )->execute([$username, $user_id, $ip, $success ? 1 : 0, $blocked ? 1 : 0]);
 }
 
 // ---------------------------------------------------------------------
-// Brute-force protection. MAX_FAILED_ATTEMPTS failures for one email, or
+// Brute-force protection. MAX_FAILED_ATTEMPTS failures for one username, or
 // MAX_IP_FAILED_ATTEMPTS from one IP, within FAILED_ATTEMPT_WINDOW_MINUTES
 // lock further logins for LOCKOUT_MINUTES (config.php). Failures are
 // counted from login_attempts by time window; login_lockouts holds one row
@@ -1716,7 +1720,7 @@ function record_login_attempt(PDO $pdo, string $email, ?int $user_id, bool $succ
 // ---------------------------------------------------------------------
 
 /**
- * The lock in force on an email ('account') or IP address ('ip'), if any.
+ * The lock in force on a username ('account') or IP address ('ip'), if any.
  * @return array{id: int, locked_until: string, seconds_left: int}|null
  */
 function active_login_lock(PDO $pdo, string $type, string $key): ?array {
@@ -1738,12 +1742,12 @@ function active_login_lock(PDO $pdo, string $type, string $key): ?array {
  * Attempts refused during a lock (was_blocked) don't count.
  */
 function recent_login_failures(PDO $pdo, string $type, string $key): int {
-    $column = $type === 'account' ? 'email' : 'ip_address';
+    $column = $type === 'account' ? 'username' : 'ip_address';
     $since = "GREATEST(NOW() - INTERVAL '" . (int)FAILED_ATTEMPT_WINDOW_MINUTES . "' MINUTE,
                        COALESCE((SELECT MAX(GREATEST(locked_at, COALESCE(cleared_at, locked_at))) FROM login_lockouts
                                  WHERE lock_type = ? AND lock_key = ?), '1000-01-01')"
            . ($type === 'account'
-                ? ", COALESCE((SELECT MAX(attempted_at) FROM login_attempts WHERE email = ? AND was_successful = 1), '1000-01-01')"
+                ? ", COALESCE((SELECT MAX(attempted_at) FROM login_attempts WHERE username = ? AND was_successful = 1), '1000-01-01')"
                 : '')
            . ")";
     $params = [$type, $key];
@@ -1775,8 +1779,8 @@ function login_lock_message(int $seconds_left): string {
  * once per lock. Returns the new lock (the longer one when both were
  * locked), or null with $attempts_left set for the email.
  */
-function register_failed_login(PDO $pdo, string $email, string $ip, ?int &$attempts_left = null): ?array {
-    $limits = ['account' => [$email, (int)MAX_FAILED_ATTEMPTS], 'ip' => [$ip, (int)MAX_IP_FAILED_ATTEMPTS]];
+function register_failed_login(PDO $pdo, string $username, string $ip, ?int &$attempts_left = null): ?array {
+    $limits = ['account' => [$username, (int)MAX_FAILED_ATTEMPTS], 'ip' => [$ip, (int)MAX_IP_FAILED_ATTEMPTS]];
     $new_lock = null;
     foreach ($limits as $type => [$key, $limit]) {
         $failures = recent_login_failures($pdo, $type, $key);
@@ -1789,7 +1793,7 @@ function register_failed_login(PDO $pdo, string $email, string $ip, ?int &$attem
         )->execute([$type, $key, $failures]);
         $lock = active_login_lock($pdo, $type, $key);
         $until = date('g:i A', time() + $lock['seconds_left']);
-        $what = $type === 'account' ? "Login for {$email} locked" : "Logins from IP address {$ip} locked";
+        $what = $type === 'account' ? "Login for username {$username} locked" : "Logins from IP address {$ip} locked";
         $why = "{$failures} failed attempts in " . FAILED_ATTEMPT_WINDOW_MINUTES . ' minutes'
              . ($type === 'account' ? " (last one from {$ip})" : '');
         log_activity($pdo, null, 'LOGIN_LOCKOUT', "{$what} until {$until} after {$why}.");
@@ -1842,7 +1846,7 @@ function flag_suspicious_login(PDO $pdo, int $user_id, string $full_name, string
 
     $stmt = $pdo->prepare(
         "SELECT COUNT(*) FROM login_attempts
-         WHERE email = (SELECT email FROM users WHERE user_id = ?)
+         WHERE username = (SELECT username FROM users WHERE user_id = ?)
            AND was_successful = 0
            AND attempted_at >= NOW() - INTERVAL '15' MINUTE"
     );
@@ -1906,6 +1910,7 @@ function activity_actions(): array {
         'LOGIN_UNLOCK'       => 'Login Unlocked',
         'AI_SUMMARY'         => 'AI Report Summary Generated',
         'REMINDER_CHECK'     => 'Reminder Check',
+        'USERNAME_CHANGE'    => 'Username Changed',
     ];
 }
 
@@ -1955,7 +1960,7 @@ function unresolved_security_alert_count(PDO $pdo): int {
     return (int)$pdo->query("SELECT COUNT(*) FROM security_alerts WHERE is_reviewed = 0")->fetchColumn();
 }
 
-require_once __DIR__ . '/profile.php';   // profiles: access scope, pictures, profile details
+require_once __DIR__ . '/profile.php';   // profiles: access scope, pictures, profile details, usernames
 require_once __DIR__ . '/document_review.php';   // Manage Document: classification review, posting
 require_once __DIR__ . '/page_tabs.php';         // tab bars joining the pages behind one menu entry
 require_once __DIR__ . '/ai.php';        // AI (Gemini): settings, privacy, reminders

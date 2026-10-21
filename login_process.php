@@ -39,21 +39,21 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$email = mb_substr(mb_strtolower(trim($_POST['email'] ?? '')), 0, 150);   // the lockout key; fits login_attempts.email
-$password = $_POST['password'] ?? '';
+$username = mb_substr(mb_strtolower(trim((string)($_POST['username'] ?? ''))), 0, 150);   // the lockout key; fits login_attempts.username
+$password = (string)($_POST['password'] ?? '');
 // The connecting address only: X-Forwarded-For can be set by anyone, so it
 // isn't trusted (a known proxy in front of the app would have to be configured).
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
 /**
- * Back to the login page with a message; the email is kept so it doesn't
- * have to be retyped. $bad_fields marks the email / password boxes red --
+ * Back to the login page with a message; the username is kept so it doesn't
+ * have to be retyped. $bad_fields marks the username / password boxes red --
  * only when what was typed is wrong, not for a lock or a server problem.
  */
-function login_fail(string $message, bool $bad_fields = false): void {
-    global $error_key, $fallback_page, $email;
+function login_fail(string $message, bool $bad_fields = false): never {
+    global $error_key, $fallback_page, $username;
     $_SESSION[$error_key] = $message;
-    $_SESSION['login_email'] = mb_substr($email, 0, 190);
+    $_SESSION['login_username'] = mb_substr($username, 0, 150);
     $_SESSION['login_bad_fields'] = $bad_fields;
     header('Location: ' . BASE_URL . '/' . $fallback_page);
     exit;
@@ -74,7 +74,10 @@ function login_side_task(string $what, callable $task, $fallback = null) {
     }
 }
 
-const LOGIN_BAD_CREDENTIALS = 'Invalid email or password.';
+const LOGIN_BAD_CREDENTIALS = 'Invalid username or password.';
+// password_verify() against this when the username doesn't exist, so a wrong
+// username takes as long to answer as a wrong password (doesn't reveal which)
+const LOGIN_TIMING_HASH = '$2y$10$Nu0j1id/XmI1uwQKvlaY4uAHJPzBSJwN..QlAafSBlKWbxexd3d0W';
 
 // The role comes from the browser, so it is never trusted on its own: an
 // unknown one is refused here, and a known one is checked against the
@@ -86,46 +89,53 @@ if (!csrf_valid()) {
     login_fail('Your session expired. Please log in again.');
 }
 
-if ($email === '' || $password === '') {
-    login_fail('Please enter both your email and password.', true);
+if ($username === '' || $password === '') {
+    login_fail('Please enter both your username and password.', true);
 }
-if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    login_fail(LOGIN_BAD_CREDENTIALS, true);
+// Logging in with the email, as before usernames: say what changed
+if (str_contains($username, '@')) {
+    login_fail('Please log in with your username, not your email. Ask the administrator if you don\'t know your username.', true);
 }
 
 // Only what logging in can't do without -- the database, the account and its
 // password -- stops it with the generic message; side tasks fail safe.
 try {
     require_once __DIR__ . '/includes/functions.php';   // connects to the database
+    // Accounts from before usernames get one (first.last) -- logins need it
+    login_side_task('assigning usernames', fn() => ensure_usernames($pdo));
     // Deactivated accounts are found too, so the right password gets the "deactivated" message
-    // below instead of "Invalid email or password" (a wrong password still gets the generic one)
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
-    $stmt->execute([$email]);
-    $user = $stmt->fetch();
+    // below instead of "Invalid username or password" (a wrong password still gets the generic one)
+    $user = false;
+    if (username_valid($username)) {
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ? LIMIT 1");
+        $stmt->execute([$username]);
+        $user = $stmt->fetch();
+    }
 } catch (Throwable $e) {
     // Database or other server problem: log the details, show the user a plain message
-    error_log('Login failed for ' . $email . ': ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    error_log('Login failed for ' . $username . ': ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     login_fail('We couldn\'t sign you in right now. Please try again in a moment.');
 }
 $user_id = $user ? (int)$user['user_id'] : null;
 
-// Brute-force protection, checked BEFORE the password: while the email or
+// Brute-force protection, checked BEFORE the password: while the username or
 // this IP is locked, even the right password is refused. Locks apply to
-// any email entered, so they don't reveal whether an account exists.
+// any username entered, so they don't reveal whether an account exists.
 $locks = array_filter([
-    login_side_task('account lock check', fn() => active_login_lock($pdo, 'account', $email)),
+    login_side_task('account lock check', fn() => active_login_lock($pdo, 'account', $username)),
     login_side_task('IP lock check', fn() => active_login_lock($pdo, 'ip', $ip)),
 ]);
 if ($locks) {
-    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip, true));
+    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip, true));
     login_fail(login_lock_message(max(array_column($locks, 'seconds_left'))));
 }
 
-if (!$user || !password_verify($password, $user['password_hash'])) {
-    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip));
+$password_ok = password_verify($password, $user ? $user['password_hash'] : LOGIN_TIMING_HASH);
+if (!$user || !$password_ok) {
+    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip));
     $attempts_left = null;
-    $lock = login_side_task('lockout check', function () use ($pdo, $email, $ip, &$attempts_left) {
-        return register_failed_login($pdo, $email, $ip, $attempts_left);
+    $lock = login_side_task('lockout check', function () use ($pdo, $username, $ip, &$attempts_left) {
+        return register_failed_login($pdo, $username, $ip, $attempts_left);
     });
     if ($lock) {
         login_fail(login_lock_message($lock['seconds_left']));
@@ -138,30 +148,23 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
 
 // Deleted from Manage Faculty (restorable for DELETED_RETENTION_DAYS) or deactivated (users.is_active = 0):
 // right password, but no session. Logged as a blocked attempt -- blocked attempts don't count toward the
-// brute-force lockout. (After the permanent deletion the email no longer exists: a normal failed login.)
+// brute-force lockout. (After the permanent deletion the username no longer exists: a normal failed login.)
 if (!empty($user['deleted_at'])) {
-    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip, true));
+    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip, true));
     log_activity($pdo, $user_id, 'LOGIN_BLOCKED', 'Login refused: the account is deleted.', $user['role']);
     login_fail(ACCOUNT_DELETED_MESSAGE);
 }
 if ((int)$user['is_active'] !== 1) {
-    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip, true));
+    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip, true));
     log_activity($pdo, $user_id, 'LOGIN_BLOCKED', 'Login refused: the account is deactivated.', $user['role']);
     login_fail(ACCOUNT_DEACTIVATED_MESSAGE);
 }
 
 // Confirm the account actually belongs to the portal it logged in through
 if (!$portal['validate']($user)) {
-    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $email, $user_id, false, $ip));
+    login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip));
     login_fail('This account is not registered for this role. Use "Change role" to choose the correct one.');
 }
-
-// Successful login: log it, then screen for suspicious patterns (RBAC /
-// suspicious-login-alerts module, Ch.3 3.1 of the capstone paper) before
-// the session is established.
-login_side_task('recording the login', fn() => record_login_attempt($pdo, $email, $user_id, true, $ip));
-login_side_task('suspicious-login screening', fn() => flag_suspicious_login($pdo, $user_id, $user['full_name'], $ip));
-log_activity($pdo, $user_id, 'LOGIN', 'Signed in through the ' . ($portal_key === 'faculty' ? 'Faculty' : 'Admin') . ' login page.', $user['role']);
 
 // Keep the stored hash on PHP's current default algorithm / cost
 if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
@@ -169,8 +172,15 @@ if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
         ->execute([password_hash($password, PASSWORD_DEFAULT), $user_id]));
 }
 
+// Successful login: log it, then screen for suspicious patterns (RBAC /
+// suspicious-login-alerts module, Ch.3 3.1 of the capstone paper) before
+// the session is established.
+login_side_task('recording the login', fn() => record_login_attempt($pdo, $username, $user_id, true, $ip));
+login_side_task('suspicious-login screening', fn() => flag_suspicious_login($pdo, $user_id, $user['full_name'], $ip));
+log_activity($pdo, $user_id, 'LOGIN', 'Signed in through the ' . ($portal_key === 'faculty' ? 'Faculty' : 'Admin') . ' login page.', $user['role']);
+
 session_regenerate_id(true);   // new session id on login (prevents session fixation)
-unset($_SESSION['login_email'], $_SESSION['login_bad_fields'], $_SESSION['csrf_token']);   // new CSRF token for the new session too
+unset($_SESSION['login_username'], $_SESSION['login_bad_fields'], $_SESSION['csrf_token']);   // new CSRF token for the new session too
 
 // Store only what's needed in session — never the password hash
 $_SESSION['user'] = [
@@ -178,6 +188,7 @@ $_SESSION['user'] = [
     'role'      => $user['role'],
     'full_name' => $user['full_name'],
     'first_name' => $user['first_name'] ?? null,   // greetings: person_first_name()
+    'username'  => $user['username'],
     'email'     => $user['email'],
     'profile_picture' => $user['profile_picture'] ?? null,   // header picture; updated when it's changed on My Profile
     // Temporary password from the Admin: require_login() allows only Change Password until it's replaced
@@ -188,4 +199,5 @@ if ($_SESSION['user']['must_change_password']) {
     header('Location: ' . BASE_URL . '/change_password.php');
     exit;
 }
+
 redirect_to_dashboard();

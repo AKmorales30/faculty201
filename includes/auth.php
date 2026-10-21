@@ -167,8 +167,8 @@ function end_deactivated_session(PDO $pdo, bool $deleted = false): void {
 
 // Runs at the top level of every page / endpoint that includes this file (all of them), so the
 // connection lands in the global $pdo that includes/functions.php uses too.
-// The same read refreshes the signed-in user's name in the session, so the top bar, avatar initials
-// and greetings show the name in the database right away -- also after the Admin renames the account.
+// The same read refreshes the signed-in user's name, username and email in the session, so the top bar,
+// avatar initials and greetings show the name in the database right away -- also after the Admin renames the account.
 if (!empty($_SESSION['user']['user_id']) && PHP_SAPI !== 'cli') {
     require_once __DIR__ . '/../config/db.php';
     try {
@@ -185,6 +185,8 @@ if (!empty($_SESSION['user']['user_id']) && PHP_SAPI !== 'cli') {
     if ($account_row) {
         $_SESSION['user']['full_name'] = $account_row['full_name'];
         $_SESSION['user']['first_name'] = $account_row['first_name'] ?? null;
+        $_SESSION['user']['username'] = $account_row['username'] ?? null;   // also after the Admin changes it
+        $_SESSION['user']['email'] = $account_row['email'] ?? null;
     }
     unset($account_check, $account_row);
 }

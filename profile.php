@@ -208,8 +208,9 @@ include __DIR__ . '/includes/header.php';
       <div class="card-body">
         <dl class="profile-dl">
           <dt>Full name</dt><dd><?= h($u['full_name']) ?></dd>
+          <dt>Username</dt><dd><?= $show($u['username']) ?><?php if ($is_own): ?> <span class="small text-muted">(set by the Admin)</span><?php endif; ?></dd>
           <dt>Employee ID</dt><dd><?= $show($employee_id) ?></dd>
-          <dt>Email</dt><dd><?= h($u['email']) ?></dd>
+          <dt>Email</dt><dd><?= $show($u['email']) ?></dd>
           <dt>Contact number</dt><dd><?= $show($contact) ?></dd>
         </dl>
         <?php if ($is_own): ?>
