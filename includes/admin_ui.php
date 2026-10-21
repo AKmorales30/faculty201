@@ -25,11 +25,6 @@ function admin_logo_url(string $basename): ?string {
     return null;
 }
 
-/** Cache-busting ?v= for a file under the app root. */
-function admin_asset(string $path): string {
-    return BASE_URL . '/' . $path . '?v=' . (int)@filemtime(ROOT_PATH . '/' . $path);
-}
-
 /**
  * The line under the top bar on every Admin page: a short explanation on
  * the left and the page's main buttons on the right. $intro_html is
