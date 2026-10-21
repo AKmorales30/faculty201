@@ -7,6 +7,15 @@ function h(?string $s): string {
 }
 
 /**
+ * Cache-busting ?v= for a file under the app root (its modification time): a
+ * changed CSS / JS file gets a new URL, so browsers never run an old cached
+ * copy against a new page. Lives here so the landing page has it too.
+ */
+function admin_asset(string $path): string {
+    return BASE_URL . '/' . $path . '?v=' . (int)@filemtime(ROOT_PATH . '/' . $path);
+}
+
+/**
  * CSRF protection for state-changing forms: one random token per session,
  * sent as a hidden field (csrf_field()) and checked with csrf_valid().
  */

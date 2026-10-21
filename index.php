@@ -59,8 +59,8 @@ $active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the f
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Public+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link href="<?= BASE_URL ?>/assets/css/landing.css" rel="stylesheet">
-<script src="<?= BASE_URL ?>/assets/js/landing.js" defer></script>
+<link href="<?= h(admin_asset('assets/css/landing.css')) ?>" rel="stylesheet">
+<script src="<?= h(admin_asset('assets/js/landing.js')) ?>" defer></script>
 </head>
 <body class="landing">
 

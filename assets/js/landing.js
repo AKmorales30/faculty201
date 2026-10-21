@@ -47,6 +47,7 @@
   function clearError() {
     errorBox.hidden = true;
     [username, password].forEach(function (input) {
+      if (!input) return;   // a page from another version of the form: skip, don't break the slide
       input.classList.remove('is-invalid');
       input.removeAttribute('aria-invalid');
       input.removeAttribute('aria-describedby');
@@ -69,7 +70,7 @@
     if (portalInput.value !== role) clearError();
     setRole(role);
     panel.setAttribute('data-view', 'login');
-    afterSlide(function () { username.focus(); });
+    afterSlide(function () { if (username) username.focus(); });
   }
 
   function showRoles() {
