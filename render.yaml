@@ -25,7 +25,9 @@ services:
         sync: false
       # Email for the login codes, email verification and password reset
       # (config/mail.example.php). Required: without it nobody can log in.
-      - key: SENDGRID_API_KEY
+      # Postmark: the Server API token and a confirmed Sender Signature address.
+      # (For SendGrid instead: MAIL_PROVIDER=sendgrid and SENDGRID_API_KEY.)
+      - key: POSTMARK_SERVER_TOKEN
         sync: false
       - key: MAIL_FROM_EMAIL
         sync: false

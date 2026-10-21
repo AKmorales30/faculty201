@@ -1,36 +1,45 @@
 <?php
 /**
- * Sending email through SendGrid's web API (HTTPS, not SMTP -- Render's free
- * plan blocks SMTP). Used for the two-factor login codes, email
- * verification, password reset and account notices (includes/two_factor.php).
+ * Sending email through a web API (HTTPS, not SMTP -- Render's free plan
+ * blocks SMTP): Postmark by default, or SendGrid. Used for the two-factor
+ * login codes, email verification, password reset and account notices
+ * (includes/two_factor.php).
  *
  * Settings: config/mail.php (template config/mail.example.php), or the
- * environment variables SENDGRID_API_KEY, MAIL_FROM_EMAIL, MAIL_FROM_NAME
- * (Render). MAIL_CONFIG_FILE points at a settings file kept elsewhere.
+ * environment variables MAIL_PROVIDER, POSTMARK_SERVER_TOKEN (or
+ * SENDGRID_API_KEY), MAIL_FROM_EMAIL, MAIL_FROM_NAME (Render).
+ * MAIL_CONFIG_FILE points at a settings file kept elsewhere.
  */
 
 /** Settings from config/mail.php, with environment overrides; the template's placeholders count as not set. */
 function mail_config(): array {
     static $config = null;
     if ($config !== null) { return $config; }
-    $defaults = ['sendgrid_api_key' => '', 'from_email' => '', 'from_name' => SYSTEM_NAME, 'log_file' => ''];
+    $defaults = ['provider' => 'postmark', 'postmark_server_token' => '', 'sendgrid_api_key' => '', 'from_email' => '',
+                 'from_name' => SYSTEM_NAME, 'log_file' => ''];
     $file = getenv('MAIL_CONFIG_FILE') ?: ROOT_PATH . '/config/mail.php';
     $loaded = is_file($file) ? (include $file) : [];
     $config = array_merge($defaults, is_array($loaded) ? $loaded : []);
-    foreach (['SENDGRID_API_KEY' => 'sendgrid_api_key', 'MAIL_FROM_EMAIL' => 'from_email', 'MAIL_FROM_NAME' => 'from_name',
-              'MAIL_LOG_FILE' => 'log_file'] as $env => $key) {
+    foreach (['MAIL_PROVIDER' => 'provider', 'POSTMARK_SERVER_TOKEN' => 'postmark_server_token', 'SENDGRID_API_KEY' => 'sendgrid_api_key',
+              'MAIL_FROM_EMAIL' => 'from_email', 'MAIL_FROM_NAME' => 'from_name', 'MAIL_LOG_FILE' => 'log_file'] as $env => $key) {
         if (getenv($env) !== false) { $config[$key] = getenv($env); }
     }
     foreach ($config as $key => $value) {
         $config[$key] = str_contains((string)$value, 'PASTE-') ? '' : trim((string)$value);
     }
+    $config['provider'] = strtolower($config['provider']) === 'sendgrid' ? 'sendgrid' : 'postmark';
     return $config;
+}
+
+/** The provider's key / token from the settings ('' when not set). */
+function mail_api_key(array $c): string {
+    return $c['provider'] === 'sendgrid' ? $c['sendgrid_api_key'] : $c['postmark_server_token'];
 }
 
 /** Whether email can be sent (or, for local testing, written to the log file). */
 function mail_ready(): bool {
     $c = mail_config();
-    return $c['log_file'] !== '' || ($c['sendgrid_api_key'] !== '' && $c['from_email'] !== '');
+    return $c['log_file'] !== '' || (mail_api_key($c) !== '' && $c['from_email'] !== '');
 }
 
 /** "j***@gmail.com" -- an address shown on screen or in logs without giving it away. */
@@ -40,7 +49,7 @@ function mask_email(string $email): string {
 }
 
 /**
- * Send one email. Returns whether SendGrid accepted it. Never throws; a
+ * Send one email. Returns whether the provider accepted it. Never throws; a
  * failure is logged without the message (it may hold a code).
  */
 function send_email(string $to, string $subject, string $text, string $html): bool {
@@ -49,22 +58,42 @@ function send_email(string $to, string $subject, string $text, string $html): bo
         $entry = json_encode(['at' => date('Y-m-d H:i:s'), 'to' => $to, 'subject' => $subject, 'text' => $text]) . "\n";
         return file_put_contents($c['log_file'], $entry, FILE_APPEND | LOCK_EX) !== false;
     }
+    $name = $c['provider'] === 'sendgrid' ? 'SendGrid' : 'Postmark';
     if (!mail_ready()) {
-        error_log('Email to ' . mask_email($to) . ' not sent: SendGrid is not set up (config/mail.php, or SENDGRID_API_KEY and MAIL_FROM_EMAIL)');
+        error_log('Email to ' . mask_email($to) . " not sent: {$name} is not set up (config/mail.php, or "
+            . ($c['provider'] === 'sendgrid' ? 'SENDGRID_API_KEY' : 'POSTMARK_SERVER_TOKEN') . ' and MAIL_FROM_EMAIL)');
         return false;
     }
-    $payload = [
-        'personalizations'  => [['to' => [['email' => $to]]]],
-        'from'              => ['email' => $c['from_email'], 'name' => $c['from_name']],
-        'subject'           => $subject,
-        'content'           => [['type' => 'text/plain', 'value' => $text], ['type' => 'text/html', 'value' => $html]],
-        // Codes must reach the reader as typed: no rewritten links or tracking pixels
-        'tracking_settings' => ['click_tracking' => ['enable' => false, 'enable_text' => false], 'open_tracking' => ['enable' => false]],
-    ];
-    $ch = curl_init('https://api.sendgrid.com/v3/mail/send');
+    if ($c['provider'] === 'sendgrid') {
+        $url = 'https://api.sendgrid.com/v3/mail/send';
+        $headers = ['Authorization: Bearer ' . $c['sendgrid_api_key'], 'Content-Type: application/json'];
+        $payload = [
+            'personalizations'  => [['to' => [['email' => $to]]]],
+            'from'              => ['email' => $c['from_email'], 'name' => $c['from_name']],
+            'subject'           => $subject,
+            'content'           => [['type' => 'text/plain', 'value' => $text], ['type' => 'text/html', 'value' => $html]],
+            // Codes must reach the reader as typed: no rewritten links or tracking pixels
+            'tracking_settings' => ['click_tracking' => ['enable' => false, 'enable_text' => false], 'open_tracking' => ['enable' => false]],
+        ];
+    } else {
+        $url = 'https://api.postmarkapp.com/email';
+        $headers = ['X-Postmark-Server-Token: ' . $c['postmark_server_token'], 'Accept: application/json', 'Content-Type: application/json'];
+        $from_name = str_replace(['"', "\r", "\n"], '', $c['from_name']);
+        $payload = [
+            'From'          => $from_name !== '' ? "\"{$from_name}\" <{$c['from_email']}>" : $c['from_email'],
+            'To'            => $to,
+            'Subject'       => $subject,
+            'TextBody'      => $text,
+            'HtmlBody'      => $html,
+            'MessageStream' => 'outbound',   // transactional
+            'TrackOpens'    => false,
+            'TrackLinks'    => 'None',
+        ];
+    }
+    $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_POST           => true,
-        CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $c['sendgrid_api_key'], 'Content-Type: application/json'],
+        CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_POSTFIELDS     => json_encode($payload),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 5,
@@ -74,10 +103,12 @@ function send_email(string $to, string $subject, string $text, string $html): bo
     $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $error = curl_error($ch);
     curl_close($ch);
-    if ($status === 202) {
+    // SendGrid: 202 Accepted. Postmark: 200 with ErrorCode 0 (any other code says why, e.g. 406 inactive recipient).
+    $ok = $c['provider'] === 'sendgrid' ? $status === 202 : ($status === 200 && (int)(json_decode((string)$body, true)['ErrorCode'] ?? -1) === 0);
+    if ($ok) {
         return true;
     }
-    error_log('Email to ' . mask_email($to) . ' not sent: SendGrid answered ' . ($status ?: 'nothing') . ($error !== '' ? " ({$error})" : '')
+    error_log('Email to ' . mask_email($to) . " not sent: {$name} answered " . ($status ?: 'nothing') . ($error !== '' ? " ({$error})" : '')
         . ': ' . mb_substr((string)$body, 0, 300));
     return false;
 }
