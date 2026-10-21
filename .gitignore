@@ -6,3 +6,6 @@ config/ai.php
 
 # Database settings with the real Supabase password (template: config/database.example.php)
 config/database.php
+
+# SendGrid API key (template: config/mail.example.php)
+config/mail.php

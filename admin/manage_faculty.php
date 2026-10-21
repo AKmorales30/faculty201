@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_role('admin');
+ensure_usernames($pdo);   // accounts from before usernames get one (first.last), shown below
 
 $page_title = 'Manage Faculty';
 $me = current_user();
@@ -18,7 +19,7 @@ $list_query = http_build_query(array_filter(['view' => $view === 'deleted' ? 'de
 $list_url = BASE_URL . '/admin/manage_faculty.php' . ($list_query !== '' ? '?' . $list_query : '');
 
 // Every action is a POST with the CSRF token (create / reset / unlock also say so in their own messages)
-if (in_array($action, ['edit_account', 'toggle_active', 'pause', 'resume', 'delete_account', 'restore_account'], true) && !csrf_valid()) {
+if (in_array($action, ['edit_account', 'toggle_active', 'pause', 'resume', 'delete_account', 'restore_account', 'reset_2fa_email'], true) && !csrf_valid()) {
     $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
     header('Location: ' . $list_url);
     exit;
@@ -44,14 +45,25 @@ function account_assignment(string $role, array $in) {
     return [$emp, $program, PROGRAMS[$program]['college']];
 }
 
-/** "account #12 Juan Dela Cruz (faculty, juan@um.edu.ph)" -- which account an activity-log entry is about. */
+/** "account #12 Juan Dela Cruz (faculty, username juan.delacruz)" -- which account an activity-log entry is about. */
 function account_log_name(array $u): string {
-    return "account #{$u['user_id']} {$u['full_name']} (" . str_replace('_', ' ', $u['role']) . ", {$u['email']})";
+    return "account #{$u['user_id']} {$u['full_name']} (" . str_replace('_', ' ', $u['role']) . ', username ' . ($u['username'] ?? '') . ')';
+}
+
+/** The two-factor email in the account list: verified, typed in but not verified, or none yet. */
+function account_email_line(array $u): string {
+    if (!empty($u['email_verified_at'])) {
+        return '<i class="fa-solid fa-envelope-circle-check text-success" aria-hidden="true"></i><span class="visually-hidden">Verified email:</span> ' . h($u['email']);
+    }
+    if (!empty($u['email'])) {
+        return '<i class="fa-regular fa-envelope" aria-hidden="true"></i> ' . h($u['email']) . ' <span class="badge bg-light text-muted border">not verified</span>';
+    }
+    return '<i class="fa-regular fa-envelope" aria-hidden="true"></i> No email yet -- set up at next login';
 }
 
 /** users row for an activity-log entry, or null. */
 function account_for_log(PDO $pdo, int $user_id): ?array {
-    $stmt = $pdo->prepare("SELECT user_id, full_name, role, email, is_active, deleted_at FROM users WHERE user_id = ?");
+    $stmt = $pdo->prepare("SELECT user_id, full_name, role, username, email, email_verified_at, is_active, deleted_at FROM users WHERE user_id = ?");
     $stmt->execute([$user_id]);
     return $stmt->fetch() ?: null;
 }
@@ -63,12 +75,14 @@ function remaining_admin_count(PDO $pdo): int {
 
 // ---------------------------------------------------------------------
 // Edit an account (the Edit account pop-up): name (title, first, middle,
-// last, suffix), email, employment type, program / college, academic rank,
+// last, suffix), username, employment type, program / college, academic rank,
 // date hired and employee ID. users.full_name is rebuilt from the name
 // parts (person_full_name()); every page joins users by user_id, so the new
 // name shows everywhere at once -- the account holder's own top bar too
 // (includes/auth.php refreshes it on every request). Logged with old ->
-// new values; the account holder is notified.
+// new values; the account holder is notified. The two-factor email isn't
+// edited here: the account holder verifies it (Reset two-factor email
+// clears it, below).
 // ---------------------------------------------------------------------
 if ($action === 'edit_account') {
     $target = user_row($pdo, (int)($_POST['user_id'] ?? 0));
@@ -78,7 +92,7 @@ if ($action === 'edit_account') {
         exit;
     }
     $name = person_name_input($_POST);
-    $email = mb_strtolower(trim((string)($_POST['email'] ?? '')));
+    $username = username_normalize((string)($_POST['username'] ?? ''));
     $in = $_POST;
     if ($target['role'] === 'admin') { $in['employment_type'] = ''; }
     $assignment = account_assignment($target['role'], $in);
@@ -86,13 +100,11 @@ if ($action === 'edit_account') {
     $hired = trim((string)($_POST['date_engaged'] ?? ''));
     $hired_dt = DateTime::createFromFormat('!Y-m-d', $hired);
     $employee_id = mb_substr(trim(preg_replace('/\s+/', ' ', (string)($_POST['employee_id'] ?? ''))), 0, 30);
-    $dupe = $pdo->prepare("SELECT 1 FROM users WHERE email = ? AND user_id <> ?");
-    $dupe->execute([$email, $target['user_id']]);
 
     $error = match (true) {
         is_string($name)                                         => $name,
-        $email === '' || mb_strlen($email) > 150 || !filter_var($email, FILTER_VALIDATE_EMAIL) => 'Please enter a valid email address.',
-        (bool)$dupe->fetchColumn()                               => 'Another account already uses that email address.',
+        !username_valid($username)                               => USERNAME_RULE,
+        username_taken($pdo, $username, (int)$target['user_id']) => 'Another account already uses that username.',
         is_string($assignment)                                   => $assignment,
         $rank !== '' && !in_array($rank, academic_rank_options($pdo, $target['academic_rank']), true) => 'Please choose an academic rank from the list.',
         $hired !== '' && (!$hired_dt || $hired_dt->format('Y-m-d') !== $hired || $hired > date('Y-m-d', strtotime('+1 year'))) => 'Please enter a valid date hired.',
@@ -105,12 +117,12 @@ if ($action === 'edit_account') {
         exit;
     }
     [$emp, $program, $college] = $assignment;
-    $new = $name + ['full_name' => person_full_name($name), 'email' => $email, 'employment_type' => $emp, 'program' => $program, 'college' => $college,
+    $new = $name + ['full_name' => person_full_name($name), 'username' => $username, 'employment_type' => $emp, 'program' => $program, 'college' => $college,
                     'academic_rank' => $rank !== '' ? $rank : null, 'date_engaged' => $hired !== '' ? $hired : null,
                     'employee_id' => $employee_id !== '' ? $employee_id : null];
     // What changed, old -> new, for the activity log and the notification
     $old_parts = person_name_parts($target);
-    $labels = ['full_name' => 'Name', 'email' => 'Email', 'employment_type' => 'Employment type', 'program' => 'Program', 'college' => 'College',
+    $labels = ['full_name' => 'Name', 'username' => 'Username', 'employment_type' => 'Employment type', 'program' => 'Program', 'college' => 'College',
                'academic_rank' => 'Academic rank', 'date_engaged' => 'Date hired', 'employee_id' => 'Employee ID'];
     $show = fn(string $col, $v) => $v === null || $v === '' ? '(none)' : match ($col) {
         'employment_type' => employment_type_label($v), 'program' => PROGRAMS[$v]['label'] ?? $v, 'college' => COLLEGES[$v] ?? $v, default => (string)$v,
@@ -131,13 +143,17 @@ if ($action === 'edit_account') {
         exit;
     }
     $pdo->prepare(
-        "UPDATE users SET name_title = ?, first_name = ?, middle_name = ?, last_name = ?, name_suffix = ?, full_name = ?, email = ?,
+        "UPDATE users SET name_title = ?, first_name = ?, middle_name = ?, last_name = ?, name_suffix = ?, full_name = ?, username = ?,
                           employment_type = ?, program = ?, college = ?, academic_rank = ?, date_engaged = ?, employee_id = ?
          WHERE user_id = ?"
     )->execute([
         $name['name_title'] ?: null, $name['first_name'], $name['middle_name'] ?: null, $name['last_name'], $name['name_suffix'] ?: null,
-        $new['full_name'], $email, $emp, $program, $college, $new['academic_rank'], $new['date_engaged'], $new['employee_id'], $target['user_id'],
+        $new['full_name'], $username, $emp, $program, $college, $new['academic_rank'], $new['date_engaged'], $new['employee_id'], $target['user_id'],
     ]);
+    if (isset($changes['Username'])) {
+        log_my_activity($pdo, 'USERNAME_CHANGE', 'Changed the username of ' . account_log_name($target) . " from \"{$target['username']}\" to \"{$username}\".");
+        if ((int)$target['user_id'] === (int)$me['user_id']) { $_SESSION['user']['username'] = $username; }
+    }
     if ($changes) {
         log_my_activity($pdo, 'ACCOUNT_UPDATE', 'Updated ' . account_log_name($target) . ' -- '
             . describe_filters(array_map(fn($c) => $c[0] . ' -> ' . $c[1], $changes)) . '.');
@@ -155,7 +171,8 @@ if ($action === 'edit_account') {
 if ($action === 'create') {
     $name      = person_name_input($_POST);
     $full_name = is_array($name) ? person_full_name($name) : '';
-    $email     = mb_strtolower(trim($_POST['email'] ?? ''));
+    $username  = username_normalize((string)($_POST['username'] ?? ''));
+    $email     = email_normalize((string)($_POST['email'] ?? ''));   // optional: the account holder verifies their own at first login
     $role      = $_POST['role'] ?? '';
     $emp_type  = $_POST['employment_type'] ?? null;
     $password  = $_POST['password'] ?? '';
@@ -166,37 +183,41 @@ if ($action === 'create') {
         $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
     } elseif (is_string($name)) {
         $_SESSION['flash_error'] = $name;
-    } elseif ($email === '' || !in_array($role, $valid_roles, true) || $password === '') {
-        $_SESSION['flash_error'] = 'Please fill in all fields.';
-    } elseif (mb_strlen($email) > 150 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $_SESSION['flash_error'] = 'Please enter a valid email address.';
+    } elseif ($username === '' || !in_array($role, $valid_roles, true) || $password === '') {
+        $_SESSION['flash_error'] = 'Please fill in all required fields.';
+    } elseif (!username_valid($username)) {
+        $_SESSION['flash_error'] = USERNAME_RULE;
+    } elseif ($email !== '' && !email_valid($email)) {
+        $_SESSION['flash_error'] = 'Please enter a valid email address, or leave it blank.';
     } elseif ($rules = password_rule_errors($password)) {
         $_SESSION['flash_error'] = 'Temporary password: ' . lcfirst(password_rule_message($rules));
     } elseif (is_string($assignment)) {
         $_SESSION['flash_error'] = $assignment;
     } else {
         [$emp_type, $program, $college] = $assignment;
-        $dupe = $pdo->prepare("SELECT 1 FROM users WHERE email = ?");
+        $dupe = $pdo->prepare("SELECT 1 FROM users WHERE LOWER(email) = ?");
         $dupe->execute([$email]);
-        if ($dupe->fetchColumn()) {
-            $_SESSION['flash_error'] = 'An account with that email already exists.';
+        if (username_taken($pdo, $username)) {
+            $_SESSION['flash_error'] = 'An account with that username already exists.';
+        } elseif ($email !== '' && $dupe->fetchColumn()) {
+            $_SESSION['flash_error'] = 'Another account already uses that email address.';
         } else {
             // A temporary password: the user must replace it at their first login
             $hash = password_hash($password, PASSWORD_DEFAULT);
             $stmt = $pdo->prepare(
-                "INSERT INTO users (role, full_name, name_title, first_name, middle_name, last_name, name_suffix, email, password_hash, must_change_password,
+                "INSERT INTO users (role, full_name, name_title, first_name, middle_name, last_name, name_suffix, username, email, password_hash, must_change_password,
                                     employment_type, program, college, employment_status, date_engaged)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)"
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)"
             );
             $stmt->execute([
                 $role, $full_name, $name['name_title'] ?: null, $name['first_name'], $name['middle_name'] ?: null, $name['last_name'], $name['name_suffix'] ?: null,
-                $email, $hash,
+                $username, $email !== '' ? $email : null, $hash,
                 $emp_type, $program, $college,
                 $role === 'faculty' ? 'active' : null,
                 $role === 'faculty' ? date('Y-m-d') : null,
             ]);
             $new_id = (int)$pdo->lastInsertId();
-            log_my_activity($pdo, 'ACCOUNT_CREATE', 'Created ' . account_log_name(['user_id' => $new_id, 'full_name' => $full_name, 'role' => $role, 'email' => $email])
+            log_my_activity($pdo, 'ACCOUNT_CREATE', 'Created ' . account_log_name(['user_id' => $new_id, 'full_name' => $full_name, 'role' => $role, 'username' => $username])
                 . ($role === 'admin' ? '' : ' -- ' . describe_filters([
                     'Employment type' => employment_type_label($emp_type), 'Program' => PROGRAMS[$program]['label'] ?? '', 'College' => COLLEGES[$college] ?? '',
                 ])) . '.');
@@ -206,7 +227,7 @@ if ($action === 'create') {
             }
             $_SESSION['flash_success'] = "Account created for {$full_name}.";
             // Shown once on the next page load, then forgotten (never logged or stored in plain text)
-            $_SESSION['temp_password_notice'] = ['name' => $full_name, 'email' => $email, 'password' => $password, 'what' => 'created'];
+            $_SESSION['temp_password_notice'] = ['name' => $full_name, 'username' => $username, 'password' => $password, 'what' => 'created'];
         }
     }
     header('Location: ' . $list_url);
@@ -239,7 +260,7 @@ if ($action === 'reset_password') {
         notify($pdo, (int)$target['user_id'], 'The Admin reset your password on ' . date('F j, Y, g:i A')
             . '. Log in with the temporary password the Admin gave you, then choose a new one. If you did not ask for this, contact the Admin.');
         $_SESSION['flash_success'] = "Password reset for {$target['full_name']}.";
-        $_SESSION['temp_password_notice'] = ['name' => $target['full_name'], 'email' => $target['email'], 'password' => $password, 'what' => 'reset'];
+        $_SESSION['temp_password_notice'] = ['name' => $target['full_name'], 'username' => $target['username'], 'password' => $password, 'what' => 'reset'];
     }
     header('Location: ' . $list_url);
     exit;
@@ -252,10 +273,43 @@ if ($action === 'unlock_login') {
     $target = account_for_log($pdo, (int)($_POST['user_id'] ?? 0));
     if (!csrf_valid()) {
         $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
-    } elseif ($target && clear_login_lock($pdo, 'account', mb_strtolower($target['email']), (int)$me['user_id'])) {
+    } elseif ($target && clear_login_lock($pdo, 'account', (string)$target['username'], (int)$me['user_id'])) {
         $_SESSION['flash_success'] = "Unlocked login for {$target['full_name']}.";
     } else {
         $_SESSION['flash_error'] = 'That account is not locked.';
+    }
+    header('Location: ' . $list_url);
+    exit;
+}
+
+// ---------------------------------------------------------------------
+// Reset two-factor email: for someone who lost access to their email. The
+// verified email is removed (codes waiting for it stop working), so at the
+// next login they're asked to set up and verify a new one. Logged; the
+// account holder is notified in the system and at the old address.
+// ---------------------------------------------------------------------
+if ($action === 'reset_2fa_email') {
+    $target = account_for_log($pdo, (int)($_POST['user_id'] ?? 0));
+    if (!$target || !empty($target['deleted_at'])) {
+        $_SESSION['flash_error'] = 'That account could not be found.';
+    } elseif ((int)$target['user_id'] === (int)$me['user_id']) {
+        $_SESSION['flash_error'] = 'Change your own two-factor email in Profile Preference.';
+    } elseif (empty($target['email_verified_at'])) {
+        $_SESSION['flash_error'] = "{$target['full_name']} has no verified email yet -- they'll set one up at their next login.";
+    } else {
+        $old = (string)$target['email'];
+        $pdo->prepare("UPDATE users SET email = NULL, email_verified_at = NULL WHERE user_id = ?")->execute([$target['user_id']]);
+        $pdo->prepare("UPDATE login_otps SET used_at = ? WHERE user_id = ? AND used_at IS NULL")->execute([date('Y-m-d H:i:s'), $target['user_id']]);
+        log_my_activity($pdo, 'EMAIL_2FA_RESET', 'Reset the two-factor email of ' . account_log_name($target) . ' (was ' . mask_email($old)
+            . '); they must set up and verify a new one at their next login.');
+        notify($pdo, (int)$target['user_id'], 'The Admin reset your two-factor email on ' . date('F j, Y, g:i A')
+            . '. At your next login you\'ll be asked to enter and verify a new email.');
+        send_account_notice($old, 'Your two-factor email was removed', [
+            "The administrator removed this address as the two-factor email of {$target['username']} on the " . SYSTEM_NAME . '.',
+            'Login codes are no longer sent here. At the next login a new email has to be set up and verified.',
+            "If you didn't ask for this, contact the administrator.",
+        ]);
+        $_SESSION['flash_success'] = "Two-factor email reset for {$target['full_name']}. They'll set up a new one at their next login.";
     }
     header('Location: ' . $list_url);
     exit;
@@ -333,7 +387,7 @@ if ($action === 'delete_account') {
 
 // Restore a deleted account within DELETED_RETENTION_DAYS: back to how it was (active or deactivated)
 if ($action === 'restore_account') {
-    $stmt = $pdo->prepare("SELECT user_id, full_name, role, email, deleted_at, active_before_delete FROM users
+    $stmt = $pdo->prepare("SELECT user_id, full_name, role, username, email, deleted_at, active_before_delete FROM users
                            WHERE user_id = ? AND deleted_at IS NOT NULL AND purged_at IS NULL");
     $stmt->execute([(int)($_POST['user_id'] ?? 0)]);
     $target = $stmt->fetch();
@@ -400,7 +454,7 @@ $admins_left = remaining_admin_count($pdo);
 /** This page with the role / status filter changed, the other kept. */
 $filter_url = fn(array $change): string => '?' . http_build_query(array_filter(array_merge(['role' => $role_filter, 'status' => $status_filter], $change)));
 
-// Accounts locked out by failed logins right now: email => seconds left
+// Accounts locked out by failed logins right now: username => seconds left
 $locked = [];
 foreach (active_login_locks($pdo) as $lock) {
     if ($lock['lock_type'] === 'account') {
@@ -425,12 +479,12 @@ include __DIR__ . '/../includes/header.php';
   $notice = $_SESSION['temp_password_notice'];
   unset($_SESSION['temp_password_notice']); ?>
 <div class="alert alert-warning">
-  <div class="fw-semibold mb-1"><i class="fa-solid fa-key"></i> Temporary password for <?= h($notice['name']) ?> (<?= h($notice['email']) ?>)</div>
+  <div class="fw-semibold mb-1"><i class="fa-solid fa-key"></i> Temporary password for <?= h($notice['name']) ?> (username <strong><?= h($notice['username'] ?? '') ?></strong>)</div>
   <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
     <code class="fs-5 px-2 py-1 bg-white border rounded user-select-all" id="tempPassword"><?= h($notice['password']) ?></code>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="copyTempPassword"><i class="fa-regular fa-copy"></i> Copy</button>
   </div>
-  <div class="small">This is shown only once -- give it to the account holder now. They'll be asked to choose their own password when they log in.</div>
+  <div class="small">This is shown only once -- give it to the account holder now, with their username. When they log in they'll verify their email (if they haven't yet) and choose their own password.</div>
 </div>
 <script>
 document.getElementById('copyTempPassword').addEventListener('click', function () {
@@ -460,7 +514,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
               <?= user_avatar($u, 32) ?>
               <div class="min-w-0">
                 <a href="<?= BASE_URL ?>/profile.php?id=<?= (int)$u['user_id'] ?>" class="text-body fw-semibold"><?= h($u['full_name']) ?></a>
-                <div class="text-muted small"><?= h($u['email']) ?></div>
+                <div class="text-muted small"><?= h((string)$u['username']) ?></div>
               </div>
             </div>
           </td>
@@ -516,7 +570,8 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   <?= user_avatar($u, 32) ?>
                   <div class="min-w-0">
                     <a href="<?= BASE_URL ?>/profile.php?id=<?= (int)$u['user_id'] ?>" class="text-body fw-semibold"><?= h($u['full_name']) ?></a>
-                    <div class="text-muted small"><?= h($u['email']) ?></div>
+                    <div class="text-muted small" title="Username"><i class="fa-solid fa-at" aria-hidden="true"></i> <?= h((string)$u['username']) ?></div>
+                    <div class="text-muted small"><?= account_email_line($u) ?></div>
                     <?php if ($u['academic_rank']): ?><div class="text-muted small"><?= h($u['academic_rank']) ?></div><?php endif; ?>
                   </div>
                 </div>
@@ -541,9 +596,9 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
               </td>
               <td>
                 <span class="badge <?= $u['is_active'] ? 'bg-success' : 'bg-secondary' ?>"><?= $u['is_active'] ? 'Active' : 'Deactivated' ?></span>
-                <?php if (isset($locked[mb_strtolower($u['email'])])): ?>
+                <?php if (isset($locked[(string)$u['username']])): ?>
                   <div class="mt-1 d-flex align-items-center gap-1 flex-wrap small text-muted">
-                    <span title="Too many failed login attempts -- unlocks by itself"><i class="fa-solid fa-lock"></i> Login locked until <?= h(date('g:i A', time() + $locked[mb_strtolower($u['email'])])) ?></span>
+                    <span title="Too many failed login attempts -- unlocks by itself"><i class="fa-solid fa-lock"></i> Login locked until <?= h(date('g:i A', time() + $locked[(string)$u['username']])) ?></span>
                     <form method="POST" action="?<?= h($list_query) ?>" class="d-inline" data-confirm="This account can try logging in again right away." data-confirm-title="Unlock login?" data-confirm-ok="Unlock">
                       <?= csrf_field() ?>
                       <input type="hidden" name="action" value="unlock_login">
@@ -583,7 +638,8 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                         data-bs-toggle="modal" data-bs-target="#editModal" data-edit-id="<?= (int)$u['user_id'] ?>"
                         data-name="<?= h($u['full_name']) ?>" data-role="<?= h($u['role']) ?>" data-role-label="<?= h(user_position_label(['role' => $u['role'], 'employment_type' => null])) ?>"
                         data-title="<?= h($parts['name_title']) ?>" data-first="<?= h($parts['first_name']) ?>" data-middle="<?= h($parts['middle_name']) ?>"
-                        data-last="<?= h($parts['last_name']) ?>" data-suffix="<?= h($parts['name_suffix']) ?>" data-email="<?= h($u['email']) ?>"
+                        data-last="<?= h($parts['last_name']) ?>" data-suffix="<?= h($parts['name_suffix']) ?>" data-username="<?= h((string)$u['username']) ?>"
+                        data-email2fa="<?= h(!empty($u['email_verified_at']) ? $u['email'] . ' (verified)' : 'Not set up yet -- they verify one at their next login') ?>"
                         data-emp="<?= h((string)$u['employment_type']) ?>" data-program="<?= h((string)$u['program']) ?>" data-college="<?= h((string)$u['college']) ?>"
                         data-rank="<?= h((string)$u['academic_rank']) ?>" data-hired="<?= h((string)$u['date_engaged']) ?>" data-empid="<?= h((string)$u['employee_id']) ?>">
                   <i class="fa-solid fa-user-pen"></i>
@@ -592,10 +648,22 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <?php if ($self): ?><span class="d-inline-block" tabindex="0" data-tooltip title="Use Change Password to change your own password"><?php endif; ?>
                 <button type="button" class="btn btn-sm btn-outline-brand" <?= $self ? 'disabled' : 'data-tooltip' ?> title="Reset password" aria-label="Reset password"
                         data-bs-toggle="modal" data-bs-target="#resetPasswordModal"
-                        data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-email="<?= h($u['email']) ?>">
+                        data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-username="<?= h((string)$u['username']) ?>">
                   <i class="fa-solid fa-key"></i>
                 </button>
                 <?php if ($self): ?></span><?php endif; ?>
+                <?php $no_2fa_reset = $self ? 'Change your own two-factor email in Profile Preference' : (empty($u['email_verified_at']) ? 'No verified email to reset' : ''); ?>
+                <form method="POST" action="?<?= h($list_query) ?>" class="d-inline" data-confirm="<?= h($u['full_name'] . '\'s verified email (' . mask_email((string)$u['email']) . ') stops receiving login codes. At their next login they\'ll enter and verify a new email. Use this when they lost access to it.') ?>"
+                      data-confirm-title="Reset two-factor email?" data-confirm-ok="Reset email" data-confirm-danger="1">
+                  <?= csrf_field() ?>
+                  <input type="hidden" name="action" value="reset_2fa_email">
+                  <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
+                  <?php if ($no_2fa_reset): ?><span class="d-inline-block" tabindex="0" data-tooltip title="<?= h($no_2fa_reset) ?>"><?php endif; ?>
+                  <button class="btn btn-sm btn-outline-brand" <?= $no_2fa_reset ? 'disabled' : 'data-tooltip' ?> title="Reset two-factor email" aria-label="Reset two-factor email of <?= h($u['full_name']) ?>">
+                    <i class="fa-solid fa-envelope-circle-check"></i>
+                  </button>
+                  <?php if ($no_2fa_reset): ?></span><?php endif; ?>
+                </form>
                 <form method="POST" class="d-inline" data-confirm="<?= h($u['is_active'] ? $u['full_name'] . ' won\'t be able to log in until the account is activated again. Their 201 file and documents stay in the system.' : $u['full_name'] . ' will be able to log in again.') ?>"
                       data-confirm-title="<?= $u['is_active'] ? 'Deactivate account?' : 'Activate account?' ?>" data-confirm-ok="<?= $u['is_active'] ? 'Deactivate' : 'Activate' ?>" data-confirm-danger="<?= $u['is_active'] ? '1' : '' ?>">
                   <?= csrf_field() ?>
@@ -612,7 +680,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <?php if ($no_delete): ?><span class="d-inline-block" tabindex="0" data-tooltip title="<?= h($no_delete) ?>"><?php endif; ?>
                 <button type="button" class="btn btn-sm btn-outline-danger" <?= $no_delete ? 'disabled' : 'data-tooltip' ?> title="Delete account" aria-label="Delete account of <?= h($u['full_name']) ?>"
                         data-bs-toggle="modal" data-bs-target="#deleteAccountModal"
-                        data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-email="<?= h($u['email']) ?>" data-role-label="<?= h(user_position_label($u)) ?>">
+                        data-id="<?= (int)$u['user_id'] ?>" data-name="<?= h($u['full_name']) ?>" data-username="<?= h((string)$u['username']) ?>" data-role-label="<?= h(user_position_label($u)) ?>">
                   <i class="fa-solid fa-trash-can"></i>
                 </button>
                 <?php if ($no_delete): ?></span><?php endif; ?>
@@ -669,8 +737,18 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
             <div class="form-text">Shown as: <strong data-name-preview>—</strong></div>
           </fieldset>
           <div class="mb-3">
-            <label class="form-label">Email</label>
-            <input type="email" name="email" class="form-control" required>
+            <label for="cUsername" class="form-label">Username <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <input type="text" name="username" id="cUsername" class="form-control" minlength="4" maxlength="30" pattern="[A-Za-z0-9._]{4,30}"
+                     required autocomplete="off" autocapitalize="none" spellcheck="false">
+              <button type="button" class="btn btn-outline-secondary username-suggest"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Suggest</button>
+            </div>
+            <div class="form-text" data-suggest-msg>What they log in with: 4-30 letters, numbers, dots and underscores (saved in lowercase). Suggest uses the name.</div>
+          </div>
+          <div class="mb-3">
+            <label for="cEmail" class="form-label">Email <span class="text-muted small">(optional)</span></label>
+            <input type="email" name="email" id="cEmail" class="form-control" maxlength="150">
+            <div class="form-text">They set up and verify their own email at their first login; login codes go only to a verified email.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Role</label>
@@ -727,7 +805,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
   </div>
 </div>
 
-<!-- Edit account: name, email, assignment and profile details only the Admin sets -->
+<!-- Edit account: name, username, assignment and profile details only the Admin sets -->
 <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
     <form method="POST" action="?<?= h($list_query) ?>" class="modal-content">
@@ -773,13 +851,22 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
           </fieldset>
         <div class="row g-2 mb-2">
           <div class="col-sm-8">
-            <label for="editEmail" class="form-label small fw-semibold">Email <span class="text-danger">*</span></label>
-            <input type="email" name="email" id="editEmail" class="form-control" maxlength="150" required>
-            <div class="form-text">Used to log in. It can't be the email of another account.</div>
+            <label for="editUsername" class="form-label small fw-semibold">Username <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <input type="text" name="username" id="editUsername" class="form-control" minlength="4" maxlength="30" pattern="[A-Za-z0-9._]{4,30}"
+                     required autocomplete="off" autocapitalize="none" spellcheck="false">
+              <button type="button" class="btn btn-outline-secondary username-suggest"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Suggest</button>
+            </div>
+            <div class="form-text" data-suggest-msg>Used to log in; it can't be another account's. A change is logged and they're notified.</div>
           </div>
           <div class="col-sm-4">
             <span class="form-label small fw-semibold d-block">Role</span>
             <div class="form-control-plaintext" id="editRole"></div>
+          </div>
+          <div class="col-12">
+            <span class="form-label small fw-semibold d-block mb-0">Two-factor email</span>
+            <div class="form-control-plaintext py-1" id="editEmail2fa"></div>
+            <div class="form-text mt-0">Set and verified by the account holder. If they lost access to it, use <i class="fa-solid fa-envelope-circle-check" aria-hidden="true"></i> Reset two-factor email in the list.</div>
           </div>
         </div>
         <div class="row g-2 mb-2">
@@ -937,7 +1024,8 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
     document.getElementById('editUserId').value = d.editId;
     document.getElementById('editTitle').textContent = 'Edit account — ' + d.name;
     ['Title', 'First', 'Middle', 'Last', 'Suffix'].forEach(function (k) { document.getElementById('eName' + k).value = d[k.toLowerCase()] || ''; });
-    document.getElementById('editEmail').value = d.email;
+    document.getElementById('editUsername').value = d.username;
+    document.getElementById('editEmail2fa').textContent = d.email2fa;
     document.getElementById('editRole').textContent = d.roleLabel;
     document.getElementById('editEmpWrap').hidden = role === 'admin';
     document.getElementById('editEmpReq').hidden = role !== 'faculty';
@@ -976,16 +1064,46 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
     document.getElementById('deleteUserId').value = d.id;
     document.getElementById('deleteUserName').textContent = d.name;
     document.getElementById('deleteUserRole').textContent = d.roleLabel;
-    document.getElementById('deleteUserEmail').textContent = d.email;
+    document.getElementById('deleteUserEmail').textContent = 'Username: ' + d.username;
     delConfirm.value = ''; delReason.value = ''; delReady();
   });
   delConfirm.addEventListener('input', delReady);
+
+  // Suggest: a free username from the name (or employee ID); clicking again goes through the others
+  document.querySelectorAll('.username-suggest').forEach(function (btn) {
+    var list = [], at = 0, asked = '';
+    btn.addEventListener('click', function () {
+      var form = btn.closest('form');
+      var v = function (n) { var el = form.querySelector('[name="' + n + '"]'); return el ? el.value.trim() : ''; };
+      var input = form.querySelector('[name="username"]'), msg = form.querySelector('[data-suggest-msg]');
+      var query = new URLSearchParams({ first: v('first_name'), last: v('last_name'), employee_id: v('employee_id'), except: v('user_id') }).toString();
+      if (query === asked && list.length > 1) {
+        at = (at + 1) % list.length;
+        input.value = list[at];
+        return;
+      }
+      btn.disabled = true;
+      fetch('<?= BASE_URL ?>/api/username_suggest.php?' + query, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          list = data.suggestions || []; at = 0; asked = query;
+          if (list.length) {
+            input.value = list[0];
+            msg.textContent = list.length > 1 ? 'Free: ' + list.join(', ') + ' -- click Suggest again for the next one.' : list[0] + ' is free.';
+          } else {
+            msg.textContent = data.error || 'No suggestion: enter the first and last name first.';
+          }
+        })
+        .catch(function () { msg.textContent = 'Could not get a suggestion. Type a username instead.'; })
+        .then(function () { btn.disabled = false; });
+    });
+  });
   delReason.addEventListener('input', delReady);
   document.getElementById('resetPasswordModal').addEventListener('show.bs.modal', function (e) {
     var b = e.relatedTarget;
     document.getElementById('resetUserId').value = b.dataset.id;
     document.getElementById('resetUserName').textContent = b.dataset.name;
-    document.getElementById('resetUserEmail').textContent = b.dataset.email;
+    document.getElementById('resetUserEmail').textContent = 'Username: ' + b.dataset.username;
     document.getElementById('resetPassword').value = '';
   });
 })();

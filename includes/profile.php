@@ -184,6 +184,109 @@ function person_name_input(array $in): array|string {
     return $p;
 }
 
+// ---------------------------------------------------------------------
+// Usernames: what people log in with, set by the Admin (Manage Faculty).
+// 4-30 letters, numbers, dots and underscores, unique ignoring case --
+// stored in lowercase, and what's typed at login is lowercased too.
+// ---------------------------------------------------------------------
+
+const USERNAME_RULE = 'Usernames are 4-30 characters: letters, numbers, dots (.) and underscores (_).';
+
+function username_normalize(string $username): string {
+    return mb_strtolower(trim($username));
+}
+
+function username_valid(string $username): bool {
+    return (bool)preg_match('/^[a-z0-9._]{4,30}$/', $username);
+}
+
+/** Whether another account (not $except_user_id) has $username. */
+function username_taken(PDO $pdo, string $username, int $except_user_id = 0): bool {
+    $stmt = $pdo->prepare("SELECT 1 FROM users WHERE LOWER(username) = ? AND user_id <> ?");
+    $stmt->execute([username_normalize($username), $except_user_id]);
+    return (bool)$stmt->fetchColumn();
+}
+
+/** "delacruz" from "Dela Cruz": lowercase a-z and digits only, accents dropped (ñ -> n). */
+function username_slug(string $s): string {
+    $s = mb_strtolower(trim($s));
+    $s = strtr($s, ['ñ' => 'n', 'á' => 'a', 'à' => 'a', 'â' => 'a', 'ä' => 'a', 'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+                    'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i', 'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'ö' => 'o',
+                    'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u', 'ç' => 'c']);
+    return preg_replace('/[^a-z0-9]/', '', $s);
+}
+
+/**
+ * Free usernames for a person, best first: first.last -- the first given
+ * name that isn't an abbreviation ("Ma. Teresa Dela Cruz" -> teresa.delacruz)
+ * -- then the employee ID, each with a number added if taken (juan.delacruz2).
+ * $u: first_name / last_name (or full_name), employee_id.
+ * @return string[] up to $max suggestions
+ */
+function username_suggestions(PDO $pdo, array $u, int $except_user_id = 0, int $max = 3): array {
+    $parts = person_name_parts($u);
+    $first_words = array_values(array_filter(preg_split('/\s+/u', $parts['first_name']), fn($w) => !str_ends_with($w, '.')))
+                ?: preg_split('/\s+/u', $parts['first_name']);
+    $first = username_slug($first_words[0] ?? '');
+    $last = username_slug($parts['last_name']);
+    $bases = [];
+    if ($first !== '' && $last !== '') { $bases[] = mb_substr($first . '.' . $last, 0, 28); }
+    if ($first !== '' && $last === '') { $bases[] = mb_substr($first, 0, 28); }
+    $emp = preg_replace('/[^a-z0-9._]/', '', mb_strtolower((string)($u['employee_id'] ?? '')));
+    if ($emp !== '') { $bases[] = mb_substr(strlen($emp) < 4 ? 'emp' . $emp : $emp, 0, 28); }
+    $found = [];
+    foreach ($bases as $base) {
+        $base = rtrim($base, '.');
+        if (strlen($base) < 4) { $base = str_pad($base, 4, '0'); }
+        for ($n = 1; $n < 100 && count($found) < $max; $n++) {
+            $candidate = $n === 1 ? $base : mb_substr($base, 0, 30 - strlen((string)$n)) . $n;
+            if (username_valid($candidate) && !in_array($candidate, $found, true) && !username_taken($pdo, $candidate, $except_user_id)) {
+                $found[] = $candidate;
+                break;
+            }
+        }
+    }
+    return $found;
+}
+
+/**
+ * Give every account without a username one (first.last, a number added if
+ * taken; "user" + id when there's no usable name). For the accounts from
+ * before usernames existed; run on a login attempt, on Manage Faculty and by
+ * tools/assign_usernames.php. Accounts deleted permanently are skipped.
+ * @return array<int, array{user_id: int, username: string, full_name: string, role: string}> the ones just assigned
+ */
+function assign_missing_usernames(PDO $pdo): array {
+    $rows = $pdo->query("SELECT user_id, full_name, first_name, last_name, employee_id, role FROM users
+                         WHERE username IS NULL AND purged_at IS NULL ORDER BY user_id")->fetchAll();
+    $done = [];
+    foreach ($rows as $u) {
+        $username = username_suggestions($pdo, ['employee_id' => null] + $u, (int)$u['user_id'], 1)[0] ?? 'user' . (int)$u['user_id'];
+        if (!username_valid($username) || username_taken($pdo, $username, (int)$u['user_id'])) {
+            $username = 'user' . (int)$u['user_id'];
+        }
+        $stmt = $pdo->prepare("UPDATE users SET username = ? WHERE user_id = ? AND username IS NULL");
+        $stmt->execute([$username, (int)$u['user_id']]);
+        if ($stmt->rowCount() === 1) {
+            $done[] = ['user_id' => (int)$u['user_id'], 'username' => $username, 'full_name' => $u['full_name'], 'role' => $u['role']];
+            log_activity($pdo, null, 'USERNAME_CHANGE', "Username \"{$username}\" assigned automatically to account #{$u['user_id']} {$u['full_name']} "
+                . '(accounts from before usernames get first.last).', 'system');
+        }
+    }
+    return $done;
+}
+
+/** assign_missing_usernames() when some account still has no username (one quick check otherwise). Never throws. */
+function ensure_usernames(PDO $pdo): void {
+    try {
+        if ($pdo->query("SELECT 1 FROM users WHERE username IS NULL AND purged_at IS NULL LIMIT 1")->fetchColumn()) {
+            assign_missing_usernames($pdo);
+        }
+    } catch (Throwable $e) {
+        error_log('Assigning usernames failed: ' . $e->getMessage());
+    }
+}
+
 /**
  * A message addressed to the user ("Hi, Chrystal! ...") with the greeting
  * using their current first name. Reminder and notification texts are

@@ -32,15 +32,15 @@ if (($_POST['action'] ?? '') === 'unlock_login') {
 }
 
 $locks = active_login_locks($pdo);
-$lock_accounts = [];   // email => full name, for locks on existing accounts
-if ($emails = array_column(array_filter($locks, fn($l) => $l['lock_type'] === 'account'), 'lock_key')) {
-    $stmt = $pdo->prepare("SELECT LOWER(email), full_name FROM users WHERE email IN (" . implode(',', array_fill(0, count($emails), '?')) . ")");
-    $stmt->execute($emails);
+$lock_accounts = [];   // username => full name, for locks on existing accounts
+if ($usernames = array_column(array_filter($locks, fn($l) => $l['lock_type'] === 'account'), 'lock_key')) {
+    $stmt = $pdo->prepare("SELECT username, full_name FROM users WHERE username IN (" . implode(',', array_fill(0, count($usernames), '?')) . ")");
+    $stmt->execute($usernames);
     $lock_accounts = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 }
 
 $alerts = $pdo->query(
-    "SELECT sa.*, u.full_name, u.role, u.email
+    "SELECT sa.*, u.full_name, u.role, u.username
      FROM security_alerts sa
      JOIN users u ON u.user_id = sa.user_id
      ORDER BY sa.is_reviewed ASC, sa.created_at DESC"
@@ -114,7 +114,7 @@ include __DIR__ . '/../includes/header.php';
         <tr>
           <td>
             <div class="fw-semibold"><?= h($a['full_name']) ?></div>
-            <div class="ui-cell-sub"><span class="text-capitalize"><?= h(str_replace('_', ' ', $a['role'])) ?></span> · <?= h($a['email']) ?></div>
+            <div class="ui-cell-sub"><span class="text-capitalize"><?= h(str_replace('_', ' ', $a['role'])) ?></span> · <?= h((string)$a['username']) ?></div>
           </td>
           <td><?= h($a['reason']) ?></td>
           <td class="text-nowrap"><?= h($a['ip_address'] ?? '—') ?></td>

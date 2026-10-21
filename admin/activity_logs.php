@@ -59,9 +59,10 @@ if ($tab === 'activity') {
     if ($user_id) { $where[] = 'la.user_id = ?'; $params[] = $user_id; }
     if ($role_filter) { $where[] = 'u.role = ?';     $params[] = $role_filter; }
     if ($result)  { $where[] = ['success' => 'la.was_successful = 1', 'failed' => 'la.was_successful = 0 AND la.was_blocked = 0', 'blocked' => 'la.was_blocked = 1'][$result]; }
-    if ($q !== '') { $where[] = '(la.email ' . sql_like() . ' ? OR la.ip_address ' . sql_like() . ' ?)'; array_push($params, "%$q%", "%$q%"); }
+    if ($q !== '') { $where[] = '(la.username ' . sql_like() . ' ? OR la.email ' . sql_like() . ' ? OR la.ip_address ' . sql_like() . ' ?)'; array_push($params, "%$q%", "%$q%", "%$q%"); }
     $from_sql = "FROM login_attempts la LEFT JOIN users u ON u.user_id = la.user_id";
-    $select = "SELECT la.attempted_at, la.email, la.was_successful, la.was_blocked, la.ip_address, u.full_name, u.role";
+    // username typed (email for the attempts from before usernames)
+    $select = "SELECT la.attempted_at, COALESCE(la.username, la.email) AS login_name, la.was_successful, la.was_blocked, la.ip_address, u.full_name, u.role";
     $order = "ORDER BY la.attempted_at DESC, la.attempt_id DESC";
 }
 if ($from !== '') { $where[] = "$date_col >= ?"; $params[] = $from . ' 00:00:00'; }
@@ -102,8 +103,8 @@ include __DIR__ . '/../includes/header.php';
     <?php if ($tab === 'logins'): ?><input type="hidden" name="tab" value="logins"><?php endif; ?>
     <label class="ui-search" for="fQ">
       <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-      <span class="visually-hidden"><?= $tab === 'activity' ? 'Search details or IP address' : 'Search email or IP address' ?></span>
-      <input type="search" name="q" id="fQ" value="<?= h($q) ?>" class="ui-search-input" placeholder="<?= $tab === 'activity' ? 'Search details or IP address' : 'Search email or IP address' ?>">
+      <span class="visually-hidden"><?= $tab === 'activity' ? 'Search details or IP address' : 'Search username or IP address' ?></span>
+      <input type="search" name="q" id="fQ" value="<?= h($q) ?>" class="ui-search-input" placeholder="<?= $tab === 'activity' ? 'Search details or IP address' : 'Search username or IP address' ?>">
     </label>
     <label for="fUser" class="visually-hidden">User</label>
     <select name="user" id="fUser" class="form-select">
@@ -168,7 +169,7 @@ include __DIR__ . '/../includes/header.php';
       </tbody>
       <?php else: ?>
       <thead>
-        <tr><th class="text-nowrap">Date / time</th><th>Email entered</th><th>Account</th><th>Result</th><th>IP address</th></tr>
+        <tr><th class="text-nowrap">Date / time</th><th>Username entered</th><th>Account</th><th>Result</th><th>IP address</th></tr>
       </thead>
       <tbody>
         <?php if (!$rows): ?>
@@ -177,7 +178,7 @@ include __DIR__ . '/../includes/header.php';
         <?php foreach ($rows as $r): ?>
         <tr>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($r['attempted_at']))) ?><div class="ui-cell-sub"><?= h(date('g:i:s A', strtotime($r['attempted_at']))) ?></div></td>
-          <td class="text-break"><?= h($r['email']) ?></td>
+          <td class="text-break"><?= h((string)$r['login_name']) ?></td>
           <td>
             <?php if ($r['full_name']): ?>
               <span class="fw-semibold"><?= h($r['full_name']) ?></span><div class="ui-cell-sub"><?= h($role_label($r['role'])) ?></div>

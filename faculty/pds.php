@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
 
 $pds = pds_load($pdo, $me['user_id']);
 $data = $pds['data'];
-if (!$pds['exists'] && empty($data['email'])) { $data['email'] = $me['email']; }
+if (!$pds['exists'] && empty($data['email'])) { $data['email'] = (string)($me['email'] ?? ''); }
 $status = pds_status($pdo, $me['user_id']);
 $versions = pds_versions($pdo, (int)$me['user_id']);
 // The latest automatic update from an uploaded PDS, while it's recent: its summary, what to check, and Undo
