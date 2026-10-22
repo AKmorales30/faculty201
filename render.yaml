@@ -23,6 +23,21 @@ services:
         sync: false
       - key: APP_BASE_URL
         sync: false
+      # Email for the login codes, email verification and password reset
+      # (config/mail.example.php has the Google setup). Required: without it
+      # nobody can log in. Gmail API: the OAuth client and refresh token, and
+      # MAIL_FROM_EMAIL = the Gmail address that authorized it.
+      # (Postmark / SendGrid instead: MAIL_PROVIDER and their key.)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: MAIL_FROM_EMAIL
+        sync: false
+      - key: MAIL_FROM_NAME
+        value: "Faculty-201 File Management System"
       # AI features (config/ai.example.php); without it AI is off and everything else works
       - key: GEMINI_API_KEY
         sync: false

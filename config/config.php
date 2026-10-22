@@ -158,6 +158,21 @@ define('LOCKOUT_MINUTES', 15);
 // Warn "N attempts left" once only this many remain (0 = never say)
 define('WARN_REMAINING_ATTEMPTS', 2);
 
+// Two-factor codes (includes/two_factor.php): after the right username and
+// password, a 6-digit code goes to the account's verified email -- also used
+// to verify a new email and to reset a forgotten password. A code is stored
+// hashed, works once, for OTP_TTL_SECONDS, with OTP_MAX_ATTEMPTS tries; a
+// new one can be sent after OTP_RESEND_SECONDS, at most OTP_MAX_SENDS_PER_HOUR
+// emails per account per hour. The step between the password and the code
+// has to be finished within PENDING_LOGIN_SECONDS.
+define('OTP_TTL_SECONDS', 300);
+define('OTP_MAX_ATTEMPTS', 5);
+define('OTP_RESEND_SECONDS', 60);
+define('OTP_MAX_SENDS_PER_HOUR', 10);
+define('PENDING_LOGIN_SECONDS', 900);
+// Forgot password requests from one IP address per hour (more are answered
+// the same way but send nothing)
+define('PASSWORD_RESET_MAX_PER_IP_HOUR', 10);
 
 // Subtype hints, tried once the main category is known. The first
 // subtype with the most hits wins; if none match, the category's

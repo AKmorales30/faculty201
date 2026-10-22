@@ -276,26 +276,6 @@ function assign_missing_usernames(PDO $pdo): array {
     return $done;
 }
 
-// ---------------------------------------------------------------------
-// Contact email (optional; not used to log in). Stored in lowercase and
-// unique: two accounts can't share one.
-// ---------------------------------------------------------------------
-
-function email_normalize(string $email): string {
-    return mb_strtolower(trim($email));
-}
-
-function email_valid(string $email): bool {
-    return $email !== '' && mb_strlen($email) <= 150 && filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
-}
-
-/** Whether another account (not $except_user_id) has $email. */
-function email_taken(PDO $pdo, string $email, int $except_user_id = 0): bool {
-    $stmt = $pdo->prepare("SELECT 1 FROM users WHERE LOWER(email) = ? AND user_id <> ?");
-    $stmt->execute([email_normalize($email), $except_user_id]);
-    return (bool)$stmt->fetchColumn();
-}
-
 /** assign_missing_usernames() when some account still has no username (one quick check otherwise). Never throws. */
 function ensure_usernames(PDO $pdo): void {
     try {
