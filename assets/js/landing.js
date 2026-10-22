@@ -1,7 +1,7 @@
 /**
  * Landing page (index.php): choosing a role slides the right panel over to
  * the login form, all on this page; after the password, the next step (the
- * emailed code, setting up the two-factor email) and Forgot password slide
+ * emailed code, the optional email / two-factor setup) and Forgot password slide
  * in as a third pane. Without JavaScript the role cards, "Change role" and
  * "Forgot password?" are ordinary links (?role=...&forgot=1), and the server
  * renders the matching pane, so everything still works.
@@ -11,7 +11,8 @@
  *   - Back / Forward   -> follow the ?role= / &forgot=1 in the address bar
  *   - arriving at a step from the login form -> slide over to it
  *   - eye button       -> show / hide the password
- *   - code box         -> digits only; "Send a new code" counts down its wait
+ *   - code             -> six boxes (auto-advance, paste, Backspace), sent at
+ *                         the sixth digit; the expiry and "Resend code" count down
  *   - any submit       -> loading state, no double submit
  */
 (function () {
@@ -162,13 +163,110 @@
     requestAnimationFrame(function () { panel.setAttribute('data-view', 'step'); });
   }
 
-  // ----- the code box: digits only --------------------------------------------
+  // ----- the code: six boxes over the one real input ---------------------------
+  // The real input (name="code") stays in the form, hidden; without JavaScript
+  // it's a single box. Typing moves to the next box, Backspace to the one
+  // before, a pasted (or autofilled) code fills all six, and the sixth digit
+  // sends the form.
   var code = document.getElementById('ld-code');
   if (code) {
-    code.addEventListener('input', function () {
-      var digits = code.value.replace(/\D/g, '').slice(0, 6);
-      if (digits !== code.value) code.value = digits;
+    var invalid = code.classList.contains('is-invalid');
+    var group = document.createElement('div');
+    group.className = 'ld-otp' + (invalid ? ' is-invalid' : '');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', '6-digit code');
+    var boxes = [];
+    for (var i = 0; i < 6; i++) {
+      var box = document.createElement('input');
+      box.type = 'text';
+      box.className = 'ld-otp-box';
+      box.inputMode = 'numeric';
+      box.maxLength = 1;
+      box.autocomplete = i === 0 ? 'one-time-code' : 'off';
+      box.setAttribute('aria-label', 'Digit ' + (i + 1) + ' of 6');
+      if (invalid) box.setAttribute('aria-describedby', 'ld-step-error');
+      group.appendChild(box);
+      boxes.push(box);
+    }
+    code.parentNode.insertBefore(group, code);
+    code.type = 'hidden';
+    code.removeAttribute('autofocus');
+    var label = document.querySelector('label[for="ld-code"]');
+    if (label) label.removeAttribute('for');
+    var codeForm = code.form;
+    // Fewer than six digits: point at the first empty box instead of sending
+    // (registered before the loading-state handler below, which it stops)
+    if (codeForm) {
+      codeForm.addEventListener('submit', function (e) {
+        code.value = boxes.map(function (b) { return b.value; }).join('');
+        if (code.value.length === 6) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var empty = boxes.filter(function (b) { return !b.value; })[0] || boxes[0];
+        empty.focus();
+      });
+    }
+
+    function sync() {
+      code.value = boxes.map(function (b) { return b.value; }).join('');
+      if (code.value.length === 6 && codeForm) {
+        if (codeForm.requestSubmit) { codeForm.requestSubmit(); } else { codeForm.submit(); }
+      }
+    }
+    function fill(from, digits) {   // digits typed or pasted into box `from`
+      for (var j = 0; j < digits.length && from + j < 6; j++) boxes[from + j].value = digits[j];
+      var next = Math.min(from + digits.length, 5);
+      boxes[next].focus();
+      boxes[next].select();
+      sync();
+    }
+    boxes.forEach(function (b, idx) {
+      b.addEventListener('input', function () {
+        var digits = b.value.replace(/\D/g, '');
+        b.value = '';
+        if (digits) { fill(idx, digits); } else { sync(); }
+      });
+      b.addEventListener('paste', function (e) {
+        var text = (e.clipboardData || window.clipboardData).getData('text') || '';
+        var digits = text.replace(/\D/g, '').slice(0, 6);
+        e.preventDefault();
+        if (digits) fill(digits.length === 6 ? 0 : idx, digits);
+      });
+      b.addEventListener('keydown', function (e) {
+        if (e.key === 'Backspace' && !b.value && idx > 0) {
+          boxes[idx - 1].value = '';
+          boxes[idx - 1].focus();
+          sync();
+          e.preventDefault();
+        } else if (e.key === 'ArrowLeft' && idx > 0) {
+          boxes[idx - 1].focus();
+          e.preventDefault();
+        } else if (e.key === 'ArrowRight' && idx < 5) {
+          boxes[idx + 1].focus();
+          e.preventDefault();
+        }
+      });
+      b.addEventListener('focus', function () { b.select(); });
     });
+    // After the slide, so focusing doesn't jump the panel mid-animation
+    setTimeout(function () { boxes[0].focus(); }, panel.getAttribute('data-slide-from') ? slideMs() + 20 : 0);
+  }
+
+  // ----- the code's expiry countdown -----------------------------------------
+  var countdown = document.getElementById('ld-countdown');
+  if (countdown) {
+    var expiresLeft = parseInt(countdown.getAttribute('data-expires'), 10) || 0;
+    (function tickExpiry() {
+      if (expiresLeft > 0) {
+        var m = Math.floor(expiresLeft / 60), s = expiresLeft % 60;
+        countdown.textContent = 'The code expires in ' + m + ':' + (s < 10 ? '0' : '') + s + '.';
+        expiresLeft -= 1;
+        setTimeout(tickExpiry, 1000);
+      } else {
+        countdown.textContent = 'This code has expired. Use "Resend code" to get a new one.';
+        countdown.classList.add('is-expired');
+      }
+    })();
   }
 
   // ----- "Send a new code": disabled, counting down, until it may be sent ---

@@ -1,20 +1,22 @@
 <?php
 /**
  * The landing page's third pane (index.php): what comes after the username
- * and password, on the same sliding panel -- the emailed code, setting up
- * the two-factor email, or Forgot password. $step (from index.php) says
+ * and password, on the same sliding panel -- the emailed code, the optional
+ * email / two-factor setup, or Forgot password. $step (from index.php) says
  * which: '' / reset_start (Forgot password: the username), login_code,
- * setup_email, setup_code, reset_code, reset_password.
+ * setup_prompt (Set up now / Not now), setup_email, setup_code, setup_enable
+ * (Turn on 2FA / Maybe later), reset_code, reset_password.
  * Posts to login_verify.php (logging in) or forgot_password.php.
  */
-$step_handler = in_array($step, ['login_code', 'setup_email', 'setup_code'], true) ? 'login_verify.php' : 'forgot_password.php';
+$step_handler = in_array($step, ['login_code', 'setup_prompt', 'setup_email', 'setup_code', 'setup_enable'], true) ? 'login_verify.php' : 'forgot_password.php';
 $step_masked = !empty($pending['email']) ? mask_email($pending['email']) : '';
+$code_step = in_array($step, ['login_code', 'setup_code', 'reset_code'], true);
 
-/** A small POST form with one link-style button (resend, cancel, use another email). */
+/** A small POST form with one button (resend, cancel, Not now, ...). */
 $step_button = function (string $action, string $label, string $class = 'ld-link-button', array $attrs = []) use ($step_handler, $active): string {
     $extra = '';
     foreach ($attrs as $k => $v) { $extra .= ' ' . $k . '="' . h((string)$v) . '"'; }
-    return '<form method="POST" action="' . BASE_URL . '/' . $step_handler . '">' . csrf_field()
+    return '<form method="POST" action="' . BASE_URL . '/' . $step_handler . '" class="ld-step-form">' . csrf_field()
          . '<input type="hidden" name="portal" value="' . h($active) . '">'
          . '<input type="hidden" name="action" value="' . h($action) . '">'
          . '<button type="submit" class="' . h($class) . '"' . $extra . '>' . $label . '</button></form>';
@@ -33,18 +35,23 @@ $step_button = function (string $action, string $label, string $class = 'ld-link
 
         <?php
         [$title, $sub] = match ($step) {
-            'login_code'     => ['Check your email', 'We sent a 6-digit code to <strong>' . h($step_masked) . '</strong>. Enter it to finish logging in. It expires in ' . $code_minutes . ' minutes.'],
-            'setup_email'    => ['Set up your email', 'Each time you log in, we\'ll send a one-time code to your email. Enter a personal or work email you can open right now &mdash; we\'ll send a code to verify it.'],
-            'setup_code'     => ['Verify your email', 'We sent a 6-digit code to <strong>' . h($step_masked) . '</strong>. Enter it to confirm this address and finish logging in. It expires in ' . $code_minutes . ' minutes.'],
-            'reset_code'     => ['Check your email', 'If this account has a verified email, we\'ve sent a 6-digit code to it. It expires in ' . $code_minutes . ' minutes.'],
+            'login_code'     => ['Check your email', 'We sent a 6-digit code to <strong>' . h($step_masked) . '</strong>. Enter it to finish logging in.'],
+            'setup_prompt'   => ['Set up your email', 'Add your email to enable two-factor authentication (2FA) and password recovery. This adds an extra layer of security to your account.'],
+            'setup_email'    => ['Set up your email', 'Enter a personal or work email you can open right now. We\'ll send a 6-digit code to verify it.'],
+            'setup_code'     => ['Verify your email', 'We sent a 6-digit code to <strong>' . h($step_masked) . '</strong>. Enter it to confirm this address.'],
+            'setup_enable'   => ['Turn on two-factor authentication?', 'Your email <strong>' . h($step_masked) . '</strong> is verified. With two-factor authentication on, each login also needs a 6-digit code sent to it. You can change this anytime in Profile Preference &rsaquo; Security.'],
+            'reset_code'     => ['Check your email', 'If this account has a verified email, we\'ve sent a 6-digit code to it.'],
             'reset_password' => ['Set a new password', 'At least 8 characters, with an uppercase letter, a lowercase letter and a number.'],
             default          => ['Forgot password?', 'Enter your username. If your account has a verified email, we\'ll send a code to it so you can set a new password.'],
         };
         ?>
         <h2 class="ld-heading" id="ld-step-title"><?= h($title) ?></h2>
         <p class="ld-sub"><?= $sub ?></p>
-        <?php if ($step === 'reset_code'): ?>
+        <?php if ($step === 'reset_code' || $step === '' || $step === 'reset_start'): ?>
           <p class="ld-note">No email set up yet? Please contact the administrator to reset your password.</p>
+        <?php endif; ?>
+        <?php if ($step_required && in_array($step, ['setup_prompt', 'setup_email'], true)): ?>
+          <p class="ld-note">Two-factor authentication is required for Admin accounts.</p>
         <?php endif; ?>
 
         <?php if ($step_error): ?>
@@ -61,15 +68,26 @@ $step_button = function (string $action, string $label, string $class = 'ld-link
           <?= csrf_field() ?>
           <input type="hidden" name="portal" class="ld-portal-field" value="<?= h($active) ?>">
 
-          <?php if ($step === 'login_code' || $step === 'setup_code' || $step === 'reset_code'): ?>
+          <?php if ($code_step): ?>
             <input type="hidden" name="action" value="verify">
             <div class="ld-field">
               <label for="ld-code">6-digit code</label>
               <input type="text" id="ld-code" name="code" class="ld-input ld-code<?= $step_error ? ' is-invalid' : '' ?>"
                      inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000" required
                      <?= $step_error ? 'aria-invalid="true" aria-describedby="ld-step-error"' : '' ?> autofocus>
+              <p class="ld-countdown" id="ld-countdown" data-expires="<?= (int)$code_left ?>" aria-live="off">
+                The code expires in <?= $code_minutes ?> minutes.
+              </p>
             </div>
             <?php $step_submit = 'Verify'; ?>
+
+          <?php elseif ($step === 'setup_prompt'): ?>
+            <input type="hidden" name="action" value="setup_now">
+            <?php $step_submit = 'Set up now'; ?>
+
+          <?php elseif ($step === 'setup_enable'): ?>
+            <input type="hidden" name="action" value="enable_2fa">
+            <?php $step_submit = 'Turn on'; ?>
 
           <?php elseif ($step === 'setup_email'): ?>
             <input type="hidden" name="action" value="set_email">
@@ -104,15 +122,21 @@ $step_button = function (string $action, string $label, string $class = 'ld-link
             <?php $step_submit = 'Send code'; ?>
           <?php endif; ?>
 
-          <button type="submit" class="ld-submit">
+          <button type="submit" class="ld-submit"<?= in_array($step, ['setup_prompt', 'setup_enable'], true) ? ' autofocus' : '' ?>>
             <span class="ld-spinner" aria-hidden="true"></span>
             <span class="ld-submit-text"><?= h($step_submit) ?></span>
           </button>
         </form>
 
-        <?php if (in_array($step, ['login_code', 'setup_code', 'reset_code'], true)): ?>
+        <?php if (($step === 'setup_prompt' || $step === 'setup_email') && !$step_required): ?>
+          <?= $step_button('not_now', $step === 'setup_prompt' ? 'Not now' : 'Not now, skip this', $step === 'setup_prompt' ? 'ld-secondary' : 'ld-link-button ld-skip') ?>
+        <?php elseif ($step === 'setup_enable'): ?>
+          <?= $step_button('maybe_later', 'Maybe later', 'ld-secondary') ?>
+        <?php endif; ?>
+
+        <?php if ($code_step): ?>
           <div class="ld-step-actions">
-            <?= $step_button('resend', 'Send a new code', 'ld-link-button', ['data-wait' => $resend_wait, 'data-label' => 'Send a new code']) ?>
+            <?= $step_button('resend', 'Resend code', 'ld-link-button', ['data-wait' => $resend_wait, 'data-label' => 'Resend code']) ?>
             <?php if ($step === 'setup_code'): ?>
               <?= $step_button('other_email', 'Use a different email') ?>
             <?php endif; ?>

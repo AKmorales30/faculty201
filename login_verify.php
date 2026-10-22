@@ -1,14 +1,22 @@
 <?php
 /**
- * The second step of logging in (includes/two_factor.php), after
- * login_process.php accepted the username and password. POST + CSRF only;
- * every answer goes back to the landing page, which shows the step:
- *   set_email     no verified email yet: send a code to this address
+ * The steps after login_process.php accepted the username and password
+ * (includes/two_factor.php). POST + CSRF only; every answer goes back to the
+ * landing page, which shows the step:
+ *   setup_now     "Set up your email": go on to the email box
+ *   not_now       "Set up your email": skip it -- logged in now, asked again
+ *                 after EMAIL_PROMPT_REMIND_DAYS
+ *   set_email     send a code to this address
  *   other_email   (while verifying a new address) use a different one
- *   verify        the 6-digit code -- right: the email is verified if it was
- *                 new, and the login is finished (complete_login())
+ *   verify        the 6-digit code -- right: a login code finishes the login;
+ *                 a new email is verified, then "Turn on two-factor
+ *                 authentication?"
+ *   enable_2fa    turn it on, and finish the login
+ *   maybe_later   leave it off, and finish the login
  *   resend        a new code, after OTP_RESEND_SECONDS
  *   cancel        back to the username / password form
+ * With REQUIRE_2FA_FOR_ADMINS an Admin account can't use not_now or
+ * maybe_later.
  * Too many wrong codes ends the pending login: it counts as a failed login
  * (toward the lockout) and raises a Security Alert.
  */
@@ -59,7 +67,23 @@ try {
     }
     $role = $user['role'];
 
-    // ----- no verified email yet: the address to verify -------------------
+    $required = two_factor_required($user);
+
+    // ----- "Set up your email": Set up now / Not now ---------------------------
+    if ($action === 'setup_now' && in_array($pending['step'], ['prompt', 'email'], true)) {
+        $_SESSION['pending_login']['step'] = 'email';
+        verify_back($page);
+    }
+    if ($action === 'not_now' && in_array($pending['step'], ['prompt', 'email'], true) && !$required) {
+        otp_cancel($pdo, $pending['otp_id']);
+        login_side_task('saving "Not now"', fn() => $pdo->prepare("UPDATE users SET email_prompt_dismissed_at = ? WHERE user_id = ?")
+            ->execute([date('Y-m-d H:i:s'), (int)$user['user_id']]));
+        log_activity($pdo, (int)$user['user_id'], 'EMAIL_SETUP_SKIPPED', 'Chose "Not now" for setting up an email; asked again in '
+            . EMAIL_PROMPT_REMIND_DAYS . ' days.', $role);
+        complete_login($pdo, $user, $portal, 'with the password (email setup skipped)');
+    }
+
+    // ----- the address to verify -------------------------------------------
     if ($action === 'set_email' && $pending['step'] === 'email') {
         $email = email_normalize((string)($_POST['email'] ?? ''));
         if (!email_valid($email)) {
@@ -74,8 +98,19 @@ try {
         }
         $_SESSION['pending_login'] = ['step' => 'code', 'purpose' => 'setup_email', 'otp_id' => $sent['otp_id'],
                                       'email' => $email, 'sent_at' => time()] + $pending;
-        log_activity($pdo, (int)$user['user_id'], 'EMAIL_CODE_SENT', 'First login: verification code sent to ' . mask_email($email) . '.', $role);
+        log_activity($pdo, (int)$user['user_id'], 'EMAIL_CODE_SENT', 'Setting up an email at login: verification code sent to ' . mask_email($email) . '.', $role);
         verify_back($page);
+    }
+
+    // ----- email verified: "Turn on two-factor authentication?" -------------
+    if ($pending['step'] === 'enable' && ($action === 'enable_2fa' || ($action === 'maybe_later' && !$required))) {
+        if ($action === 'enable_2fa') {
+            set_two_factor($pdo, (int)$user['user_id'], true);
+            log_activity($pdo, (int)$user['user_id'], 'TWO_FACTOR_ON', 'Turned on two-factor authentication at login (codes go to '
+                . mask_email((string)$pending['email']) . ').', $role);
+            complete_login($pdo, $user, $portal, 'after verifying ' . mask_email((string)$pending['email']) . ' and turning on two-factor authentication');
+        }
+        complete_login($pdo, $user, $portal, 'after verifying ' . mask_email((string)$pending['email']) . ' (two-factor authentication left off)');
     }
 
     if ($action === 'other_email' && $pending['purpose'] === 'setup_email') {
@@ -105,16 +140,23 @@ try {
         $left = null;
         $result = otp_check($pdo, (int)$pending['otp_id'], (int)$user['user_id'], $pending['purpose'], (string)($_POST['code'] ?? ''), $left);
         if ($result === 'ok') {
-            if ($pending['purpose'] === 'setup_email') {
-                if (email_taken($pdo, $pending['email'], (int)$user['user_id'])) {   // confirmed by another account meanwhile
-                    $_SESSION['pending_login'] = ['step' => 'email', 'otp_id' => null, 'email' => null] + $pending;
-                    verify_back($page, 'That email is already used by another account. Please use a different one.');
-                }
-                set_verified_email($pdo, (int)$user['user_id'], $pending['email']);
-                log_activity($pdo, (int)$user['user_id'], 'EMAIL_VERIFIED', 'Two-factor email set up and verified: ' . mask_email($pending['email']) . '.', $role);
-                $user = login_account($pdo, (int)$user['user_id']);
+            if ($pending['purpose'] !== 'setup_email') {
+                complete_login($pdo, $user, $portal, 'with a code sent to ' . mask_email((string)$pending['email']));
             }
-            complete_login($pdo, $user, $portal);
+            if (email_taken($pdo, $pending['email'], (int)$user['user_id'])) {   // confirmed by another account meanwhile
+                $_SESSION['pending_login'] = ['step' => 'email', 'otp_id' => null, 'email' => null] + $pending;
+                verify_back($page, 'That email is already used by another account. Please use a different one.');
+            }
+            set_verified_email($pdo, (int)$user['user_id'], $pending['email']);
+            log_activity($pdo, (int)$user['user_id'], 'EMAIL_VERIFIED', 'Email set up and verified at login: ' . mask_email($pending['email']) . '.', $role);
+            $user = login_account($pdo, (int)$user['user_id']);
+            if ($required) {   // REQUIRE_2FA_FOR_ADMINS: no choice to make
+                set_two_factor($pdo, (int)$user['user_id'], true);
+                log_activity($pdo, (int)$user['user_id'], 'TWO_FACTOR_ON', 'Two-factor authentication turned on at login (required for Admin accounts).', $role);
+                complete_login($pdo, $user, $portal, 'after verifying ' . mask_email($pending['email']) . ' (two-factor authentication required)');
+            }
+            $_SESSION['pending_login'] = ['step' => 'enable', 'otp_id' => null] + $pending;
+            verify_back($page, 'Your email is verified.', true);
         }
         $message = otp_retry_message($result, $left);
         if ($message !== null) {

@@ -173,6 +173,14 @@ define('PENDING_LOGIN_SECONDS', 900);
 // Forgot password requests from one IP address per hour (more are answered
 // the same way but send nothing)
 define('PASSWORD_RESET_MAX_PER_IP_HOUR', 10);
+// Two-factor authentication is optional (users.two_factor_enabled). After
+// the password, an account without a verified email is asked to set one up;
+// "Not now" skips it, and the question comes back after this many days.
+define('EMAIL_PROMPT_REMIND_DAYS', 7);
+// true: Admin accounts must use two-factor authentication -- no "Not now" or
+// "Maybe later" at login, and it can't be turned off in Profile Preference.
+// Program Chairs, Deans and faculty still choose.
+define('REQUIRE_2FA_FOR_ADMINS', false);
 
 // Subtype hints, tried once the main category is known. The first
 // subtype with the most hits wins; if none match, the category's

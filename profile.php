@@ -6,10 +6,11 @@
  * Program Chair: their program's faculty; Faculty: only themselves).
  *
  * On your own profile you can change your picture, contact number,
- * field of specialization and two-factor email (POST + CSRF token; always
- * your own account, whatever the URL says). A new two-factor email needs
- * your password, then a code sent to it (includes/two_factor.php); the old
- * address is told. The username is set by the Admin. Position, academic rank, employment status,
+ * field of specialization, and in the Security card your email and
+ * two-factor authentication (POST + CSRF token; always your own account,
+ * whatever the URL says). A new email needs your password, then a code sent
+ * to it (includes/two_factor.php); the old address is told. Turning 2FA on
+ * needs a code sent to the verified email, turning it off your password. The username is set by the Admin. Position, academic rank, employment status,
  * program and date hired are set by the Admin in Manage Faculty & Accounts;
  * other personal details are edited in the PDS.
  */
@@ -79,47 +80,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $done('flash_success', 'Your profile has been updated.');
     }
 
-    // ----- Change the two-factor email: password, then a code to the new address
+    // ----- Security (the Security card): email and two-factor authentication -----
+    // Answers go back to the card (profile.php#security), with the message shown there
+    $secure = function (string $key, string $message) {
+        $_SESSION['security_flash'] = [$key === 'flash_success' ? 'success' : 'danger', $message];
+        header('Location: ' . BASE_URL . '/profile.php#security');
+        exit;
+    };
+
+    // The dashboard reminder (includes/header.php) was closed: hidden for the rest of this login
+    if ($action === 'hide_security_banner') {
+        $_SESSION['hide_security_banner'] = true;
+        if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
+            http_response_code(204);
+            exit;
+        }
+        header('Location: ' . BASE_URL . '/index.php');
+        exit;
+    }
+
+    // Add or change the email: password, then a code to the new address
     $change = session_flow('email_change');
     $current = user_row($pdo, $my_id);
     if ($action === 'email_change_start') {
         $email = email_normalize((string)($_POST['new_email'] ?? ''));
         if (!password_verify((string)($_POST['current_password'] ?? ''), $current['password_hash'])) {
-            log_my_activity($pdo, 'EMAIL_CHANGE', 'Two-factor email change refused: wrong password.');
-            $done('flash_error', 'Your current password is not correct.');
+            log_my_activity($pdo, 'EMAIL_CHANGE', 'Email change refused: wrong password.');
+            $secure('flash_error', 'Your current password is not correct.');
         }
         if (!email_valid($email)) {
-            $done('flash_error', 'Please enter a valid email address.');
+            $secure('flash_error', 'Please enter a valid email address.');
         }
         if (verified_email($current) === $email) {
-            $done('flash_error', 'That is already your two-factor email.');
+            $secure('flash_error', 'That is already your email.');
         }
         if (email_taken($pdo, $email, $my_id)) {
-            $done('flash_error', 'That email is already used by another account. Please use a different one.');
+            $secure('flash_error', 'That email is already used by another account. Please use a different one.');
         }
+        unset($_SESSION['two_factor_enable']);   // one code at a time in the card
         $sent = otp_issue($pdo, $current, 'change_email', $email);
         if (!$sent['ok']) {
-            $done('flash_error', $sent['error']);
+            $secure('flash_error', $sent['error']);
         }
         $_SESSION['email_change'] = ['otp_id' => $sent['otp_id'], 'email' => $email, 'sent_at' => time(), 'started' => time()];
-        log_my_activity($pdo, 'EMAIL_CODE_SENT', 'Changing the two-factor email: verification code sent to ' . mask_email($email) . '.');
-        $done('flash_success', 'We sent a 6-digit code to ' . mask_email($email) . '. Enter it below to finish the change.');
+        log_my_activity($pdo, 'EMAIL_CODE_SENT', (verified_email($current) ? 'Changing' : 'Adding') . ' the email: verification code sent to ' . mask_email($email) . '.');
+        $secure('flash_success', 'We sent a 6-digit code to ' . mask_email($email) . '. Enter it below to verify the address.');
     }
     if ($action === 'email_change_cancel') {
         if ($change) { otp_cancel($pdo, (int)$change['otp_id']); }
         unset($_SESSION['email_change']);
-        $done('flash_success', 'Your two-factor email was not changed.');
+        $secure('flash_success', 'Your email was not changed.');
     }
     if (in_array($action, ['email_change_verify', 'email_change_resend'], true) && !$change) {
-        $done('flash_error', 'The email change timed out. Please start again.');
+        $secure('flash_error', 'The email change timed out. Please start again.');
     }
     if ($action === 'email_change_resend') {
         $result = otp_resend($pdo, $current, (int)$change['otp_id']);
         if (!$result['ok']) {
-            $done('flash_error', $result['error']);
+            $secure('flash_error', $result['error']);
         }
         $_SESSION['email_change']['sent_at'] = time();
-        $done('flash_success', 'We sent a new code to ' . mask_email($change['email']) . '.');
+        log_my_activity($pdo, 'EMAIL_CODE_SENT', 'New email verification code sent to ' . mask_email($change['email']) . ' (resend).');
+        $secure('flash_success', 'We sent a new code to ' . mask_email($change['email']) . '.');
     }
     if ($action === 'email_change_verify') {
         $left = null;
@@ -127,27 +149,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($result === 'ok') {
             unset($_SESSION['email_change']);
             if (email_taken($pdo, $change['email'], $my_id)) {
-                $done('flash_error', 'That email is already used by another account. Please use a different one.');
+                $secure('flash_error', 'That email is already used by another account. Please use a different one.');
             }
             $old = verified_email($current);
             set_verified_email($pdo, $my_id, $change['email']);
             $_SESSION['user']['email'] = $change['email'];
-            log_my_activity($pdo, 'EMAIL_CHANGE', 'Changed the two-factor email' . ($old ? ' from ' . mask_email($old) : '') . ' to ' . mask_email($change['email']) . '.');
+            log_my_activity($pdo, $old ? 'EMAIL_CHANGE' : 'EMAIL_VERIFIED', ($old ? 'Changed the email from ' . mask_email($old) . ' to ' : 'Added and verified the email ')
+                . mask_email($change['email']) . '.');
             if ($old) {
-                send_account_notice($old, 'Your two-factor email was changed', [
-                    "The two-factor email of {$current['username']} on the " . SYSTEM_NAME . ' was changed to ' . mask_email($change['email']) . '. Login codes now go there.',
+                send_account_notice($old, 'Your email was changed', [
+                    "The email of {$current['username']} on the " . SYSTEM_NAME . ' was changed to ' . mask_email($change['email'])
+                        . '. Login codes and password reset codes now go there.',
                     "If you didn't make this change, contact the administrator right away.",
                 ]);
             }
-            $done('flash_success', 'Your two-factor email is now ' . $change['email'] . '. Login codes will be sent there.');
+            $secure('flash_success', 'Your email is now ' . $change['email'] . '.'
+                . (two_factor_on($current) ? ' Login codes will be sent there.' : ' You can now turn on two-factor authentication.'));
         }
         $message = otp_retry_message($result, $left);
         if ($message === null) {
             unset($_SESSION['email_change']);
-            log_my_activity($pdo, 'LOGIN_CODE_FAILED', 'Too many wrong codes while changing the two-factor email -- the change was stopped.');
-            $message = 'Too many wrong codes. Your two-factor email was not changed; please start again.';
+            log_my_activity($pdo, 'LOGIN_CODE_FAILED', 'Too many wrong codes while verifying an email -- the change was stopped.');
+            $message = 'Too many wrong codes. Your email was not changed; please start again.';
         }
-        $done('flash_error', $message);
+        $secure('flash_error', $message);
+    }
+
+    // Turn two-factor authentication on: a code to the verified email
+    $enable = session_flow('two_factor_enable');
+    if ($action === 'two_factor_on_start') {
+        $email = verified_email($current);
+        if ($email === null) {
+            $secure('flash_error', 'Add and verify an email first.');
+        }
+        if (two_factor_on($current)) {
+            $secure('flash_success', 'Two-factor authentication is already on.');
+        }
+        unset($_SESSION['email_change']);   // one code at a time in the card
+        $sent = otp_issue($pdo, $current, 'enable_2fa', $email);
+        if (!$sent['ok']) {
+            $secure('flash_error', $sent['error']);
+        }
+        $_SESSION['two_factor_enable'] = ['otp_id' => $sent['otp_id'], 'email' => $email, 'sent_at' => time(), 'started' => time()];
+        log_my_activity($pdo, 'LOGIN_CODE_SENT', 'Turning on two-factor authentication: code sent to ' . mask_email($email) . '.');
+        $secure('flash_success', 'We sent a 6-digit code to ' . mask_email($email) . '. Enter it below to turn on two-factor authentication.');
+    }
+    if ($action === 'two_factor_on_cancel') {
+        if ($enable) { otp_cancel($pdo, (int)$enable['otp_id']); }
+        unset($_SESSION['two_factor_enable']);
+        $secure('flash_success', 'Two-factor authentication is still off.');
+    }
+    if (in_array($action, ['two_factor_on_verify', 'two_factor_on_resend'], true) && !$enable) {
+        $secure('flash_error', 'That timed out. Please start again.');
+    }
+    if ($action === 'two_factor_on_resend') {
+        $result = otp_resend($pdo, $current, (int)$enable['otp_id']);
+        if (!$result['ok']) {
+            $secure('flash_error', $result['error']);
+        }
+        $_SESSION['two_factor_enable']['sent_at'] = time();
+        log_my_activity($pdo, 'LOGIN_CODE_SENT', 'New two-factor code sent to ' . mask_email($enable['email']) . ' (resend).');
+        $secure('flash_success', 'We sent a new code to ' . mask_email($enable['email']) . '.');
+    }
+    if ($action === 'two_factor_on_verify') {
+        $left = null;
+        $result = otp_check($pdo, (int)$enable['otp_id'], $my_id, 'enable_2fa', (string)($_POST['code'] ?? ''), $left);
+        if ($result === 'ok') {
+            unset($_SESSION['two_factor_enable']);
+            set_two_factor($pdo, $my_id, true);
+            log_my_activity($pdo, 'TWO_FACTOR_ON', 'Turned on two-factor authentication (codes go to ' . mask_email($enable['email']) . ').');
+            send_account_notice($enable['email'], 'Two-factor authentication is on', [
+                "Two-factor authentication was turned on for {$current['username']} on the " . SYSTEM_NAME . '. Each login now needs a code sent to this email.',
+                "If you didn't make this change, contact the administrator right away.",
+            ]);
+            $secure('flash_success', 'Two-factor authentication is on. Each login now needs a code sent to ' . mask_email($enable['email']) . '.');
+        }
+        $message = otp_retry_message($result, $left);
+        if ($message === null) {
+            unset($_SESSION['two_factor_enable']);
+            log_my_activity($pdo, 'LOGIN_CODE_FAILED', 'Too many wrong codes while turning on two-factor authentication -- stopped.');
+            $message = 'Too many wrong codes. Two-factor authentication is still off; please start again.';
+        }
+        $secure('flash_error', $message);
+    }
+
+    // Turn two-factor authentication off: the current password
+    if ($action === 'two_factor_off') {
+        if (two_factor_required($current)) {
+            $secure('flash_error', 'Two-factor authentication is required for Admin accounts and can\'t be turned off.');
+        }
+        if (!password_verify((string)($_POST['current_password'] ?? ''), $current['password_hash'])) {
+            log_my_activity($pdo, 'TWO_FACTOR_OFF', 'Turning off two-factor authentication refused: wrong password.');
+            $secure('flash_error', 'Your current password is not correct.');
+        }
+        if (!two_factor_on($current)) {
+            $secure('flash_success', 'Two-factor authentication is already off.');
+        }
+        set_two_factor($pdo, $my_id, false);
+        log_my_activity($pdo, 'TWO_FACTOR_OFF', 'Turned off two-factor authentication.');
+        if ($email = verified_email($current)) {
+            send_account_notice($email, 'Two-factor authentication is off', [
+                "Two-factor authentication was turned off for {$current['username']} on the " . SYSTEM_NAME . '. Logging in now needs only the username and password.',
+                "If you didn't make this change, change your password and contact the administrator right away.",
+            ]);
+        }
+        $secure('flash_success', 'Two-factor authentication is off. You log in with your username and password only.');
     }
     $done('flash_error', 'Unknown action.');
 }
@@ -315,50 +421,75 @@ include __DIR__ . '/includes/header.php';
     </div>
 
     <?php if ($is_own):
-      // Changing the two-factor email: a code was sent to the new address and is waiting to be entered
+      // Security: the email (add / change, verified with a code) and two-factor authentication (on with a code, off with the password)
       $email_change = session_flow('email_change');
+      $two_factor_enable = session_flow('two_factor_enable');
       $verified = verified_email($u);
-      $change_wait = $email_change ? max(0, (int)$email_change['sent_at'] + OTP_RESEND_SECONDS - time()) : 0;
+      $tfa_on = two_factor_on($u);
+      $tfa_required = two_factor_required($u);
+      $security_flash = $_SESSION['security_flash'] ?? null;
+      unset($_SESSION['security_flash']);
+      $code_minutes = (int)ceil(OTP_TTL_SECONDS / 60);
+      $pending_code = $email_change ?? $two_factor_enable;   // at most one code waits in this card
+      $code_wait = $pending_code ? max(0, (int)$pending_code['sent_at'] + OTP_RESEND_SECONDS - time()) : 0;
+      $code_prefix = $email_change ? 'email_change' : 'two_factor_on';
     ?>
-    <div class="card stat-card mb-4" id="two-factor">
-      <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-shield-halved text-brand"></i> Two-factor email</div>
+    <div class="card stat-card mb-4" id="security">
+      <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-shield-halved text-brand"></i> Security</div>
       <div class="card-body">
-        <p class="mb-2">
-          <?php if ($verified): ?>
-            <strong><?= h($verified) ?></strong> <span class="badge bg-success-subtle text-success-emphasis">Verified</span>
-          <?php else: ?>
-            <span class="profile-unset">No verified email</span>
-          <?php endif; ?>
-        </p>
-        <p class="small text-muted">Each time you log in, a one-time code is sent to this email. It's also where a password reset code goes.</p>
+        <?php if ($security_flash): ?>
+          <div class="alert alert-<?= h($security_flash[0]) ?> py-2 small" role="<?= $security_flash[0] === 'danger' ? 'alert' : 'status' ?>"><?= h($security_flash[1]) ?></div>
+        <?php endif; ?>
 
-        <?php if ($email_change): ?>
+        <dl class="profile-dl mb-2">
+          <dt>Email</dt>
+          <dd>
+            <?php if ($verified): ?>
+              <strong><?= h(mask_email($verified)) ?></strong> <span class="badge bg-success-subtle text-success-emphasis">Verified</span>
+            <?php else: ?>
+              <span class="profile-unset">Not set</span>
+            <?php endif; ?>
+          </dd>
+          <dt>Two-factor authentication</dt>
+          <dd>
+            <?php if ($tfa_on): ?>
+              <span class="badge bg-success">On</span><?php if ($tfa_required): ?> <span class="small text-muted">(required for Admin accounts)</span><?php endif; ?>
+            <?php else: ?>
+              <span class="badge bg-secondary">Off</span>
+            <?php endif; ?>
+          </dd>
+        </dl>
+        <p class="small text-muted">Your verified email is used for password recovery. With two-factor authentication on, each login also needs a 6-digit code sent to it.</p>
+
+        <?php if ($pending_code): ?>
           <form method="POST" class="border rounded p-3 bg-light">
             <?= csrf_field() ?>
-            <input type="hidden" name="action" value="email_change_verify">
-            <label for="fEmailCode" class="form-label small fw-semibold">Code sent to <?= h(mask_email($email_change['email'])) ?></label>
+            <input type="hidden" name="action" value="<?= $code_prefix ?>_verify">
+            <label for="fSecurityCode" class="form-label small fw-semibold">
+              <?= $email_change ? 'Code sent to ' . h(mask_email($email_change['email'])) . ' (new email)' : 'Code sent to ' . h(mask_email($two_factor_enable['email'])) . ' (turn on two-factor authentication)' ?>
+            </label>
             <div class="d-flex flex-wrap gap-2">
-              <input type="text" name="code" id="fEmailCode" class="form-control form-control-sm" style="max-width:10rem" inputmode="numeric"
+              <input type="text" name="code" id="fSecurityCode" class="form-control form-control-sm" style="max-width:10rem" inputmode="numeric"
                      autocomplete="one-time-code" maxlength="7" placeholder="000000" required autofocus>
               <button class="btn btn-sm btn-brand"><i class="fa-solid fa-check"></i> Verify</button>
             </div>
-            <div class="form-text">The code expires in <?= (int)ceil(OTP_TTL_SECONDS / 60) ?> minutes. Your current email stays until the new one is verified.</div>
+            <div class="form-text">The code expires in <?= $code_minutes ?> minutes.<?= $email_change && $verified ? ' Your current email stays until the new one is verified.' : '' ?></div>
           </form>
           <div class="d-flex flex-wrap gap-3 mt-2">
             <form method="POST">
               <?= csrf_field() ?>
-              <input type="hidden" name="action" value="email_change_resend">
-              <button class="btn btn-sm btn-link p-0" data-wait="<?= $change_wait ?>">Send a new code</button>
+              <input type="hidden" name="action" value="<?= $code_prefix ?>_resend">
+              <button class="btn btn-sm btn-link p-0" data-wait="<?= $code_wait ?>">Resend code</button>
             </form>
             <form method="POST">
               <?= csrf_field() ?>
-              <input type="hidden" name="action" value="email_change_cancel">
+              <input type="hidden" name="action" value="<?= $code_prefix ?>_cancel">
               <button class="btn btn-sm btn-link p-0 text-muted">Cancel</button>
             </form>
           </div>
           <script>
-          // "Send a new code" waits OTP_RESEND_SECONDS after the last one
-          document.querySelectorAll('#two-factor [data-wait]').forEach(function (button) {
+          // "Resend code" waits OTP_RESEND_SECONDS after the last one
+          document.querySelectorAll('#security [data-wait]').forEach(function (button) {
             var left = parseInt(button.dataset.wait, 10) || 0, label = button.textContent;
             (function tick() {
               button.disabled = left > 0;
@@ -368,26 +499,60 @@ include __DIR__ . '/includes/header.php';
           });
           </script>
         <?php else: ?>
-          <button type="button" class="btn btn-sm btn-outline-brand" data-bs-toggle="collapse" data-bs-target="#emailChangeForm" aria-expanded="false" aria-controls="emailChangeForm">
-            <i class="fa-solid fa-pen"></i> Change email
-          </button>
+          <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-sm btn-outline-brand" data-bs-toggle="collapse" data-bs-target="#emailChangeForm" aria-expanded="false" aria-controls="emailChangeForm">
+              <i class="fa-solid fa-<?= $verified ? 'pen' : 'plus' ?>"></i> <?= $verified ? 'Change email' : 'Add email' ?>
+            </button>
+            <?php if (!$verified): ?>
+              <span class="d-inline-block" tabindex="0" data-tooltip title="Add and verify an email first">
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled><i class="fa-solid fa-toggle-off"></i> Turn on two-factor authentication</button>
+              </span>
+            <?php elseif (!$tfa_on): ?>
+              <form method="POST" class="d-inline">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="two_factor_on_start">
+                <button class="btn btn-sm btn-brand"><i class="fa-solid fa-toggle-on"></i> Turn on two-factor authentication</button>
+              </form>
+            <?php elseif (!$tfa_required): ?>
+              <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="collapse" data-bs-target="#twoFactorOffForm" aria-expanded="false" aria-controls="twoFactorOffForm">
+                <i class="fa-solid fa-toggle-off"></i> Turn off two-factor authentication
+              </button>
+            <?php endif; ?>
+          </div>
+
           <div class="collapse" id="emailChangeForm">
             <form method="POST" class="border-top mt-3 pt-3">
               <?= csrf_field() ?>
               <input type="hidden" name="action" value="email_change_start">
               <div class="mb-2">
-                <label for="fNewEmail" class="form-label small fw-semibold">New email</label>
+                <label for="fNewEmail" class="form-label small fw-semibold"><?= $verified ? 'New email' : 'Email' ?></label>
                 <input type="email" name="new_email" id="fNewEmail" class="form-control form-control-sm" maxlength="150" autocomplete="email" required placeholder="you@gmail.com">
               </div>
               <div class="mb-3">
                 <label for="fEmailPassword" class="form-label small fw-semibold">Your current password</label>
                 <input type="password" name="current_password" id="fEmailPassword" class="form-control form-control-sm" autocomplete="current-password" required>
               </div>
-              <button class="btn btn-sm btn-brand"><i class="fa-solid fa-paper-plane"></i> Send code to the new email</button>
+              <button class="btn btn-sm btn-brand"><i class="fa-solid fa-paper-plane"></i> Send code</button>
               <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#emailChangeForm">Cancel</button>
-              <div class="form-text">We'll send a code to the new address; it becomes your two-factor email once you enter it<?= $verified ? ', and ' . h(mask_email($verified)) . ' is told about the change' : '' ?>.</div>
+              <div class="form-text">We'll send a 6-digit code to this address; it's saved once you enter the code<?= $verified ? ', and ' . h(mask_email($verified)) . ' is told about the change' : '' ?>.</div>
             </form>
           </div>
+
+          <?php if ($tfa_on && !$tfa_required): ?>
+          <div class="collapse" id="twoFactorOffForm">
+            <form method="POST" class="border-top mt-3 pt-3">
+              <?= csrf_field() ?>
+              <input type="hidden" name="action" value="two_factor_off">
+              <div class="mb-3">
+                <label for="fTwoFactorPassword" class="form-label small fw-semibold">Your current password</label>
+                <input type="password" name="current_password" id="fTwoFactorPassword" class="form-control form-control-sm" autocomplete="current-password" required>
+              </div>
+              <button class="btn btn-sm btn-danger"><i class="fa-solid fa-toggle-off"></i> Turn off</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#twoFactorOffForm">Cancel</button>
+              <div class="form-text">Logging in will need only your username and password. Your email stays for password recovery.</div>
+            </form>
+          </div>
+          <?php endif; ?>
         <?php endif; ?>
       </div>
     </div>
