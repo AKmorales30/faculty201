@@ -1,7 +1,7 @@
 services:
   - type: web
     name: faculty201-repository
-    env: docker
+    runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
     envVars:
@@ -35,7 +35,7 @@ services:
       - key: GOOGLE_REFRESH_TOKEN
         sync: false
       - key: MAIL_FROM_EMAIL
-        sync: false
+        value: "udmccsfaculty201.ms@gmail.com"
       - key: MAIL_FROM_NAME
         value: "Faculty-201 File Management System"
       # AI features (config/ai.example.php); without it AI is off and everything else works
