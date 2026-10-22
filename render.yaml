@@ -24,8 +24,10 @@ services:
       - key: APP_BASE_URL
         sync: false
       # Email for the login codes, email verification and password reset
-      # (config/mail.example.php has the Google setup). Required: without it
-      # nobody can log in. Gmail API: the OAuth client and refresh token, and
+      # (config/mail.example.php has the Google setup). Two-factor
+      # authentication is optional: without working email, accounts with 2FA
+      # off still log in, but 2FA logins, email setup and Forgot password
+      # can't send codes. Gmail API: the OAuth client and refresh token, and
       # MAIL_FROM_EMAIL = the Gmail address that authorized it.
       # (Postmark / SendGrid instead: MAIL_PROVIDER and their key.)
       - key: GOOGLE_CLIENT_ID

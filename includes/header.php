@@ -154,3 +154,22 @@ $ad_link = function (array $item, bool $nested) use ($ad_page): string {
           <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>
         <?php unset($_SESSION['flash_error']); ?>
       <?php endif; ?>
+      <?php // No verified email (e.g. "Not now" at login): a reminder on the dashboard, until closed for this login
+      if (!empty($_SESSION['user']) && empty($_SESSION['user']['email']) && empty($_SESSION['hide_security_banner'])
+          && basename($_SERVER['PHP_SELF']) === 'dashboard.php'): ?>
+        <div class="alert alert-warning alert-dismissible fade show d-flex align-items-start gap-2" role="status" id="securityBanner">
+          <i class="fa-solid fa-shield-halved mt-1" aria-hidden="true"></i>
+          <div><strong>Secure your account:</strong> set up your email for two-factor authentication.
+            <a href="<?= BASE_URL ?>/profile.php#security" class="alert-link">Go to Profile Preference</a></div>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
+        </div>
+        <script>
+        // Closing it hides it for the rest of this login (profile.php, action hide_security_banner)
+        document.getElementById('securityBanner').addEventListener('closed.bs.alert', function () {
+          var body = new FormData();
+          body.append('action', 'hide_security_banner');
+          body.append('csrf_token', <?= json_encode(csrf_token()) ?>);
+          fetch(<?= json_encode(BASE_URL . '/profile.php') ?>, { method: 'POST', body: body, headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+        });
+        </script>
+      <?php endif; ?>

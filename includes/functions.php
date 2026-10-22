@@ -86,7 +86,7 @@ function run_pending_migrations(PDO $pdo): void {
                    'migration_reminder_checks.sql', 'migration_review_archive_views.sql',
                    'migration_recently_deleted.sql', 'migration_account_names_delete.sql', 'migration_document_file_chunks.sql',
                    'migration_flags_pds_versions.sql', 'migration_username_2fa.sql',
-                   'migration_restore_two_factor.sql'];
+                   'migration_restore_two_factor.sql', 'migration_optional_two_factor.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -1914,11 +1914,14 @@ function activity_actions(): array {
         'REMINDER_CHECK'     => 'Reminder Check',
         'LOGIN_CODE_SENT'    => 'Login Code Sent',
         'LOGIN_CODE_FAILED'  => 'Login Code Failed (Too Many Wrong Codes)',
-        'EMAIL_SETUP'        => 'Two-Factor Email Setup Started',
+        'EMAIL_SETUP'        => 'Email Setup Asked at Login',
         'EMAIL_CODE_SENT'    => 'Email Verification Code Sent',
-        'EMAIL_VERIFIED'     => 'Two-Factor Email Verified',
-        'EMAIL_CHANGE'       => 'Two-Factor Email Changed',
-        'EMAIL_2FA_RESET'    => 'Two-Factor Email Reset by Admin',
+        'EMAIL_VERIFIED'     => 'Email Verified',
+        'EMAIL_CHANGE'       => 'Email Changed',
+        'EMAIL_2FA_RESET'    => 'Email / Two-Factor Reset by Admin',
+        'EMAIL_SETUP_SKIPPED' => 'Email Setup Skipped (Not Now)',
+        'TWO_FACTOR_ON'      => 'Two-Factor Authentication Turned On',
+        'TWO_FACTOR_OFF'     => 'Two-Factor Authentication Turned Off',
         'USERNAME_CHANGE'    => 'Username Changed',
         'PASSWORD_RESET_REQUEST' => 'Forgot Password Requested',
         'PASSWORD_RESET_SELF' => 'Password Reset with Emailed Code',

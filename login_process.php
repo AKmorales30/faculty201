@@ -157,11 +157,15 @@ if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
         ->execute([password_hash($password, PASSWORD_DEFAULT), $user_id]));
 }
 
-// Right username and password: the second step (includes/two_factor.php).
-// No session user yet -- only this pending login, finished in login_verify.php.
+// Right username and password. Two-factor authentication is optional
+// (includes/two_factor.php): 2FA on -> a code to the verified email; no
+// verified email and not snoozed -> "Set up your email"; otherwise straight in.
+// No session user yet while a step is pending -- only this pending login,
+// finished in login_verify.php.
 unset($_SESSION['password_reset'], $_SESSION['login_username'], $_SESSION['login_bad_fields']);
 $email = verified_email($user);
-if ($email !== null) {
+
+if (two_factor_on($user)) {
     try {
         $sent = otp_issue($pdo, $user, 'login', $email);
     } catch (Throwable $e) {
@@ -172,19 +176,20 @@ if ($email !== null) {
         login_fail($sent['error']);
     }
     log_activity($pdo, $user_id, 'LOGIN_CODE_SENT', 'Password accepted; login code sent to ' . mask_email($email) . '.', $user['role']);
-}
-$_SESSION['pending_login'] = [
-    'user_id' => $user_id,
-    'portal'  => $portal_key,
-    'step'    => $email !== null ? 'code' : 'email',   // no verified email yet: ask for one first
-    'purpose' => $email !== null ? 'login' : 'setup_email',
-    'otp_id'  => $email !== null ? $sent['otp_id'] : null,
-    'email'   => $email,
-    'sent_at' => time(),
-    'started' => time(),
-];
-if ($email === null) {
-    log_activity($pdo, $user_id, 'EMAIL_SETUP', 'Password accepted; no verified email yet -- asked to set one up.', $user['role']);
+    $_SESSION['pending_login'] = [
+        'user_id' => $user_id, 'portal' => $portal_key, 'step' => 'code', 'purpose' => 'login',
+        'otp_id' => $sent['otp_id'], 'email' => $email, 'sent_at' => time(), 'started' => time(),
+    ];
+} elseif (email_prompt_due($user)) {
+    log_activity($pdo, $user_id, 'EMAIL_SETUP', 'Password accepted; no verified email yet -- asked to set one up (optional'
+        . (two_factor_required($user) ? ' except for Admin accounts' : '') . ').', $user['role']);
+    $_SESSION['pending_login'] = [
+        'user_id' => $user_id, 'portal' => $portal_key, 'step' => 'prompt', 'purpose' => 'setup_email',
+        'otp_id' => null, 'email' => null, 'sent_at' => time(), 'started' => time(),
+        'required' => two_factor_required($user),   // only for the landing page's buttons; login_verify.php checks again
+    ];
+} else {
+    complete_login($pdo, $user, $portal_key, $email !== null ? 'with the password (two-factor authentication is off)' : 'with the password (no email set up)');
 }
 $_SESSION['step_slide'] = true;   // the landing page slides over to the next step
 header('Location: ' . login_page_url($portal_key));

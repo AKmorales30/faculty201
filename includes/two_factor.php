@@ -1,13 +1,17 @@
 <?php
 /**
- * Two-factor login: after the right username and password
- * (login_process.php) a 6-digit code goes to the account's verified email,
- * and the session is only created once it's entered (login_verify.php). An
- * account without a verified email (every account from before this
- * change) sets one up first: the code then goes to the new address, which
- * becomes the two-factor email once confirmed. The same codes verify a
- * changed email (profile.php) and reset a forgotten password
- * (forgot_password.php).
+ * Optional two-factor authentication. After the right username and password
+ * (login_process.php):
+ *   - 2FA on (users.two_factor_enabled, verified email): a 6-digit code goes
+ *     to the verified email, and the session is only created once it's
+ *     entered (login_verify.php);
+ *   - no verified email: "Set up your email" (Set up now / Not now). Set up
+ *     now: email -> code -> "Turn on two-factor authentication?". Not now:
+ *     straight in, asked again after EMAIL_PROMPT_REMIND_DAYS;
+ *   - otherwise: straight in.
+ * REQUIRE_2FA_FOR_ADMINS makes it compulsory for Admin accounts. The same
+ * codes verify a new email and turn 2FA on (profile.php) and reset a
+ * forgotten password (forgot_password.php).
  *
  * Codes (login_otps): random, stored only as a password_hash(), working
  * once, for OTP_TTL_SECONDS and OTP_MAX_ATTEMPTS tries; a new one can be sent
@@ -62,6 +66,39 @@ function set_verified_email(PDO $pdo, int $user_id, string $email): void {
     }
 }
 
+/** Whether this account must use two-factor authentication (REQUIRE_2FA_FOR_ADMINS). */
+function two_factor_required(array $user): bool {
+    return REQUIRE_2FA_FOR_ADMINS && ($user['role'] ?? '') === 'admin';
+}
+
+/**
+ * Whether logging in needs an emailed code: a verified email, and 2FA turned
+ * on (or required). Before database/supabase/06_optional_two_factor.sql has
+ * run (no two_factor_enabled column), a verified email means on, as before.
+ */
+function two_factor_on(array $user): bool {
+    if (verified_email($user) === null) {
+        return false;
+    }
+    return !array_key_exists('two_factor_enabled', $user) || !empty($user['two_factor_enabled']) || two_factor_required($user);
+}
+
+/** Whether to show "Set up your email" after the password: no verified email, and no "Not now" in the last EMAIL_PROMPT_REMIND_DAYS. */
+function email_prompt_due(array $user): bool {
+    if (verified_email($user) !== null) {
+        return false;
+    }
+    if (two_factor_required($user) || empty($user['email_prompt_dismissed_at'])) {
+        return true;
+    }
+    return time() - strtotime($user['email_prompt_dismissed_at']) >= EMAIL_PROMPT_REMIND_DAYS * 86400;
+}
+
+/** Turn two-factor authentication on or off for an account. */
+function set_two_factor(PDO $pdo, int $user_id, bool $on): void {
+    $pdo->prepare("UPDATE users SET two_factor_enabled = ? WHERE user_id = ?")->execute([$on ? 1 : 0, $user_id]);
+}
+
 // ---------------------------------------------------------------------
 // One-time codes
 // ---------------------------------------------------------------------
@@ -77,8 +114,13 @@ function otp_email(string $purpose, string $code, array $user): array {
         ], $code)],
         'setup_email', 'change_email' => ['Verify your email', email_bodies('Verify your email', [
             "Enter this code to confirm this address for {$user['username']} on the " . SYSTEM_NAME
-                . ". Once confirmed, your login codes are sent here.", $expires,
+                . '. Once confirmed, it can receive your login codes and password reset codes.', $expires,
             "If you didn't ask for this, you can ignore this email.",
+        ], $code)],
+        'enable_2fa' => ['Turn on two-factor authentication', email_bodies('Turn on two-factor authentication', [
+            "Enter this code to turn on two-factor authentication for {$user['username']} on the " . SYSTEM_NAME
+                . '. After that, each login also needs a code sent to this email.', $expires,
+            "If you didn't ask for this, someone may know your password: change it right away and tell the administrator.",
         ], $code)],
         'reset_password' => ['Reset your password', email_bodies('Reset your password', [
             "Enter this code to set a new password for {$user['username']} on the " . SYSTEM_NAME . '.', $expires,
@@ -230,20 +272,22 @@ function login_page_url(string $portal): string {
 }
 
 /**
- * Both steps passed: record the login, screen it, start the session and go
- * to the dashboard (or Change Password, for a temporary password).
+ * The login is accepted (the password, and the code when 2FA is on): record
+ * it, screen it, start the session and go to the dashboard (or Change
+ * Password, for a temporary password). $how says how, for the activity log.
  */
-function complete_login(PDO $pdo, array $user, string $portal): never {
+function complete_login(PDO $pdo, array $user, string $portal, string $how = ''): never {
     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
     $user_id = (int)$user['user_id'];
     login_side_task('recording the login', fn() => record_login_attempt($pdo, (string)$user['username'], $user_id, true, $ip));
     login_side_task('suspicious-login screening', fn() => flag_suspicious_login($pdo, $user_id, $user['full_name'], $ip));
-    log_activity($pdo, $user_id, 'LOGIN', 'Signed in through the ' . ($portal === 'faculty' ? 'Faculty' : 'Admin')
-        . ' login page with a code sent to ' . mask_email((string)$user['email']) . '.', $user['role']);
+    log_activity($pdo, $user_id, 'LOGIN', 'Signed in through the ' . ($portal === 'faculty' ? 'Faculty' : 'Admin') . ' login page'
+        . ($how !== '' ? ' ' . $how : '') . '.', $user['role']);
 
     session_regenerate_id(true);   // new session id on login (prevents session fixation)
     unset($_SESSION['pending_login'], $_SESSION['password_reset'], $_SESSION['login_username'], $_SESSION['login_bad_fields'],
-          $_SESSION['csrf_token'], $_SESSION['step_error'], $_SESSION['step_notice'], $_SESSION['step_slide']);   // new CSRF token for the new session too
+          $_SESSION['csrf_token'], $_SESSION['step_error'], $_SESSION['step_notice'], $_SESSION['step_slide'],
+          $_SESSION['hide_security_banner']);   // new CSRF token for the new session too
 
     // Store only what's needed in session -- never the password hash
     $_SESSION['user'] = [
@@ -252,7 +296,7 @@ function complete_login(PDO $pdo, array $user, string $portal): never {
         'full_name' => $user['full_name'],
         'first_name' => $user['first_name'] ?? null,   // greetings: person_first_name()
         'username'  => $user['username'],
-        'email'     => $user['email'],                  // the verified two-factor email
+        'email'     => verified_email($user),           // the verified email, or null (dashboard banner)
         'profile_picture' => $user['profile_picture'] ?? null,   // header picture; updated when it's changed on My Profile
         // Temporary password from the Admin: require_login() allows only Change Password until it's replaced
         'must_change_password' => !empty($user['must_change_password']),
@@ -283,7 +327,7 @@ function raise_security_alert(PDO $pdo, array $user, string $reason): void {
     }
 }
 
-/** Tell an account by email that something about its login changed (password, two-factor email). Never throws. */
+/** Tell an account by email that something about its login changed (password, email, two-factor). Never throws. */
 function send_account_notice(string $to, string $heading, array $paragraphs): void {
     [$text, $html] = email_bodies($heading, $paragraphs);
     send_email($to, $heading, $text, $html);

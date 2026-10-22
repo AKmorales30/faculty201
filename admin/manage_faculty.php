@@ -50,20 +50,28 @@ function account_log_name(array $u): string {
     return "account #{$u['user_id']} {$u['full_name']} (" . str_replace('_', ' ', $u['role']) . ', username ' . ($u['username'] ?? '') . ')';
 }
 
-/** The two-factor email in the account list: verified, typed in but not verified, or none yet. */
+/** The account's 2FA status: [label, badge class] -- On, Off, or No email (no verified email yet). */
+function account_2fa_status(array $u): array {
+    if (verified_email($u) === null) { return ['No email', 'bg-light text-muted border']; }
+    return two_factor_on($u) ? ['On', 'bg-success'] : ['Off', 'bg-secondary'];
+}
+
+/** The email and 2FA status in the account list: verified, typed in but not verified, or none yet. */
 function account_email_line(array $u): string {
+    [$label, $class] = account_2fa_status($u);
+    $badge = ' <span class="badge ' . $class . '" title="Two-factor authentication">2FA: ' . $label . '</span>';
     if (!empty($u['email_verified_at'])) {
-        return '<i class="fa-solid fa-envelope-circle-check text-success" aria-hidden="true"></i><span class="visually-hidden">Verified email:</span> ' . h($u['email']);
+        return '<i class="fa-solid fa-envelope-circle-check text-success" aria-hidden="true"></i><span class="visually-hidden">Verified email:</span> ' . h($u['email']) . $badge;
     }
     if (!empty($u['email'])) {
-        return '<i class="fa-regular fa-envelope" aria-hidden="true"></i> ' . h($u['email']) . ' <span class="badge bg-light text-muted border">not verified</span>';
+        return '<i class="fa-regular fa-envelope" aria-hidden="true"></i> ' . h($u['email']) . ' <span class="badge bg-light text-muted border">not verified</span>' . $badge;
     }
-    return '<i class="fa-regular fa-envelope" aria-hidden="true"></i> No email yet -- set up at next login';
+    return '<i class="fa-regular fa-envelope" aria-hidden="true"></i> No email set up' . $badge;
 }
 
 /** users row for an activity-log entry, or null. */
 function account_for_log(PDO $pdo, int $user_id): ?array {
-    $stmt = $pdo->prepare("SELECT user_id, full_name, role, username, email, email_verified_at, is_active, deleted_at FROM users WHERE user_id = ?");
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");   // * : two_factor_enabled may not be migrated yet
     $stmt->execute([$user_id]);
     return $stmt->fetch() ?: null;
 }
@@ -80,9 +88,9 @@ function remaining_admin_count(PDO $pdo): int {
 // parts (person_full_name()); every page joins users by user_id, so the new
 // name shows everywhere at once -- the account holder's own top bar too
 // (includes/auth.php refreshes it on every request). Logged with old ->
-// new values; the account holder is notified. The two-factor email isn't
-// edited here: the account holder verifies it (Reset two-factor email
-// clears it, below).
+// new values; the account holder is notified. The email and two-factor
+// authentication aren't edited here: the account holder sets them (Reset
+// email / 2FA clears them, below).
 // ---------------------------------------------------------------------
 if ($action === 'edit_account') {
     $target = user_row($pdo, (int)($_POST['user_id'] ?? 0));
@@ -283,9 +291,10 @@ if ($action === 'unlock_login') {
 }
 
 // ---------------------------------------------------------------------
-// Reset two-factor email: for someone who lost access to their email. The
-// verified email is removed (codes waiting for it stop working), so at the
-// next login they're asked to set up and verify a new one. Logged; the
+// Reset email / 2FA: for someone who lost access to their email. The
+// verified email is removed (codes waiting for it stop working), two-factor
+// authentication is turned off and the "Not now" date cleared, so at the next
+// login they're asked to set up an email again (optional). Logged; the
 // account holder is notified in the system and at the old address.
 // ---------------------------------------------------------------------
 if ($action === 'reset_2fa_email') {
@@ -293,23 +302,25 @@ if ($action === 'reset_2fa_email') {
     if (!$target || !empty($target['deleted_at'])) {
         $_SESSION['flash_error'] = 'That account could not be found.';
     } elseif ((int)$target['user_id'] === (int)$me['user_id']) {
-        $_SESSION['flash_error'] = 'Change your own two-factor email in Profile Preference.';
+        $_SESSION['flash_error'] = 'Change your own email and two-factor authentication in Profile Preference.';
     } elseif (empty($target['email_verified_at'])) {
-        $_SESSION['flash_error'] = "{$target['full_name']} has no verified email yet -- they'll set one up at their next login.";
+        $_SESSION['flash_error'] = "{$target['full_name']} has no verified email -- nothing to reset.";
     } else {
         $old = (string)$target['email'];
-        $pdo->prepare("UPDATE users SET email = NULL, email_verified_at = NULL WHERE user_id = ?")->execute([$target['user_id']]);
+        $was = two_factor_on($target) ? 'on' : 'off';
+        $pdo->prepare("UPDATE users SET email = NULL, email_verified_at = NULL, two_factor_enabled = 0, email_prompt_dismissed_at = NULL WHERE user_id = ?")
+            ->execute([$target['user_id']]);
         $pdo->prepare("UPDATE login_otps SET used_at = ? WHERE user_id = ? AND used_at IS NULL")->execute([date('Y-m-d H:i:s'), $target['user_id']]);
-        log_my_activity($pdo, 'EMAIL_2FA_RESET', 'Reset the two-factor email of ' . account_log_name($target) . ' (was ' . mask_email($old)
-            . '); they must set up and verify a new one at their next login.');
-        notify($pdo, (int)$target['user_id'], 'The Admin reset your two-factor email on ' . date('F j, Y, g:i A')
-            . '. At your next login you\'ll be asked to enter and verify a new email.');
-        send_account_notice($old, 'Your two-factor email was removed', [
-            "The administrator removed this address as the two-factor email of {$target['username']} on the " . SYSTEM_NAME . '.',
-            'Login codes are no longer sent here. At the next login a new email has to be set up and verified.',
+        log_my_activity($pdo, 'EMAIL_2FA_RESET', 'Reset the email and two-factor authentication of ' . account_log_name($target) . ' (email was ' . mask_email($old)
+            . ", 2FA was {$was}); 2FA is off and they'll be asked to set up an email at their next login.");
+        notify($pdo, (int)$target['user_id'], 'The Admin reset your email and two-factor authentication on ' . date('F j, Y, g:i A')
+            . '. Two-factor authentication is off; at your next login you can set up a new email.');
+        send_account_notice($old, 'Your email was removed', [
+            "The administrator removed this address from {$target['username']} on the " . SYSTEM_NAME . ' and turned off two-factor authentication.',
+            'Login codes and password reset codes are no longer sent here. A new email can be set up at the next login.',
             "If you didn't ask for this, contact the administrator.",
         ]);
-        $_SESSION['flash_success'] = "Two-factor email reset for {$target['full_name']}. They'll set up a new one at their next login.";
+        $_SESSION['flash_success'] = "Email and two-factor authentication reset for {$target['full_name']}. They can set up a new email at their next login.";
     }
     header('Location: ' . $list_url);
     exit;
@@ -484,7 +495,7 @@ include __DIR__ . '/../includes/header.php';
     <code class="fs-5 px-2 py-1 bg-white border rounded user-select-all" id="tempPassword"><?= h($notice['password']) ?></code>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="copyTempPassword"><i class="fa-regular fa-copy"></i> Copy</button>
   </div>
-  <div class="small">This is shown only once -- give it to the account holder now, with their username. When they log in they'll verify their email (if they haven't yet) and choose their own password.</div>
+  <div class="small">This is shown only once -- give it to the account holder now, with their username. When they log in they'll choose their own password, and can set up an email for two-factor authentication.</div>
 </div>
 <script>
 document.getElementById('copyTempPassword').addEventListener('click', function () {
@@ -639,7 +650,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                         data-name="<?= h($u['full_name']) ?>" data-role="<?= h($u['role']) ?>" data-role-label="<?= h(user_position_label(['role' => $u['role'], 'employment_type' => null])) ?>"
                         data-title="<?= h($parts['name_title']) ?>" data-first="<?= h($parts['first_name']) ?>" data-middle="<?= h($parts['middle_name']) ?>"
                         data-last="<?= h($parts['last_name']) ?>" data-suffix="<?= h($parts['name_suffix']) ?>" data-username="<?= h((string)$u['username']) ?>"
-                        data-email2fa="<?= h(!empty($u['email_verified_at']) ? $u['email'] . ' (verified)' : 'Not set up yet -- they verify one at their next login') ?>"
+                        data-email2fa="<?= h((!empty($u['email_verified_at']) ? $u['email'] . ' (verified)' : 'No email set up') . ' -- 2FA: ' . account_2fa_status($u)[0]) ?>"
                         data-emp="<?= h((string)$u['employment_type']) ?>" data-program="<?= h((string)$u['program']) ?>" data-college="<?= h((string)$u['college']) ?>"
                         data-rank="<?= h((string)$u['academic_rank']) ?>" data-hired="<?= h((string)$u['date_engaged']) ?>" data-empid="<?= h((string)$u['employee_id']) ?>">
                   <i class="fa-solid fa-user-pen"></i>
@@ -652,14 +663,14 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   <i class="fa-solid fa-key"></i>
                 </button>
                 <?php if ($self): ?></span><?php endif; ?>
-                <?php $no_2fa_reset = $self ? 'Change your own two-factor email in Profile Preference' : (empty($u['email_verified_at']) ? 'No verified email to reset' : ''); ?>
-                <form method="POST" action="?<?= h($list_query) ?>" class="d-inline" data-confirm="<?= h($u['full_name'] . '\'s verified email (' . mask_email((string)$u['email']) . ') stops receiving login codes. At their next login they\'ll enter and verify a new email. Use this when they lost access to it.') ?>"
-                      data-confirm-title="Reset two-factor email?" data-confirm-ok="Reset email" data-confirm-danger="1">
+                <?php $no_2fa_reset = $self ? 'Change your own email and 2FA in Profile Preference' : (empty($u['email_verified_at']) ? 'No verified email to reset' : ''); ?>
+                <form method="POST" action="?<?= h($list_query) ?>" class="d-inline" data-confirm="<?= h($u['full_name'] . '\'s verified email (' . mask_email((string)$u['email']) . ') is removed and two-factor authentication turned off. At their next login they can set up a new email. Use this when they lost access to it.') ?>"
+                      data-confirm-title="Reset email and 2FA?" data-confirm-ok="Reset" data-confirm-danger="1">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="reset_2fa_email">
                   <input type="hidden" name="user_id" value="<?= (int)$u['user_id'] ?>">
                   <?php if ($no_2fa_reset): ?><span class="d-inline-block" tabindex="0" data-tooltip title="<?= h($no_2fa_reset) ?>"><?php endif; ?>
-                  <button class="btn btn-sm btn-outline-brand" <?= $no_2fa_reset ? 'disabled' : 'data-tooltip' ?> title="Reset two-factor email" aria-label="Reset two-factor email of <?= h($u['full_name']) ?>">
+                  <button class="btn btn-sm btn-outline-brand" <?= $no_2fa_reset ? 'disabled' : 'data-tooltip' ?> title="Reset email / 2FA" aria-label="Reset email and two-factor authentication of <?= h($u['full_name']) ?>">
                     <i class="fa-solid fa-envelope-circle-check"></i>
                   </button>
                   <?php if ($no_2fa_reset): ?></span><?php endif; ?>
@@ -748,7 +759,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
           <div class="mb-3">
             <label for="cEmail" class="form-label">Email <span class="text-muted small">(optional)</span></label>
             <input type="email" name="email" id="cEmail" class="form-control" maxlength="150">
-            <div class="form-text">They set up and verify their own email at their first login; login codes go only to a verified email.</div>
+            <div class="form-text">Optional. They can set up and verify their own email at login or in Profile Preference; codes go only to a verified email.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Role</label>
@@ -864,9 +875,9 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
             <div class="form-control-plaintext" id="editRole"></div>
           </div>
           <div class="col-12">
-            <span class="form-label small fw-semibold d-block mb-0">Two-factor email</span>
+            <span class="form-label small fw-semibold d-block mb-0">Email / two-factor authentication</span>
             <div class="form-control-plaintext py-1" id="editEmail2fa"></div>
-            <div class="form-text mt-0">Set and verified by the account holder. If they lost access to it, use <i class="fa-solid fa-envelope-circle-check" aria-hidden="true"></i> Reset two-factor email in the list.</div>
+            <div class="form-text mt-0">Set by the account holder. If they lost access to the email, use <i class="fa-solid fa-envelope-circle-check" aria-hidden="true"></i> Reset email / 2FA in the list.</div>
           </div>
         </div>
         <div class="row g-2 mb-2">

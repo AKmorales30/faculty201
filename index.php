@@ -70,6 +70,8 @@ $active = $role !== '' ? $role : 'faculty';   // which pill / hidden value the f
 
 // The third pane: '' (holds the Forgot password form, for landing.js to slide to), or the step to show now
 $step = match (true) {
+    $pending && $pending['step'] === 'prompt'     => 'setup_prompt',
+    $pending && $pending['step'] === 'enable'     => 'setup_enable',
     $pending && $pending['step'] === 'email'      => 'setup_email',
     $pending && $pending['purpose'] === 'login'   => 'login_code',
     (bool)$pending                                 => 'setup_code',
@@ -80,6 +82,9 @@ $step = match (true) {
 };
 $flow = $pending ?? $reset;
 $resend_wait = $flow ? max(0, (int)$flow['sent_at'] + OTP_RESEND_SECONDS - time()) : 0;
+$code_left = $flow ? max(0, (int)$flow['sent_at'] + OTP_TTL_SECONDS - time()) : 0;   // the expiry countdown under the code boxes
+// REQUIRE_2FA_FOR_ADMINS: an Admin can't skip setting up the email (the account is only known by its portal here)
+$step_required = $pending && REQUIRE_2FA_FOR_ADMINS && !empty($pending['required']);
 $code_minutes = (int)ceil(OTP_TTL_SECONDS / 60);
 $view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
 ?>
