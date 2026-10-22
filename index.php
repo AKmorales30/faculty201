@@ -235,7 +235,7 @@ $view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
 
 <footer class="ld-footer">
   <p><?= date('Y') ?> © Universidad de Manila — College of Computing Studies</p>
-  <p>Developed by Arnesto, Austria, Morales</p>
+  <p>Developed by Arnesto, Austria, Morales &middot; <a href="<?= BASE_URL ?>/privacy.php">Privacy Policy</a></p>
 </footer>
 
 </body>
