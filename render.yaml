@@ -1,7 +1,7 @@
 services:
   - type: web
     name: faculty201-repository
-    env: docker
+    runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
     envVars:
