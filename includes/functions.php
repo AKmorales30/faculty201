@@ -85,7 +85,8 @@ function run_pending_migrations(PDO $pdo): void {
                    'migration_search_indexes.sql', 'migration_profile_reports_archive.sql', 'migration_ai_features.sql',
                    'migration_reminder_checks.sql', 'migration_review_archive_views.sql',
                    'migration_recently_deleted.sql', 'migration_account_names_delete.sql', 'migration_document_file_chunks.sql',
-                   'migration_flags_pds_versions.sql', 'migration_username_2fa.sql', 'migration_remove_two_factor.sql'];
+                   'migration_flags_pds_versions.sql', 'migration_username_2fa.sql',
+                   'migration_restore_two_factor.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -793,11 +794,11 @@ function purge_deleted_account(PDO $pdo, int $user_id): ?int {
                                WHERE faculty_id = ? AND status IN ('active', 'for_review')");
         $stmt->execute([$reason, $user_id]);
         $moved = $stmt->rowCount();
-        foreach (['notifications', 'ai_reminders', 'ai_reminder_checks', 'profile_pictures'] as $table) {
+        foreach (['notifications', 'ai_reminders', 'ai_reminder_checks', 'profile_pictures', 'login_otps'] as $table) {
             $pdo->prepare("DELETE FROM {$table} WHERE user_id = ?")->execute([$user_id]);
         }
         $pdo->prepare(
-            "UPDATE users SET email = ?, username = NULL, password_hash = ?, profile_picture = NULL, contact_number = NULL, must_change_password = 0,
+            "UPDATE users SET email = ?, email_verified_at = NULL, username = NULL, password_hash = ?, profile_picture = NULL, contact_number = NULL, must_change_password = 0,
                               is_active = 0, purged_at = NOW() WHERE user_id = ?"
         )->execute(['deleted-' . $user_id . '-' . bin2hex(random_bytes(4)) . '@deleted.invalid',
                     password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT), $user_id]);
@@ -1700,8 +1701,9 @@ function role_notifications_path(string $role): string {
 // ---------------------------------------------------------------------
 
 /**
- * One login attempt, by the username typed (lowercased). $blocked: refused
- * because of a lockout, password not checked (not counted as a failure).
+ * One login attempt, by the username typed (lowercased). $success: both
+ * steps passed (password and emailed code). $blocked: refused because of a
+ * lockout, password not checked (not counted as a failure).
  * login_attempts.email is kept for the attempts from before usernames.
  */
 function record_login_attempt(PDO $pdo, string $username, ?int $user_id, bool $success, string $ip, bool $blocked = false): void {
@@ -1910,7 +1912,16 @@ function activity_actions(): array {
         'LOGIN_UNLOCK'       => 'Login Unlocked',
         'AI_SUMMARY'         => 'AI Report Summary Generated',
         'REMINDER_CHECK'     => 'Reminder Check',
+        'LOGIN_CODE_SENT'    => 'Login Code Sent',
+        'LOGIN_CODE_FAILED'  => 'Login Code Failed (Too Many Wrong Codes)',
+        'EMAIL_SETUP'        => 'Two-Factor Email Setup Started',
+        'EMAIL_CODE_SENT'    => 'Email Verification Code Sent',
+        'EMAIL_VERIFIED'     => 'Two-Factor Email Verified',
+        'EMAIL_CHANGE'       => 'Two-Factor Email Changed',
+        'EMAIL_2FA_RESET'    => 'Two-Factor Email Reset by Admin',
         'USERNAME_CHANGE'    => 'Username Changed',
+        'PASSWORD_RESET_REQUEST' => 'Forgot Password Requested',
+        'PASSWORD_RESET_SELF' => 'Password Reset with Emailed Code',
     ];
 }
 
@@ -1961,6 +1972,7 @@ function unresolved_security_alert_count(PDO $pdo): int {
 }
 
 require_once __DIR__ . '/profile.php';   // profiles: access scope, pictures, profile details, usernames
+require_once __DIR__ . '/two_factor.php';   // emailed login codes, two-factor email, finishing a login
 require_once __DIR__ . '/document_review.php';   // Manage Document: classification review, posting
 require_once __DIR__ . '/page_tabs.php';         // tab bars joining the pages behind one menu entry
 require_once __DIR__ . '/ai.php';        // AI (Gemini): settings, privacy, reminders
