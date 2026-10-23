@@ -177,6 +177,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Turn two-factor authentication on: a code to the verified email
     $enable = session_flow('two_factor_enable');
+    if (in_array($action, ['two_factor_on_start', 'two_factor_on_verify', 'two_factor_off'], true) && !two_factor_ready($current)) {
+        unset($_SESSION['two_factor_enable']);
+        $secure('flash_error', TWO_FACTOR_NOT_READY);
+    }
     if ($action === 'two_factor_on_start') {
         $email = verified_email($current);
         if ($email === null) {
@@ -460,6 +464,9 @@ include __DIR__ . '/includes/header.php';
           </dd>
         </dl>
         <p class="small text-muted">Your verified email is used for password recovery. With two-factor authentication on, each login also needs a 6-digit code sent to it.</p>
+        <?php if (!two_factor_ready($u)): ?>
+          <p class="small text-warning-emphasis"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Turning two-factor authentication on or off isn't available yet: the administrator needs to run a database update.</p>
+        <?php endif; ?>
 
         <?php if ($pending_code): ?>
           <form method="POST" class="border rounded p-3 bg-light">
@@ -507,6 +514,7 @@ include __DIR__ . '/includes/header.php';
               <span class="d-inline-block" tabindex="0" data-tooltip title="Add and verify an email first">
                 <button type="button" class="btn btn-sm btn-outline-secondary" disabled><i class="fa-solid fa-toggle-off"></i> Turn on two-factor authentication</button>
               </span>
+            <?php elseif (!two_factor_ready($u)): ?>
             <?php elseif (!$tfa_on): ?>
               <form method="POST" class="d-inline">
                 <?= csrf_field() ?>
@@ -538,7 +546,7 @@ include __DIR__ . '/includes/header.php';
             </form>
           </div>
 
-          <?php if ($tfa_on && !$tfa_required): ?>
+          <?php if ($tfa_on && !$tfa_required && two_factor_ready($u)): ?>
           <div class="collapse" id="twoFactorOffForm">
             <form method="POST" class="border-top mt-3 pt-3">
               <?= csrf_field() ?>
