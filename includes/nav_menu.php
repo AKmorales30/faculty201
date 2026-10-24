@@ -100,6 +100,7 @@ function app_menu(PDO $pdo, array $user): array {
              'active' => fn(string $page): bool => $page === 'faculty_directory.php'
                                                  || (in_array($page, ['profile.php', 'archive.php'], true) && !nav_viewing_own())],
             ['label' => 'Training Summary', 'icon' => 'fa-chalkboard-user', 'url' => 'training_report.php', 'active' => nav_on('training_report.php')],
+            ['label' => 'Analytics', 'icon' => 'fa-chart-line', 'url' => 'approval/analytics.php', 'active' => nav_on('approval/analytics.php')],
         ]],
         $account,
     ];
