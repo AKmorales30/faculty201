@@ -67,7 +67,7 @@ function user_position_label(array $u): string {
     };
 }
 
-/** "Program Chair · BS Computer Science" style line: position, then program or college. */
+/** "Program Chair · BS Information Technology" style line: position, then program or college. */
 function user_position_line(array $u): string {
     $unit = $u['role'] === 'dean'
         ? (COLLEGES[$u['college'] ?? ''] ?? null)

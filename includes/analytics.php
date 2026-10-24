@@ -3,9 +3,9 @@
  * Program Chair / Dean Analytics (approval/analytics.php, data from
  * api/analytics.php). Every number is worked out here, on the server, for
  * the viewer's scope only -- analytics_scope(), built on profile_scope_sql():
- *   Program Chair  the faculty of their program (any ?program= is ignored)
- *   Dean           the faculty and Program Chairs of their college, or one
- *                  of its programs (a program outside the college is refused)
+ *   Program Chair  the faculty of their program
+ *   Dean           the faculty and Program Chairs of their college
+ * (With one program -- PROGRAMS in config.php -- both see the same faculty.)
  * The viewer themselves isn't counted. Only active accounts, and only active
  * documents (201-Files: not archived, deleted or still for review).
  *
@@ -18,44 +18,23 @@ const ANALYTICS_MAX_DAYS = 3660;   // the longest date range (about 10 years)
 
 /**
  * The accounts the viewer's analytics cover, as an SQL condition on users
- * alias u, its parameters, and the program filter that applies.
- * @return array{0: string, 1: array, 2: ?string} [where, params, program key or null]
+ * alias u and its parameters.
+ * @return array{0: string, 1: array}
  */
-function analytics_scope(PDO $pdo, array $viewer, ?string $program = null): array {
+function analytics_scope(PDO $pdo, array $viewer): array {
     [$scope, $params] = profile_scope_sql($pdo, $viewer, 'u');
     $where = "$scope AND u.user_id <> ? AND u.is_active = 1 AND u.deleted_at IS NULL AND u.role IN ('faculty', 'program_chair')";
     $params[] = (int)$viewer['user_id'];
-    $chosen = null;
-    if ($viewer['role'] === 'dean' && $program !== null && $program !== '') {
-        if (!isset(analytics_programs($pdo, $viewer)[$program])) {
-            throw new InvalidArgumentException('That program is not in your college.');
-        }
-        $where .= ' AND u.program = ?';
-        $params[] = $program;
-        $chosen = $program;
-    }
-    return [$where, $params, $chosen];
+    return [$where, $params];
 }
 
-/** The programs a Dean can filter by: those of their college, key => label. Empty for anyone else. */
-function analytics_programs(PDO $pdo, array $viewer): array {
-    if ($viewer['role'] !== 'dean') { return []; }
-    $college = (string)(user_row($pdo, (int)$viewer['user_id'])['college'] ?? '');
-    $out = [];
-    foreach (PROGRAMS as $key => $p) {
-        if ($college !== '' && ($p['college'] ?? null) === $college) { $out[$key] = $p['label']; }
-    }
-    return $out;
-}
-
-/** The scope's name for headings: the program (Chair, or a Dean's filter) or the college. */
-function analytics_scope_label(PDO $pdo, array $viewer, ?string $program): string {
+/** The scope's name for headings: a Program Chair's program, a Dean's college. */
+function analytics_scope_label(PDO $pdo, array $viewer): string {
     $self = user_row($pdo, (int)$viewer['user_id']);
-    if ($viewer['role'] === 'dean' && $program === null) {
+    if ($viewer['role'] === 'dean') {
         return COLLEGES[$self['college'] ?? ''] ?? 'Your college';
     }
-    $key = $program ?? ($self['program'] ?? '');
-    return PROGRAMS[$key]['label'] ?? 'Your program';
+    return PROGRAMS[$self['program'] ?? '']['label'] ?? 'Your program';
 }
 
 /**
@@ -110,8 +89,8 @@ function analytics_months(string $from, string $to): array {
  * Everything the Analytics page shows, for the viewer's scope and the range.
  * Numbers are ints; series are parallel 'labels' / 'values' arrays.
  */
-function analytics_data(PDO $pdo, array $viewer, string $from, string $to, ?string $program): array {
-    [$scope, $sp, $program] = analytics_scope($pdo, $viewer, $program);
+function analytics_data(PDO $pdo, array $viewer, string $from, string $to): array {
+    [$scope, $sp] = analytics_scope($pdo, $viewer);
     $users = "FROM users u WHERE $scope";
     $docs = "FROM documents d JOIN users u ON u.user_id = d.faculty_id WHERE d.status = 'active' AND $scope";
     $range_end = (new DateTimeImmutable($to))->modify('+1 day')->format('Y-m-d');   // filed_at is a timestamp: < the next day
@@ -165,41 +144,39 @@ function analytics_data(PDO $pdo, array $viewer, string $from, string $to, ?stri
     foreach ($stmt->fetchAll() as $r) { $organizers['labels'][] = $r['name']; $organizers['values'][] = (int)$r['n']; }
 
     // ----- faculty by rank and by employment type (now) ----------------------------
-    $stmt = $pdo->prepare("SELECT u.role, u.employment_type, u.academic_rank $users");
+    // Employment group: Full-time / Part-time faculty, Program Chair, or Not set
+    $group_sql = "CASE WHEN u.role = 'program_chair' THEN 'Program Chair' WHEN u.employment_type = 'full_time' THEN 'Full-time'
+                       WHEN u.employment_type = 'part_time' THEN 'Part-time' ELSE 'Not set' END";
+    $stmt = $pdo->prepare("SELECT u.academic_rank, $group_sql AS grp $users");
     $stmt->execute($sp);
     $ranks = $employment = [];
     foreach ($stmt->fetchAll() as $u) {
         $rank = trim((string)$u['academic_rank']);
         $rank = ($rank === '' || $rank === 'N/A') ? 'Not set' : $rank;
         $ranks[$rank] = ($ranks[$rank] ?? 0) + 1;
-        $emp = $u['role'] === 'program_chair' ? 'Program Chair' : (employment_type_label($u['employment_type']) ?: 'Not set');
-        $employment[$emp] = ($employment[$emp] ?? 0) + 1;
+        $employment[$u['grp']] = ($employment[$u['grp']] ?? 0) + 1;
     }
     arsort($ranks);
     arsort($employment);
 
-    // ----- Dean: per program -----------------------------------------------------------
-    $per_program = null;
-    if ($viewer['role'] === 'dean' && $program === null) {
-        $programs = analytics_programs($pdo, $viewer);
-        $doc_n = analytics_pairs($pdo, "SELECT u.program, COUNT(*) $docs GROUP BY u.program", $sp);
-        $tr_n = analytics_pairs($pdo, "SELECT u.program, COUNT(*) $docs AND " . ANALYTICS_TRAINING_SQL . " AND " . ANALYTICS_TRAINING_DAY
-                                     . " BETWEEN ? AND ? GROUP BY u.program", [...$sp, $from, $to]);
-        $fac_n = analytics_pairs($pdo, "SELECT u.program, COUNT(*) $users GROUP BY u.program", $sp);
-        $per_program = ['labels' => [], 'documents' => [], 'trainings' => [], 'faculty' => []];
-        foreach ($programs as $key => $label) {
-            $per_program['labels'][] = $label;
-            $per_program['documents'][] = $doc_n[$key] ?? 0;
-            $per_program['trainings'][] = $tr_n[$key] ?? 0;
-            $per_program['faculty'][] = $fac_n[$key] ?? 0;
-        }
+    // ----- per employment type: faculty, documents now, seminars / trainings in the range ----
+    $doc_n = analytics_pairs($pdo, "SELECT $group_sql AS grp, COUNT(*) $docs GROUP BY grp", $sp);
+    $tr_n = analytics_pairs($pdo, "SELECT $group_sql AS grp, COUNT(*) $docs AND " . ANALYTICS_TRAINING_SQL . " AND " . ANALYTICS_TRAINING_DAY
+                                 . " BETWEEN ? AND ? GROUP BY grp", [...$sp, $from, $to]);
+    $per_employment = ['labels' => [], 'documents' => [], 'trainings' => [], 'faculty' => []];
+    foreach (['Full-time', 'Part-time', 'Program Chair', 'Not set'] as $grp) {
+        if (empty($employment[$grp]) && empty($doc_n[$grp])) { continue; }
+        $per_employment['labels'][] = $grp;
+        $per_employment['documents'][] = $doc_n[$grp] ?? 0;
+        $per_employment['trainings'][] = $tr_n[$grp] ?? 0;
+        $per_employment['faculty'][] = $employment[$grp] ?? 0;
     }
 
     // ----- faculty needing attention (the daily reminder check's open reminders) ----------
-    $attention = analytics_attention($pdo, $scope, $sp, $program);
+    $attention = analytics_attention($pdo, $scope, $sp);
 
     return [
-        'scope'   => ['label' => analytics_scope_label($pdo, $viewer, $program), 'program' => $program, 'from' => $from, 'to' => $to],
+        'scope'   => ['label' => analytics_scope_label($pdo, $viewer), 'from' => $from, 'to' => $to],
         'cards'   => [
             'faculty'        => $faculty,
             'documents'      => $documents,
@@ -217,7 +194,7 @@ function analytics_data(PDO $pdo, array $viewer, string $from, string $to, ?stri
                           'values' => [$expiry['valid'] ?? 0, $expiry['expiring'] ?? 0, $expiry['expired'] ?? 0]],
         'ranks'       => ['labels' => array_map('strval', array_keys($ranks)), 'values' => array_values($ranks)],
         'employment'  => ['labels' => array_keys($employment), 'values' => array_values($employment)],
-        'per_program' => $per_program,
+        'per_employment' => $per_employment,
         'attention'   => array_values($attention),
     ];
 }
@@ -227,7 +204,7 @@ function analytics_data(PDO $pdo, array $viewer, string $from, string $to, ?stri
  * in the scope. PDS only for accounts that keep one (sql_has_pds()). Each
  * kind opens its existing one-category pop-up (includes/modals/list.php).
  */
-function analytics_attention(PDO $pdo, string $scope, array $sp, ?string $program): array {
+function analytics_attention(PDO $pdo, string $scope, array $sp): array {
     $kinds = [
         'pds'        => ['label' => 'Incomplete PDS (full-time faculty)', 'icon' => 'fa-id-card', 'category' => 'pds_update'],
         'no_seminar' => ['label' => 'No seminar / training in ' . (int)REMINDER_NO_SEMINAR_MONTHS . ' months', 'icon' => 'fa-chalkboard-user', 'category' => 'no_recent_seminar'],
@@ -252,7 +229,7 @@ function analytics_attention(PDO $pdo, string $scope, array $sp, ?string $progra
             'icon'   => $k['icon'],
             'count'  => count($names),
             'names'  => array_slice($names, 0, 3),
-            'modal'  => BASE_URL . '/api/modal.php?view=list&category=' . $k['category'] . ($program !== null ? '&program=' . rawurlencode($program) : ''),
+            'modal'  => BASE_URL . '/api/modal.php?view=list&category=' . $k['category'],
         ];
     }
     return $out;

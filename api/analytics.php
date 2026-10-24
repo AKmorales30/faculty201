@@ -4,9 +4,6 @@
  * GET only, read-only, JSON. Program Chairs and Deans only; the scope is
  * enforced in every query (includes/analytics.php, analytics_scope()):
  *   ?from=YYYY-MM-DD&to=YYYY-MM-DD   the date range (default: last 12 months)
- *   ?program=KEY                     Dean only: one program of their college
- *                                    (ignored for a Program Chair; another
- *                                    college's program is refused)
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -38,12 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 [$from, $to] = analytics_range(is_string($_GET['from'] ?? null) ? $_GET['from'] : null, is_string($_GET['to'] ?? null) ? $_GET['to'] : null);
-$program = $me['role'] === 'dean' && is_string($_GET['program'] ?? null) && $_GET['program'] !== '' ? $_GET['program'] : null;
-
 try {
-    echo json_encode(['ok' => true] + analytics_data($pdo, $me, $from, $to, $program), JSON_UNESCAPED_UNICODE);
-} catch (InvalidArgumentException $e) {
-    analytics_fail(403, $e->getMessage());
+    echo json_encode(['ok' => true] + analytics_data($pdo, $me, $from, $to), JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('Analytics failed: ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     analytics_fail(500, 'The analytics could not be loaded right now. Please try again.');

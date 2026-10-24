@@ -40,7 +40,7 @@ function account_assignment(string $role, array $in) {
         if (!isset(COLLEGES[$college])) { return 'Please select the Dean\'s college.'; }
         return [$emp, null, $college];
     }
-    $program = $in['program'] ?? '';
+    $program = only_program() ?? ($in['program'] ?? '');   // one program: always that one (also replaces an old BSCS)
     if (!isset(PROGRAMS[$program])) { return 'Please select the ' . ($role === 'faculty' ? 'faculty member\'s' : 'Program Chair\'s') . ' program.'; }
     return [$emp, $program, PROGRAMS[$program]['college']];
 }
@@ -600,7 +600,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <?php elseif ($u['role'] === 'dean'): ?>
                   <?= $u['college'] ? h(COLLEGES[$u['college']] ?? $u['college']) : '' ?>
                 <?php else: ?>
-                  <?= $u['program'] ? h($u['program']) . ' <span class="text-muted small">(' . h(PROGRAMS[$u['program']]['college'] ?? '') . ')</span>' : '' ?>
+                  <?= $u['program'] ? h($u['program']) . ' <span class="text-muted small">(' . h(PROGRAMS[$u['program']]['college'] ?? ($u['college'] ?? '')) . ')</span>' : '' ?>
                 <?php endif; ?>
                 <?php if (($u['role'] === 'dean' && !$u['college']) || (in_array($u['role'], ['faculty', 'program_chair'], true) && !$u['program'])): ?>
                   <div class="small text-danger">Not set — no upload notifications</div>
@@ -783,6 +783,11 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
             </select>
           </div>
           <div class="mb-3" id="programWrap" style="display:none;">
+            <?php if ($only = only_program()): /* one program: set automatically */ ?>
+              <span class="form-label d-block">Program</span>
+              <input type="hidden" name="program" value="<?= h($only) ?>">
+              <div class="form-control-plaintext py-1"><?= h(PROGRAMS[$only]['label']) ?> (<?= h(PROGRAMS[$only]['college']) ?>)</div>
+            <?php else: ?>
             <label class="form-label">Program</label>
             <select name="program" class="form-select">
               <option value="">-- Select program --</option>
@@ -790,6 +795,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <option value="<?= h($key) ?>"><?= h($p['label']) ?> (<?= h($p['college']) ?>)</option>
               <?php endforeach; ?>
             </select>
+            <?php endif; ?>
             <div class="form-text">The Program Chair of this program is notified of this person's uploads.</div>
           </div>
           <div class="mb-3" id="collegeWrap" style="display:none;">
@@ -892,11 +898,17 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
             <div class="form-text">For faculty this is their position (Full-time / Part-time Faculty).</div>
           </div>
           <div class="col-sm-6" id="editProgramWrap">
+            <?php if ($only = only_program()): /* one program: set automatically (also replaces an old BSCS on save) */ ?>
+              <span class="form-label small fw-semibold d-block">Program</span>
+              <input type="hidden" name="program" id="editProgram" value="<?= h($only) ?>">
+              <div class="form-control-plaintext py-1"><?= h(PROGRAMS[$only]['label']) ?> (<?= h(PROGRAMS[$only]['college']) ?>)</div>
+            <?php else: ?>
             <label for="editProgram" class="form-label small fw-semibold">Program <span class="text-danger">*</span></label>
             <select name="program" id="editProgram" class="form-select">
               <option value="">-- Select program --</option>
               <?php foreach (PROGRAMS as $key => $p): ?><option value="<?= h($key) ?>"><?= h($p['label']) ?> (<?= h($p['college']) ?>)</option><?php endforeach; ?>
             </select>
+            <?php endif; ?>
             <div class="form-text">Its Program Chair is notified of this person's uploads.</div>
           </div>
           <div class="col-sm-6" id="editCollegeWrap">
@@ -1044,7 +1056,8 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
     document.getElementById('editProgramWrap').hidden = !(role === 'faculty' || role === 'program_chair');
     document.getElementById('editCollegeWrap').hidden = role !== 'dean';
     document.getElementById('editEmp').value = d.emp;
-    document.getElementById('editProgram').value = d.program;
+    var editProgram = document.getElementById('editProgram');
+    if (editProgram.tagName === 'SELECT') editProgram.value = d.program;   // one program: a fixed hidden value
     document.getElementById('editCollege').value = d.college;
     if (d.rank && !Array.prototype.some.call(rank.options, function (o) { return o.value === d.rank; })) {
       rank.add(new Option(d.rank + ' (hidden)', d.rank));   // a rank no longer offered stays selectable for its holder

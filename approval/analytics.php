@@ -5,8 +5,9 @@
  * the faculty needing attention. The page is the frame; the numbers come
  * from api/analytics.php (assets/js/analytics.js), which works them out on
  * the server for the viewer's scope only (includes/analytics.php):
- * a Program Chair their program, a Dean their college or one of its programs.
- * The filters are a GET form, so the address can be bookmarked or shared.
+ * a Program Chair their program, a Dean their college. With one program
+ * (PROGRAMS, config.php) both see the same faculty, so there's no program
+ * filter. The date filter is a GET form, so the address can be bookmarked.
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -17,9 +18,7 @@ $page_title = 'Analytics';
 $me = current_user();
 $is_dean = $me['role'] === 'dean';
 [$from, $to] = analytics_range(is_string($_GET['from'] ?? null) ? $_GET['from'] : null, is_string($_GET['to'] ?? null) ? $_GET['to'] : null);
-$programs = analytics_programs($pdo, $me);
-$program = $is_dean && isset($programs[$_GET['program'] ?? '']) ? $_GET['program'] : '';
-$scope_label = analytics_scope_label($pdo, $me, $program !== '' ? $program : null);
+$scope_label = analytics_scope_label($pdo, $me);
 $self = user_row($pdo, (int)$me['user_id']);
 $scope_set = $is_dean ? !empty($self['college']) : !empty($self['program']);
 
@@ -53,18 +52,8 @@ include __DIR__ . '/../includes/header.php';
     <input type="date" id="anTo" name="to" class="form-control form-control-sm" value="<?= h($to) ?>" max="<?= h(date('Y-m-d')) ?>">
   </div>
   <div class="an-filter">
-    <?php if ($is_dean): ?>
-      <label for="anProgram" class="form-label small fw-semibold mb-1">Program</label>
-      <select id="anProgram" name="program" class="form-select form-select-sm">
-        <option value="">All programs</option>
-        <?php foreach ($programs as $key => $label): ?>
-          <option value="<?= h($key) ?>" <?= $program === $key ? 'selected' : '' ?>><?= h($label) ?></option>
-        <?php endforeach; ?>
-      </select>
-    <?php else: ?>
-      <span class="form-label small fw-semibold mb-1 d-block">Program</span>
-      <span class="an-locked"><i class="fa-solid fa-lock" aria-hidden="true"></i> <?= h($scope_label) ?></span>
-    <?php endif; ?>
+    <span class="form-label small fw-semibold mb-1 d-block"><?= $is_dean ? 'College' : 'Program' ?></span>
+    <span class="an-locked"><i class="fa-solid fa-lock" aria-hidden="true"></i> <?= h($scope_label) ?></span>
   </div>
   <div class="an-filter an-filter-actions">
     <button class="btn btn-sm btn-brand"><i class="fa-solid fa-filter" aria-hidden="true"></i> Apply</button>
@@ -75,7 +64,7 @@ include __DIR__ . '/../includes/header.php';
 
 <noscript><div class="alert alert-warning">The charts need JavaScript. Please turn it on to see the analytics.</div></noscript>
 
-<div id="analyticsRoot" data-endpoint="<?= h(BASE_URL . '/api/analytics.php') ?>" data-dean="<?= $is_dean ? '1' : '0' ?>">
+<div id="analyticsRoot" data-endpoint="<?= h(BASE_URL . '/api/analytics.php') ?>">
   <div class="ui-stats an-stats" id="anCards">
     <?php foreach ([
         ['faculty', 'Total faculty', 'fa-users', 'navy', 'active accounts in scope'],
@@ -112,10 +101,9 @@ include __DIR__ . '/../includes/header.php';
       <p class="an-note">From the daily reminder check. Click a row to see who. PDS: full-time faculty only.</p>
     </section>
 
-    <?php if ($is_dean): ?>
-      <?= $chart_card('chPrograms', 'Comparison per program', 'fa-scale-balanced', 'blue', 'Grouped bar chart of documents and seminars / trainings per program', true, '',
-          'Documents: in 201-Files now. Seminars / trainings: in the selected period. Shown when "All programs" is selected.') ?>
-    <?php endif; ?>
+    <?= $chart_card('chEmployment', 'Comparison by employment type', 'fa-scale-balanced', 'blue',
+        'Grouped bar chart of faculty, documents and seminars / trainings for full-time faculty, part-time faculty and Program Chairs', true, '',
+        'Faculty and documents in 201-Files: now. Seminars / trainings: in the selected period.') ?>
   </div>
 </div>
 

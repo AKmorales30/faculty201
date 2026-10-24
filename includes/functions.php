@@ -302,6 +302,20 @@ function upload_notification_recipients(PDO $pdo, array $faculty): array {
     return array_values(array_unique(array_map('intval', $ids)));
 }
 
+/**
+ * The program everyone in a program belongs to when PROGRAMS (config.php)
+ * has just one: its key, or null when there is a choice. Forms then set it
+ * automatically and show it as text, and program filters are hidden.
+ */
+function only_program(): ?string {
+    return count(PROGRAMS) === 1 ? (string)array_key_first(PROGRAMS) : null;
+}
+
+/** A program's name: its label, or the stored key for one no longer in PROGRAMS (e.g. an old BSCS), or ''. */
+function program_label(?string $program): string {
+    return $program === null || $program === '' ? '' : (PROGRAMS[$program]['label'] ?? $program);
+}
+
 function employment_type_label(?string $type): string {
     return ['full_time' => 'Full-time', 'part_time' => 'Part-time'][$type] ?? '';
 }
