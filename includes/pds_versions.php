@@ -182,6 +182,7 @@ function pds_version_date(string $at): string {
 
 /** Whether $viewer may see the version list of $faculty_id's PDS. */
 function pds_can_view_versions(PDO $pdo, array $viewer, int $faculty_id): bool {
+    if (!user_has_pds($pdo, $faculty_id)) { return false; }   // part-time faculty: no PDS (kept, hidden)
     if ((int)$viewer['user_id'] === $faculty_id || $viewer['role'] === 'admin') { return true; }
     return in_array($viewer['role'], ['program_chair', 'dean'], true) && can_view_profile($pdo, $viewer, $faculty_id);
 }

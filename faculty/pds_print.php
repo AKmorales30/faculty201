@@ -40,6 +40,10 @@ if (!$faculty) {
     http_response_code(404);
     exit('Faculty member not found.');
 }
+if (!faculty_has_pds($faculty)) {   // part-time faculty: no PDS (any earlier one is kept, hidden)
+    http_response_code(404);
+    exit('Part-time faculty don\'t keep a PDS in the system.');
+}
 
 $snapshot = null;
 if ($version) {

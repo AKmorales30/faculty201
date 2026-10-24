@@ -63,7 +63,9 @@ include __DIR__ . '/../includes/header.php';
     <h2 class="ui-greet">Welcome back, <?= h(person_first_name($me)) ?></h2>
   </div>
   <div class="ui-intro-actions">
-    <a href="<?= BASE_URL ?>/faculty/pds.php" class="btn btn-outline-brand"><i class="fa-solid fa-id-card" aria-hidden="true"></i> My PDS</a>
+    <?php if (user_has_pds($pdo, (int)$me['user_id'])): /* part-time faculty have no PDS */ ?>
+      <a href="<?= BASE_URL ?>/faculty/pds.php" class="btn btn-outline-brand"><i class="fa-solid fa-id-card" aria-hidden="true"></i> My PDS</a>
+    <?php endif; ?>
     <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> Upload Document</a>
   </div>
 </div>

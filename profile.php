@@ -652,6 +652,7 @@ include __DIR__ . '/includes/header.php';
           <tbody>
             <?php foreach ($categories as $key => $cat):
               if ($cat['applies_to'] !== null && $cat['applies_to'] !== $u['employment_type'] && empty($summary['counts'][$key])) { continue; }
+              if ($key === 'PDS' && !faculty_has_pds($u) && empty($summary['counts'][$key])) { continue; }   // part-time: no PDS
               $link = $category_link($key); $n = (int)($summary['counts'][$key] ?? 0); ?>
               <tr>
                 <td><i class="fa-solid <?= h($cat['icon']) ?> text-muted me-1"></i> <?= $link ? '<a href="' . h($link) . '">' . h($cat['label']) . '</a>' : h($cat['label']) ?></td>

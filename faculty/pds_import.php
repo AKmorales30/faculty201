@@ -44,6 +44,11 @@ if (!$doc || $doc['document_type'] !== 'PDS' || !in_array($doc['owner_role'], ['
     exit;
 }
 $faculty_id = (int)$doc['faculty_id'];
+if (!user_has_pds($pdo, $faculty_id)) {   // part-time faculty have no PDS: their PDS file stays an ordinary document
+    $_SESSION['flash_error'] = 'Part-time faculty don\'t keep a PDS in the system, so this file can\'t be imported into one.';
+    header('Location: ' . BASE_URL . '/index.php');
+    exit;
+}
 $is_own = $faculty_id === (int)$me['user_id'];
 $back = $is_own ? 'faculty/pds.php' : 'admin/faculty_documents.php?id=' . $faculty_id . '&type=PDS';
 $self = 'pds_import.php?document=' . $document_id;

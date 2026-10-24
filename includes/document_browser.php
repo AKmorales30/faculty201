@@ -15,7 +15,9 @@ $all_categories = document_categories();
 $counts = faculty_document_counts($pdo, (int)$faculty['user_id']);
 // Folders that apply to this faculty member, plus any that already hold files
 $folder_categories = array_filter($all_categories, function ($cat, $key) use ($faculty, $counts) {
-    return $cat['applies_to'] === null || $cat['applies_to'] === $faculty['employment_type'] || ($counts[$key] ?? 0) > 0;
+    if (($counts[$key] ?? 0) > 0) { return true; }
+    if ($key === 'PDS' && !faculty_has_pds($faculty)) { return false; }   // part-time faculty have no PDS
+    return $cat['applies_to'] === null || $cat['applies_to'] === $faculty['employment_type'];
 }, ARRAY_FILTER_USE_BOTH);
 
 $active_type = $_GET['type'] ?? '';
@@ -171,7 +173,7 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
           </td>
           <td class="text-nowrap"><?= date('M j, Y', strtotime($d['filed_at'])) ?></td>
           <td>
-            <?php $can_import = $d['document_type'] === 'PDS' && (current_user()['role'] === 'admin' || (int)$d['faculty_id'] === (int)current_user()['user_id']); ?>
+            <?php $can_import = $d['document_type'] === 'PDS' && faculty_has_pds($faculty) && (current_user()['role'] === 'admin' || (int)$d['faculty_id'] === (int)current_user()['user_id']); ?>
             <div class="ui-actions">
               <?= admin_icon_link(document_url((int)$d['document_id']), 'fa-eye', 'View file', 'target="_blank" data-app-modal="' . h(BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id']) . '"') ?>
               <?php if ($can_import): ?><?= admin_icon_link(BASE_URL . '/faculty/pds_import.php?document=' . (int)$d['document_id'], 'fa-file-import', 'Import to PDS') ?><?php endif; ?>

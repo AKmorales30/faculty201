@@ -22,9 +22,10 @@ function page_tabs(array $tabs, string $active): string {
     return $out . '</ul>';
 }
 
-/** Profile Preference: your profile and your PDS. The Admin keeps no 201 file, so has no PDS tab (and no tab bar). */
+/** Profile Preference: your profile and your PDS. The Admin and part-time faculty keep no PDS, so have no PDS tab (and no tab bar). */
 function profile_tabs(string $active): string {
-    if (current_user()['role'] === 'admin') {
+    global $pdo;
+    if (current_user()['role'] === 'admin' || !user_has_pds($pdo, (int)current_user()['user_id'])) {
         return '';
     }
     return page_tabs([
