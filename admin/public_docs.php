@@ -18,8 +18,10 @@ const NOT_SET = '__none';   // filter value for "program / employment type not s
 // Filter options from the values actually stored for people with a 201 file
 $owner_roles = "u.role IN ('faculty', 'program_chair', 'dean')";
 $program_options = [];
-foreach ($pdo->query("SELECT DISTINCT u.program FROM users u WHERE $owner_roles ORDER BY u.program")->fetchAll(PDO::FETCH_COLUMN) as $p) {
-    $program_options[$p ?? NOT_SET] = $p === null ? 'Not set' : (PROGRAMS[$p]['label'] ?? $p);
+if (only_program() === null) {   // one program: the filter would change nothing, so it isn't offered
+    foreach ($pdo->query("SELECT DISTINCT u.program FROM users u WHERE $owner_roles ORDER BY u.program")->fetchAll(PDO::FETCH_COLUMN) as $p) {
+        $program_options[$p ?? NOT_SET] = $p === null ? 'Not set' : program_label($p);
+    }
 }
 $employment_options = [];
 foreach ($pdo->query("SELECT DISTINCT u.employment_type FROM users u WHERE $owner_roles ORDER BY u.employment_type")->fetchAll(PDO::FETCH_COLUMN) as $e) {
@@ -181,13 +183,15 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
         <option value="<?= h($key) ?>" <?= $type === $key ? 'selected' : '' ?>><?= h($meta['label']) ?></option>
       <?php endforeach; ?>
     </select>
+    <?php if ($program_options): ?>
     <label for="fProgram" class="visually-hidden">Program</label>
     <select name="program" id="fProgram" class="form-select">
       <option value="">All programs</option>
       <?php foreach ($program_options as $key => $label): ?>
-        <option value="<?= h($key) ?>" <?= $program === (string)$key ? 'selected' : '' ?>><?= h($key === NOT_SET ? $label : $label) ?></option>
+        <option value="<?= h($key) ?>" <?= $program === (string)$key ? 'selected' : '' ?>><?= h($label) ?></option>
       <?php endforeach; ?>
     </select>
+    <?php endif; ?>
     <button class="btn btn-sm btn-outline-brand" type="button" data-bs-toggle="collapse" data-bs-target="#advancedFilters"
             aria-expanded="<?= $advanced_open ? 'true' : 'false' ?>" aria-controls="advancedFilters">
       <i class="fa-solid fa-sliders" aria-hidden="true"></i> Advanced<?= $advanced_count ? ' (' . $advanced_count . ')' : '' ?>
@@ -265,7 +269,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
           </td>
           <td>
             <a href="faculty_documents.php?id=<?= (int)$d['faculty_id'] ?>" class="text-body fw-semibold"><?= h($d['full_name']) ?></a>
-            <div class="ui-cell-sub"><?= h(implode(' · ', array_filter([$d['program'] ? (PROGRAMS[$d['program']]['label'] ?? $d['program']) : '', employment_type_label($d['employment_type'])]))) ?: '—' ?></div>
+            <div class="ui-cell-sub"><?= h(implode(' · ', array_filter([program_label($d['program']), employment_type_label($d['employment_type'])]))) ?: '—' ?></div>
           </td>
           <td><?= h(document_type_label($d['document_type'], $d['document_subtype'])) ?><?php if ($p = document_period_label($d)): ?><div class="ui-cell-sub"><?= h($p) ?></div><?php endif; ?></td>
           <td class="text-nowrap">

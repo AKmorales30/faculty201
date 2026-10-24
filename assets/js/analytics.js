@@ -2,7 +2,7 @@
  * Program Chair / Dean Analytics (approval/analytics.php). Loads the numbers
  * from api/analytics.php (scoped on the server) and draws them with the
  * shared chart helper (assets/js/charts.js):
- *   - the filters (dates, a Dean's program) reload the data in place, and the
+ *   - the date filter reloads the data in place, and the
  *     address follows them (it can be bookmarked); without JavaScript the
  *     form is an ordinary GET form
  *   - cards count up, charts draw in (not under reduced motion)
@@ -84,23 +84,16 @@
 
     drawFaculty();
 
-    var programs = el('chPrograms');
-    if (programs) {
-      var card = programs.closest('.an-card');
-      card.hidden = !d.per_program;
-      if (d.per_program) {
-        var pp = d.per_program;
-        C.draw(programs, {
-          type: 'bar',
-          data: { labels: pp.labels, datasets: [
-            { label: 'Documents in 201-Files', data: pp.documents, backgroundColor: colors.navy, borderRadius: 6 },
-            { label: 'Seminars / trainings', data: pp.trainings, backgroundColor: colors.gold, borderRadius: 6 },
-            { label: 'Faculty', data: pp.faculty, backgroundColor: colors.teal, borderRadius: 6 }
-          ] },
-          options: { plugins: { legend: { position: 'bottom' } }, scales: { y: axis() } }
-        }, pp.documents.concat(pp.trainings, pp.faculty).some(function (v) { return v > 0; }));
-      }
-    }
+    var pe = d.per_employment;
+    C.draw(el('chEmployment'), {
+      type: 'bar',
+      data: { labels: pe.labels, datasets: [
+        { label: 'Faculty', data: pe.faculty, backgroundColor: colors.teal, borderRadius: 6 },
+        { label: 'Documents in 201-Files', data: pe.documents, backgroundColor: colors.navy, borderRadius: 6 },
+        { label: 'Seminars / trainings', data: pe.trainings, backgroundColor: colors.gold, borderRadius: 6 }
+      ] },
+      options: { plugins: { legend: { position: 'bottom' } }, scales: { y: axis() } }
+    }, pe.faculty.concat(pe.documents, pe.trainings).some(function (v) { return v > 0; }));
   }
 
   function drawFaculty() {
@@ -167,7 +160,7 @@
   // ----- loading ---------------------------------------------------------------------
   function params() {
     var p = new URLSearchParams();
-    ['from', 'to', 'program'].forEach(function (name) {
+    ['from', 'to'].forEach(function (name) {
       var input = form.elements[name];
       if (input && input.value) p.set(name, input.value);
     });

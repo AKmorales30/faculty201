@@ -43,7 +43,7 @@ $faculty_list = array_column($stmt->fetchAll(), null, 'user_id');
 // Program filter: the Admin any program, a Dean their college's programs
 // (a Program Chair already sees one program only)
 $program_options = [];
-if ($me['role'] !== 'program_chair') {
+if ($me['role'] !== 'program_chair' && only_program() === null) {   // one program: no filter to offer
     $viewer_college = $me['role'] === 'dean' ? (user_row($pdo, (int)$me['user_id'])['college'] ?? '') : null;
     foreach (PROGRAMS as $key => $p) {
         if ($viewer_college === null || $p['college'] === $viewer_college) { $program_options[$key] = $p['label']; }
