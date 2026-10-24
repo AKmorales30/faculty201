@@ -34,6 +34,14 @@ function profile_tabs(string $active): string {
     ], $active);
 }
 
+/** The Admin's Security Alerts: the alerts and locked logins, or the login history of every account. */
+function security_tabs(string $active): string {
+    return page_tabs([
+        'alerts' => ['Alerts', 'admin/security_alerts.php', 'fa-triangle-exclamation'],
+        'logins' => ['Login History', 'admin/login_history.php', 'fa-clock-rotate-left'],
+    ], $active);
+}
+
 /** A faculty member's (or Chair's / Dean's) own 201-Files. */
 function my_docs_tabs(PDO $pdo, string $active): string {
     return page_tabs([

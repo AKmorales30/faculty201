@@ -86,7 +86,8 @@ function run_pending_migrations(PDO $pdo): void {
                    'migration_reminder_checks.sql', 'migration_review_archive_views.sql',
                    'migration_recently_deleted.sql', 'migration_account_names_delete.sql', 'migration_document_file_chunks.sql',
                    'migration_flags_pds_versions.sql', 'migration_username_2fa.sql',
-                   'migration_restore_two_factor.sql', 'migration_optional_two_factor.sql'];
+                   'migration_restore_two_factor.sql', 'migration_optional_two_factor.sql',
+                   'migration_login_history.sql'];
     try {
         $applied = $pdo->query("SELECT name FROM schema_migrations")->fetchAll(PDO::FETCH_COLUMN);
     } catch (PDOException $e) {
@@ -1636,7 +1637,9 @@ function run_daily_jobs(PDO $pdo): void {
     run_daily_account_cleanup($pdo);
     run_daily_expiration_check($pdo);
     run_daily_reminder_check($pdo);
+    run_daily_login_history_cleanup($pdo);   // login history and trusted devices older than 90 days
     if ($me = current_user()) { ensure_reminders_checked($pdo, (int)$me['user_id']); }
+    login_history_backfill($pdo);   // locations the login requests didn't get to (looked up after this page is sent)
 }
 
 // ---------------------------------------------------------------------
@@ -1883,22 +1886,8 @@ function active_login_locks(PDO $pdo): array {
 function flag_suspicious_login(PDO $pdo, int $user_id, string $full_name, string $ip): void {
     $reasons = [];
 
-    // Every IP this account has EVER successfully logged in from,
-    // oldest first. The row for *this* login was already recorded by
-    // record_login_attempt() just before this function runs, so the
-    // last entry is the current one -- drop it to get the prior history.
-    $stmt = $pdo->prepare(
-        "SELECT ip_address FROM login_attempts
-         WHERE user_id = ? AND was_successful = 1 AND ip_address IS NOT NULL
-         ORDER BY attempt_id ASC"
-    );
-    $stmt->execute([$user_id]);
-    $history = array_column($stmt->fetchAll(), 'ip_address');
-    array_pop($history);
-
-    if ($history && !in_array($ip, $history, true)) {
-        $reasons[] = "Login from a new IP address ({$ip}) not seen on this account before.";
-    }
+    // A new IP address alone is not flagged: mobile and home IPs in the Philippines change
+    // often. A new device is (new_device_login(), includes/login_activity.php).
 
     $stmt = $pdo->prepare(
         "SELECT COUNT(*) FROM login_attempts
@@ -1979,6 +1968,7 @@ function activity_actions(): array {
         'USERNAME_CHANGE'    => 'Username Changed',
         'PASSWORD_RESET_REQUEST' => 'Forgot Password Requested',
         'PASSWORD_RESET_SELF' => 'Password Reset with Emailed Code',
+        'DEVICE_REMOVED'     => 'Trusted Device Removed',
     ];
 }
 
@@ -1999,7 +1989,7 @@ function log_activity(PDO $pdo, ?int $user_id, string $action, string $details =
             "INSERT INTO activity_logs (user_id, user_role, action, details, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)"
         )->execute([
             $user_id, $role, $action, $details !== '' ? $details : null,
-            $_SERVER['REMOTE_ADDR'] ?? null,   // same source as login_attempts.ip_address
+            client_ip(),   // same source as login_attempts.ip_address
             isset($_SERVER['HTTP_USER_AGENT']) ? mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255) : null,
         ]);
     } catch (Throwable $e) {
@@ -2030,6 +2020,7 @@ function unresolved_security_alert_count(PDO $pdo): int {
 
 require_once __DIR__ . '/profile.php';   // profiles: access scope, pictures, profile details, usernames
 require_once __DIR__ . '/two_factor.php';   // emailed login codes, two-factor email, finishing a login
+require_once __DIR__ . '/login_activity.php';   // login history, trusted devices, new-device alerts
 require_once __DIR__ . '/document_review.php';   // Manage Document: classification review, posting
 require_once __DIR__ . '/page_tabs.php';         // tab bars joining the pages behind one menu entry
 require_once __DIR__ . '/ai.php';        // AI (Gemini): settings, privacy, reminders

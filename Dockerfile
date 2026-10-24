@@ -44,6 +44,15 @@ RUN printf "max_input_vars = 5000\nupload_max_filesize = 12M\npost_max_size = 16
 COPY docker/ports.conf /etc/apache2/ports.conf
 COPY docker/000-default.conf /etc/apache2/sites-available/000-default.conf
 
+# PHP libraries (composer.json): matomo/device-detector reads the browser and
+# system for Login Activity ("Windows · Chrome"). Installed before the app is
+# copied, so this layer is cached until composer.json changes. vendor/ is
+# for PHP only, never served over the web.
+COPY --from=composer:2.7 /usr/bin/composer /usr/bin/composer
+COPY composer.json /var/www/html/
+RUN cd /var/www/html && COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --no-interaction --no-progress --prefer-dist \
+    && printf "Require all denied\n" > /var/www/html/vendor/.htaccess
+
 COPY . /var/www/html/
 
 # uploads/ and temp_scans/ must be writable by the web server user.

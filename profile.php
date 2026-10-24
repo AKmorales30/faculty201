@@ -89,6 +89,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     };
 
     // The dashboard reminder (includes/header.php) was closed: hidden for the rest of this login
+    // Login Activity: remove one of your own trusted devices (its next login counts as a new device)
+    if ($action === 'remove_device') {
+        $stmt = $pdo->prepare("DELETE FROM trusted_devices WHERE id = ? AND user_id = ?");   // only your own
+        $stmt->execute([(int)($_POST['device_id'] ?? 0), $my_id]);
+        if ($stmt->rowCount()) {
+            log_my_activity($pdo, 'DEVICE_REMOVED', 'Removed a trusted device from Login Activity.');
+        }
+        $_SESSION['flash_success'] = $stmt->rowCount() ? 'The device was removed. Its next login will count as a new device.' : 'That device was already removed.';
+        header('Location: ' . BASE_URL . '/profile.php#login-activity');
+        exit;
+    }
+
     if ($action === 'hide_security_banner') {
         $_SESSION['hide_security_banner'] = true;
         if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
@@ -355,6 +367,7 @@ include __DIR__ . '/includes/header.php';
             <a href="<?= BASE_URL ?>/training_report.php?faculty=<?= $target_id ?>&amp;generate=1" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-chalkboard-user"></i> Seminars &amp; Trainings</a>
           <?php endif; ?>
           <?php if ($viewer_admin): ?>
+            <a href="<?= BASE_URL ?>/admin/login_history.php?user=<?= $target_id ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-clock-rotate-left"></i> Login history</a>
             <a href="<?= BASE_URL ?>/admin/manage_faculty.php?edit=<?= $target_id ?>" class="btn btn-sm btn-brand"><i class="fa-solid fa-user-pen"></i> Edit in Manage Faculty</a>
           <?php endif; ?>
         </div>
@@ -669,6 +682,70 @@ include __DIR__ . '/includes/header.php';
     <?php endif; ?>
   </div>
 </div>
+
+<?php if ($is_own):
+  // Login Activity: your own last 20 login attempts and your trusted devices (includes/login_activity.php)
+  $my_logins = [];
+  try {
+      $my_logins = login_history_rows($pdo, ['user_id' => $my_id], 20);
+  } catch (Throwable $e) {
+      error_log('Login Activity: ' . $e->getMessage());   // database/supabase/08_login_history.sql not run yet
+  }
+  $my_devices = trusted_devices_for_user($pdo, $my_id);
+  $this_device = device_cookie_token() !== null ? hash('sha256', device_cookie_token()) : null;
+  $status_labels = login_status_labels();
+?>
+<section class="card stat-card mb-4" id="login-activity" aria-labelledby="loginActivityTitle">
+  <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-clock-rotate-left text-brand" aria-hidden="true"></i> <span id="loginActivityTitle">Login Activity</span></div>
+  <div class="card-body">
+    <p class="small text-muted">Your last 20 login attempts. Locations are approximate (from the IP address). If you see one that wasn't you, change your password and tell the administrator.</p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-4">
+        <thead class="table-light"><tr><th>Date and time</th><th>Device</th><th>IP address</th><th>Location <span class="fw-normal text-muted">(approximate)</span></th><th>Result</th></tr></thead>
+        <tbody>
+          <?php if (!$my_logins): ?>
+            <tr><td colspan="5" class="text-center text-muted py-3">No login attempts recorded yet.</td></tr>
+          <?php endif; ?>
+          <?php foreach ($my_logins as $l): [$st_label, $st_class] = $status_labels[$l['status']] ?? [$l['status'], 'bg-light text-muted']; ?>
+            <tr>
+              <td class="text-nowrap"><?= h(login_time_label($l['created_at'])) ?></td>
+              <td><?= h($l['device_label'] ?: 'Unknown device') ?><?php if (!empty($l['new_device']) && $l['new_device'] !== 'f'): ?> <span class="badge bg-warning-subtle text-warning-emphasis">New device</span><?php endif; ?></td>
+              <td class="text-nowrap"><?= h($l['ip_address'] ?: 'unknown') ?></td>
+              <td><?= $l['location'] !== null ? h($l['location']) : '<span class="text-muted">unknown</span>' ?></td>
+              <td><span class="badge <?= h($st_class) ?>"><?= h($st_label) ?></span></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="h6 fw-semibold mb-1">Your devices</h3>
+    <p class="small text-muted">Browsers you've logged in from in the last <?= (int)TRUSTED_DEVICE_DAYS ?> days. A login from any other device sends you an email (if you have a verified email). Removing a device doesn't sign it out; its next login counts as new.</p>
+    <?php if (!$my_devices): ?>
+      <p class="small text-muted mb-0">No devices yet -- this list fills in from your next login.</p>
+    <?php else: ?>
+      <ul class="list-group">
+        <?php foreach ($my_devices as $dv): $current = $this_device !== null && hash_equals((string)$dv['token_hash'], $this_device); ?>
+          <li class="list-group-item d-flex flex-wrap align-items-center gap-2">
+            <i class="fa-solid fa-laptop text-muted" aria-hidden="true"></i>
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-semibold"><?= h($dv['device_label'] ?: 'Unknown device') ?><?php if ($current): ?> <span class="badge bg-success-subtle text-success-emphasis">This device</span><?php endif; ?></div>
+              <div class="small text-muted">First seen <?= h(login_time_label($dv['first_seen'])) ?> · Last used <?= h(login_time_label($dv['last_seen'])) ?></div>
+            </div>
+            <form method="POST" data-confirm="<?= h(($dv['device_label'] ?: 'This device') . ' will no longer be remembered. Its next login will count as a new device and send an alert.') ?>"
+                  data-confirm-title="Remove this device?" data-confirm-ok="Remove" data-confirm-danger="1">
+              <?= csrf_field() ?>
+              <input type="hidden" name="action" value="remove_device">
+              <input type="hidden" name="device_id" value="<?= (int)$dv['id'] ?>">
+              <button class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Remove</button>
+            </form>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+    <?php endif; ?>
+  </div>
+</section>
+<?php endif; ?>
 
 <?php if ($is_own): ?>
 <script>

@@ -55,7 +55,8 @@ if ($state !== '') {
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<?= admin_intro('Failed logins, lockouts and unusual sign-ins — a new IP address for an account, or several failed attempts right before a successful one. Mark an alert as reviewed once you\'ve checked it.') ?>
+<?= admin_intro('Failed logins, lockouts and unusual sign-ins — a login from a device an account hasn\'t used before, or several failed attempts right before a successful one. Mark an alert as reviewed once you\'ve checked it. Every login attempt is in Login History.') ?>
+<?= security_tabs('alerts') ?>
 
 <section class="ui-card" aria-labelledby="locksTitle">
   <div class="ui-card-head">

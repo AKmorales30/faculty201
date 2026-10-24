@@ -10,3 +10,4 @@ tools/
 config/ai.php
 config/database.php
 config/mail.php
+vendor

@@ -7,6 +7,31 @@ function h(?string $s): string {
 }
 
 /**
+ * The visitor's IP address, or 'unknown'. Behind a proxy (REMOTE_ADDR is a
+ * private / loopback address, as on Render) it comes from CLIENT_IP_HEADER
+ * (config.php: Cloudflare's CF-Connecting-IP, or the right entry of
+ * X-Forwarded-For); otherwise REMOTE_ADDR. Always a valid IPv4 / IPv6 address.
+ */
+function client_ip(): string {
+    static $ip = null;
+    if ($ip !== null) { return $ip; }
+    $remote = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    $candidate = $remote;
+    $behind_proxy = $remote !== '' && filter_var($remote, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+    if ($behind_proxy && CLIENT_IP_HEADER !== '') {
+        $value = trim((string)($_SERVER['HTTP_' . strtoupper(str_replace('-', '_', CLIENT_IP_HEADER))] ?? ''));
+        if ($value !== '' && strcasecmp(CLIENT_IP_HEADER, 'X-Forwarded-For') === 0) {
+            // Each proxy adds the address it received from on the right: skip the trusted ones
+            $hops = array_values(array_filter(array_map('trim', explode(',', $value)), 'strlen'));
+            $value = $hops[max(0, count($hops) - CLIENT_IP_TRUSTED_PROXIES)] ?? '';
+        }
+        if ($value !== '') { $candidate = $value; }
+    }
+    $ip = filter_var($candidate, FILTER_VALIDATE_IP) !== false ? $candidate : 'unknown';
+    return $ip;
+}
+
+/**
  * Cache-busting ?v= for a file under the app root (its modification time): a
  * changed CSS / JS file gets a new URL, so browsers never run an old cached
  * copy against a new page. Lives here so the landing page has it too.
@@ -187,7 +212,7 @@ function end_deactivated_session(PDO $pdo, bool $deleted = false): void {
     try {
         $pdo->prepare("INSERT INTO activity_logs (user_id, user_role, action, details, ip_address, user_agent) VALUES (?, ?, 'SESSION_ENDED', ?, ?, ?)")
             ->execute([(int)$u['user_id'], $u['role'] ?? null, 'Signed out automatically: the account was ' . ($deleted ? 'deleted.' : 'deactivated.'),
-                       $_SERVER['REMOTE_ADDR'] ?? null, isset($_SERVER['HTTP_USER_AGENT']) ? mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255) : null]);
+                       client_ip(), isset($_SERVER['HTTP_USER_AGENT']) ? mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255) : null]);
     } catch (Throwable $e) {
         error_log('Deactivated session: could not log it: ' . $e->getMessage());
     }

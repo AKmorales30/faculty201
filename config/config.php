@@ -173,6 +173,31 @@ define('PENDING_LOGIN_SECONDS', 900);
 // Forgot password requests from one IP address per hour (more are answered
 // the same way but send nothing)
 define('PASSWORD_RESET_MAX_PER_IP_HOUR', 10);
+
+// The visitor's real IP address (client_ip(), includes/auth.php). Behind
+// Render the app sees only its proxy (REMOTE_ADDR ::1); Cloudflare, in front
+// of every onrender.com site, puts the visitor's address in CF-Connecting-IP
+// and overwrites any value the visitor sends (checked on the deployed site:
+// CF-Connecting-IP and True-Client-IP held the real IP; X-Forwarded-For was
+// "visitor, Cloudflare edge, Render internal"). The header is trusted only
+// when REMOTE_ADDR is a private / loopback proxy address. '' = REMOTE_ADDR
+// only (e.g. XAMPP). 'X-Forwarded-For' takes the entry CLIENT_IP_TRUSTED_PROXIES
+// from the right (3 on Render) -- never the first, which the visitor can fake.
+// Environment variables CLIENT_IP_HEADER / CLIENT_IP_TRUSTED_PROXIES override.
+define('CLIENT_IP_HEADER', getenv('CLIENT_IP_HEADER') !== false ? (string)getenv('CLIENT_IP_HEADER') : 'CF-Connecting-IP');
+define('CLIENT_IP_TRUSTED_PROXIES', max(1, (int)(getenv('CLIENT_IP_TRUSTED_PROXIES') ?: 3)));
+
+// Login activity (includes/login_activity.php): every login attempt with its
+// IP, "OS · Browser" and approximate location (ipinfo.io, token in the
+// IPINFO_TOKEN environment variable, looked up after the response, cached
+// per IP). A browser with a remembered device cookie is a trusted device;
+// a correct password from any other sends a new-device email (at most one
+// per user and device per NEW_DEVICE_ALERT_MINUTES). Login history and
+// devices unused for these many days are deleted by the daily jobs.
+define('LOGIN_HISTORY_DAYS', 90);
+define('TRUSTED_DEVICE_DAYS', 90);
+define('IP_LOCATION_CACHE_HOURS', 24);
+define('NEW_DEVICE_ALERT_MINUTES', 60);
 // Two-factor authentication is optional (users.two_factor_enabled). After
 // the password, an account without a verified email is asked to set one up;
 // "Not now" skips it, and the question comes back after this many days.
