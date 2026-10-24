@@ -7,6 +7,11 @@ require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
 
 $page_title = 'Profile Preference';   // the top bar; My PDS is a tab of it
 $me = current_user();
+if (!user_has_pds($pdo, (int)$me['user_id'])) {   // part-time faculty have no PDS (faculty_has_pds())
+    $_SESSION['flash_error'] = 'Part-time faculty don\'t keep a PDS in the system.';
+    header('Location: ' . BASE_URL . '/profile.php');
+    exit;
+}
 
 // Undo an automatic update from an uploaded PDS (within PDS_UNDO_DAYS): a new version restores the earlier values
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'undo_update') {

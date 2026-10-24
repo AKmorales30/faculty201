@@ -131,18 +131,20 @@ function reminder_conditions(PDO $pdo, array $user, array $prefetched): array {
         ];
     }
 
-    // PDS: not filled in / incomplete sections / not updated this year
-    $pds = pds_load($pdo, $uid);
-    $status = pds_status($pdo, $uid);
+    // PDS: not filled in / incomplete sections / not updated this year -- not for part-time faculty, who have no PDS
+    $pds = faculty_has_pds($user) ? pds_load($pdo, $uid) : null;
+    $status = $pds !== null ? pds_status($pdo, $uid) : null;
     $issues = [];
-    if (!$pds['exists'] && !$pds['ld']) {
+    if ($pds === null) {
+        // no PDS: no issues
+    } elseif (!$pds['exists'] && !$pds['ld']) {
         $issues[] = 'the digital PDS has not been filled in yet';
         $sections = [];
     } else {
         $sections = array_keys(pds_validate_by_section($pds['data'], $pds['ld']));
         if ($sections) { $issues[] = 'incomplete sections: ' . reminder_list_text($sections, 4); }
     }
-    if (!$status['current']) { $issues[] = 'not yet updated for ' . $status['year']; }
+    if ($status !== null && !$status['current']) { $issues[] = 'not yet updated for ' . $status['year']; }
     if ($issues) {
         $out['pds'] = [
             'key'    => 'pds:' . ($pds['exists'] || $pds['ld'] ? 'filled' : 'empty') . '|' . implode('|', $sections) . '|' . ($status['current'] ? 'current' : 'old' . $status['year']),
@@ -180,7 +182,8 @@ function reminder_follow_up_condition(PDO $pdo, array $viewer): ?array {
     [$scope, $params] = profile_scope_sql($pdo, $viewer);
     $stmt = $pdo->prepare(
         "SELECT COUNT(DISTINCT r.user_id) FROM ai_reminders r JOIN users u ON u.user_id = r.user_id
-         WHERE r.resolved_at IS NULL AND r.reminder_type <> 'follow_up' AND u.is_active = 1 AND u.user_id <> ? AND $scope"
+         WHERE r.resolved_at IS NULL AND r.reminder_type <> 'follow_up' AND (r.reminder_type <> 'pds' OR " . sql_has_pds('u') . ")
+           AND u.is_active = 1 AND u.user_id <> ? AND $scope"
     );
     $stmt->execute([(int)$viewer['user_id'], ...$params]);
     $people = (int)$stmt->fetchColumn();
@@ -548,6 +551,9 @@ function open_reminders_for_user(PDO $pdo, int $user_id): array {
         );
         $stmt->execute([$user_id]);
         $rows = $stmt->fetchAll();
+        if (!user_has_pds($pdo, $user_id)) {   // part-time faculty: a PDS reminder from before is no longer shown
+            $rows = array_values(array_filter($rows, fn($r) => $r['reminder_type'] !== 'pds'));
+        }
         $first = person_first_name(user_row($pdo, $user_id) ?? []);
         foreach ($rows as &$r) { $r['message'] = greeting_with_name($r['message'], $first); }
         return $rows;
@@ -574,7 +580,8 @@ function reminder_scope_counts(PDO $pdo, array $viewer): array {
         [$scope, $params] = profile_scope_sql($pdo, $viewer);
         $stmt = $pdo->prepare(
             "SELECT r.reminder_type, COUNT(DISTINCT r.user_id) FROM ai_reminders r JOIN users u ON u.user_id = r.user_id
-             WHERE r.resolved_at IS NULL AND r.reminder_type <> 'follow_up' AND u.is_active = 1 AND u.user_id <> ? AND $scope
+             WHERE r.resolved_at IS NULL AND r.reminder_type <> 'follow_up' AND (r.reminder_type <> 'pds' OR " . sql_has_pds('u') . ")
+               AND u.is_active = 1 AND u.user_id <> ? AND $scope
              GROUP BY r.reminder_type"
         );
         $stmt->execute([(int)$viewer['user_id'], ...$params]);
@@ -590,7 +597,8 @@ function reminder_scope_list(PDO $pdo, array $viewer, string $type): array {
     $stmt = $pdo->prepare(
         "SELECT r.reason, r.created_at, r.dismissed_at, u.user_id, u.full_name, u.role, u.employment_type, u.program, u.college
          FROM ai_reminders r JOIN users u ON u.user_id = r.user_id
-         WHERE r.resolved_at IS NULL AND r.reminder_type = ? AND u.is_active = 1 AND u.user_id <> ? AND $scope
+         WHERE r.resolved_at IS NULL AND r.reminder_type = ? AND (r.reminder_type <> 'pds' OR " . sql_has_pds('u') . ")
+           AND u.is_active = 1 AND u.user_id <> ? AND $scope
          ORDER BY u.full_name"
     );
     $stmt->execute([$type, (int)$viewer['user_id'], ...$params]);

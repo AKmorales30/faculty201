@@ -20,6 +20,7 @@ $page_title = 'Upload Document';
 $me = current_user();
 $employment_type = faculty_employment_type($pdo, $me['user_id']);
 $categories = categories_for_faculty($employment_type);
+$has_pds = user_has_pds($pdo, (int)$me['user_id']);   // part-time faculty: no PDS (faculty_has_pds())
 $period_now = current_academic_period();
 
 $action = $_POST['action'] ?? '';
@@ -71,6 +72,23 @@ function pending_classification(array $pending, array $categories): array {
     return !empty($pending['manual'])
         ? ['score' => null, 'predicted' => null, 'suggested' => null, 'low' => false, 'candidates' => []]
         : classification_check($pending['result'], $categories);
+}
+/**
+ * For an uploader without a PDS (part-time faculty): a file read as a PDS is
+ * offered as an ordinary document (Other Documents > Other), and nothing goes
+ * into a digital PDS.
+ */
+function pds_detection_without_pds(array $result): array {
+    if (($result['detected_type'] ?? null) !== 'PDS') {
+        return $result;
+    }
+    $scores = $result['scores'] ?? [];
+    $scores['Other'] = max((float)($scores['Other'] ?? 0), (float)($scores['PDS'] ?? 0));
+    unset($scores['PDS']);
+    return array_merge($result, [
+        'detected_type' => 'Other', 'detected_subtype' => 'Other', 'scores' => $scores, 'pds' => null,
+        'confidence_note' => trim(($result['confidence_note'] ?? '') . ' It looks like a PDS; part-time faculty don\'t keep a PDS in the system, so it is saved as an ordinary document.'),
+    ]);
 }
 /**
  * OCR + categorization of a scan; uses the cleaned-up page when there is one. Skipped for a manual entry.
@@ -197,7 +215,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
 
     // Relevant information -> PDS
     $extra_lines = [];
-    if ($type === 'PDS') {
+    if ($type === 'PDS' && $has_pds) {
         // Read what it holds (the cleaned-up page of a photo reads best) straight into the digital PDS
         $stmt = $pdo->prepare("SELECT file_path FROM documents WHERE document_id = ?");
         $stmt->execute([$document_id]);
@@ -219,7 +237,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         }
     }
     discard_files(pending_extra_files($scan));   // the original photo isn't kept -- the cleaned-up PDF is the record
-    if ($type === 'Certificate' && in_array($subtype, ['Seminar', 'Training'], true) && !empty($_POST['add_to_pds'])) {
+    if ($type === 'Certificate' && in_array($subtype, ['Seminar', 'Training'], true) && !empty($_POST['add_to_pds']) && $has_pds) {
         $page = pds_add_training($pdo, $me['user_id'], [
             'title' => $details['title'], 'date_from' => $details['date_start'], 'date_to' => $details['date_end'],
             'hours' => $details['hours'], 'ld_type' => $_POST['ld_type'] ?? '', 'conducted_by' => $details['conducted_by'],
@@ -276,6 +294,7 @@ if ($action === 'recrop' && isset($_SESSION['pending_scan']['raw_path'])) {
     } else {
         $scan['docscan'] = $info;
         $scan['result'] = ocr_pending($scan, $me['full_name']);
+        if (!$has_pds) { $scan['result'] = pds_detection_without_pds($scan['result']); }
         $_SESSION['pending_scan'] = $scan;
     }
     header('Location: ' . BASE_URL . '/faculty/submit_document.php');
@@ -376,6 +395,7 @@ if ($action === 'scan') {
         }
     }
     $pending['result'] = ocr_pending($pending, $me['full_name']);
+    if (!$has_pds) { $pending['result'] = pds_detection_without_pds($pending['result']); }
     $_SESSION['pending_scan'] = $pending;
 
     header('Location: ' . BASE_URL . '/faculty/submit_document.php');
@@ -405,7 +425,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <?php if ($step === 1): ?>
-<?= admin_intro('Add a document to your 201 file. Upload it and let the system read it and detect its type, or enter its details yourself. Either way it goes to your 201-Files right away. An uploaded PDS also updates your digital PDS automatically.') ?>
+<?= admin_intro('Add a document to your 201 file. Upload it and let the system read it and detect its type, or enter its details yourself. Either way it goes to your 201-Files right away.' . ($has_pds ? ' An uploaded PDS also updates your digital PDS automatically.' : '')) ?>
 <?php endif; ?>
 
 <ol class="ui-steps" aria-label="Steps">
@@ -938,6 +958,7 @@ include __DIR__ . '/../includes/header.php';
             $prefix = 'details'; $detail_groups = ['training' => true]; $detail_attr = 'disabled';
             include __DIR__ . '/../includes/document_details_fields.php';
             ?>
+            <?php if ($has_pds): /* part-time faculty have no PDS */ ?>
             <div class="border rounded p-2 mt-3 type-field" data-types="Certificate" data-subtypes="Seminar Training" id="pdsBlock">
               <div class="d-flex align-items-center gap-2 flex-wrap">
                 <input type="checkbox" class="form-check-input m-0" name="add_to_pds" value="1" id="addToPds" checked disabled>
@@ -951,6 +972,7 @@ include __DIR__ . '/../includes/header.php';
               </div>
               <div class="form-text">Uses the title, dates, hours and organizer above.</div>
             </div>
+            <?php endif; ?>
           </div>
         </div>
 

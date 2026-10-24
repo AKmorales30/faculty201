@@ -19,6 +19,7 @@ try {
     $stmt->execute([$pid]);
     $types = reminder_types();
     foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $t) {
+        if ($t === 'pds' && !faculty_has_pds($person)) { continue; }   // part-time faculty have no PDS
         if (isset($types[$t])) { $open_issues[] = $types[$t]['label']; }
     }
 } catch (PDOException $e) {

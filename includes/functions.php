@@ -1058,8 +1058,11 @@ function faculty_201_checklist(PDO $pdo, int $faculty_id, ?string $employment_ty
         return (int)$stmt->fetchColumn() > 0;
     };
 
-    $pds = pds_status($pdo, $faculty_id);
-    $items = [['label' => 'PDS updated for ' . $pds['year'], 'done' => $pds['current'], 'type' => 'PDS']];
+    $items = [];
+    if (faculty_has_pds(['employment_type' => $employment_type])) {   // no PDS for part-time faculty
+        $pds = pds_status($pdo, $faculty_id);
+        $items[] = ['label' => 'PDS updated for ' . $pds['year'], 'done' => $pds['current'], 'type' => 'PDS'];
+    }
     $items[] = ['label' => 'FTA -- ' . $sem_label, 'done' => $has('FTA', $period), 'type' => 'FTA'];
     if ($employment_type !== 'part_time') {
         $items[] = ['label' => 'IPCR -- ' . $sem_label, 'done' => $has('IPCR', $period), 'type' => 'IPCR'];
@@ -1212,14 +1215,51 @@ function faculty_employment_type(PDO $pdo, int $user_id): ?string {
     return $stmt->fetchColumn() ?: null;
 }
 
+// ---------------------------------------------------------------------
+// Who keeps a PDS -- the one place this rule lives. Faculty, Program Chairs
+// and Deans keep a Personal Data Sheet, except part-time faculty
+// (users.employment_type = 'part_time'), who have none: no My PDS, no PDS
+// folder or version history, no PDS reminders, not counted in PDS numbers.
+// A PDS they upload is saved as an ordinary document (Other). Changing to
+// part-time hides an existing PDS without deleting it; changing back to
+// full-time shows it again (or an empty one).
+// ---------------------------------------------------------------------
+
+/** Whether this account keeps a PDS. $user: a users row (role, employment_type); without 'role' only the employment type is checked. */
+function faculty_has_pds(array $user): bool {
+    if (isset($user['role']) && !in_array($user['role'], ['faculty', 'program_chair', 'dean'], true)) {
+        return false;
+    }
+    return ($user['employment_type'] ?? null) !== 'part_time';
+}
+
+/** faculty_has_pds() for an account id. */
+function user_has_pds(PDO $pdo, int $user_id): bool {
+    static $known = [];
+    if (!isset($known[$user_id])) {
+        $stmt = $pdo->prepare("SELECT role, employment_type FROM users WHERE user_id = ?");
+        $stmt->execute([$user_id]);
+        $row = $stmt->fetch();
+        $known[$user_id] = $row ? faculty_has_pds($row) : false;
+    }
+    return $known[$user_id];
+}
+
+/** faculty_has_pds() as an SQL condition on the users alias $a. */
+function sql_has_pds(string $a = 'u'): string {
+    return "({$a}.role IN ('faculty', 'program_chair', 'dean') AND ({$a}.employment_type IS NULL OR {$a}.employment_type <> 'part_time'))";
+}
+
 /**
  * Categories that apply to a faculty member (IPCR is full-time only;
- * Contract of Service and Affidavit of Undertaking are part-time only).
+ * Contract of Service and Affidavit of Undertaking are part-time only; no
+ * PDS for part-time faculty -- faculty_has_pds()).
  */
 function categories_for_faculty(?string $employment_type): array {
-    return array_filter(document_categories(), function ($cat) use ($employment_type) {
+    return array_filter(document_categories(), function ($cat, $key) use ($employment_type) {
+        if ($key === 'PDS' && !faculty_has_pds(['employment_type' => $employment_type])) { return false; }
         return $cat['applies_to'] === null || $employment_type === null || $cat['applies_to'] === $employment_type;
-    });
+    }, ARRAY_FILTER_USE_BOTH);
 }
 
 /**

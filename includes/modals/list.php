@@ -19,6 +19,7 @@
  *   flagged              everyone              uploads flagged for checking (already in 201-Files);
  *                                              'for_review' is the old name
  *   recent_uploads       everyone              the latest uploads
+ *   (&program=KEY on the four faculty lists: only that program -- Analytics)
  *     (document lists: the Admin sees every faculty member's; anyone else
  *      only their own -- Program Chairs and Deans can't open faculty files)
  *
@@ -66,6 +67,13 @@ if ($faculty_list) {
         $people = reminder_scope_list($pdo, $me, $key);   // open reminders of this type, in the viewer's scope
     } catch (PDOException $e) {
         $people = [];   // migration not applied yet
+    }
+    // ?program= (a Dean's Analytics filter): only that program -- it narrows the scoped list, never widens it
+    $only_program = (string)($_GET['program'] ?? '');
+    if ($only_program !== '' && isset(PROGRAMS[$only_program])) {
+        $people = array_values(array_filter($people, fn($p) => ($p['program'] ?? null) === $only_program));
+        $title .= ' — ' . PROGRAMS[$only_program]['label'];
+        $full_page = null;   // the full list page has no program filter
     }
     foreach ($people as $p) {
         $pid = (int)$p['user_id'];

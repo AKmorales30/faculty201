@@ -308,8 +308,9 @@ if ($action === 'reset_2fa_email') {
     } else {
         $old = (string)$target['email'];
         $was = two_factor_on($target) ? 'on' : 'off';
-        $pdo->prepare("UPDATE users SET email = NULL, email_verified_at = NULL, two_factor_enabled = 0, email_prompt_dismissed_at = NULL WHERE user_id = ?")
-            ->execute([$target['user_id']]);
+        // two_factor_enabled / email_prompt_dismissed_at only once database/supabase/06_optional_two_factor.sql has run
+        $pdo->prepare("UPDATE users SET email = NULL, email_verified_at = NULL" . (two_factor_ready($target) ? ", two_factor_enabled = 0, email_prompt_dismissed_at = NULL" : '')
+            . " WHERE user_id = ?")->execute([$target['user_id']]);
         $pdo->prepare("UPDATE login_otps SET used_at = ? WHERE user_id = ? AND used_at IS NULL")->execute([date('Y-m-d H:i:s'), $target['user_id']]);
         log_my_activity($pdo, 'EMAIL_2FA_RESET', 'Reset the email and two-factor authentication of ' . account_log_name($target) . ' (email was ' . mask_email($old)
             . ", 2FA was {$was}); 2FA is off and they'll be asked to set up an email at their next login.");

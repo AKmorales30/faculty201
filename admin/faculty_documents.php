@@ -36,9 +36,11 @@ include __DIR__ . '/../includes/header.php';
     <a href="<?= BASE_URL ?>/profile.php?id=<?= $faculty_id ?>" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-circle-user"></i> Profile</a>
     <?php $stmt = $pdo->prepare("SELECT COUNT(*) FROM documents WHERE faculty_id = ? AND status = 'archived'"); $stmt->execute([$faculty_id]); ?>
     <a href="<?= BASE_URL ?>/archive.php?id=<?= $faculty_id ?>" class="btn btn-outline-brand btn-sm"><i class="fa-solid fa-box-archive"></i> Archive (<?= (int)$stmt->fetchColumn() ?>)</a>
+    <?php if (faculty_has_pds($faculty)): /* part-time faculty have no PDS */ ?>
     <a href="<?= BASE_URL ?>/faculty/pds_print.php?faculty_id=<?= $faculty_id ?>" target="_blank" class="btn btn-outline-brand btn-sm">
       <i class="fa-solid fa-id-card"></i> View Digital PDS
     </a>
+    <?php endif; ?>
   </div>
 </div>
 

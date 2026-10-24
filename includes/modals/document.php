@@ -76,7 +76,7 @@ $flagged = document_is_flagged($doc);
       <?php if ($doc['status'] !== 'deleted' && can_edit_document_details($me, $doc)): ?>
         <a href="<?= BASE_URL ?>/document_details.php?id=<?= (int)$doc['document_id'] ?>&amp;return=<?= h(urlencode($return)) ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-pen-to-square"></i> Edit details</a>
       <?php endif; ?>
-      <?php if ($doc['document_type'] === 'PDS' && ($is_admin || $is_owner) && in_array($doc['status'], ['active', 'for_review', 'archived'], true)): ?>
+      <?php if ($doc['document_type'] === 'PDS' && ($is_admin || $is_owner) && in_array($doc['status'], ['active', 'for_review', 'archived'], true) && user_has_pds($pdo, (int)$doc['faculty_id'])): ?>
         <a href="<?= BASE_URL ?>/faculty/pds_import.php?document=<?= (int)$doc['document_id'] ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-file-import"></i> Import to PDS</a>
       <?php endif; ?>
     </div>

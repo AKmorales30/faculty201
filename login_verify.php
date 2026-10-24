@@ -105,7 +105,9 @@ try {
     // ----- email verified: "Turn on two-factor authentication?" -------------
     if ($pending['step'] === 'enable' && ($action === 'enable_2fa' || ($action === 'maybe_later' && !$required))) {
         if ($action === 'enable_2fa') {
-            set_two_factor($pdo, (int)$user['user_id'], true);
+            if (two_factor_ready($user)) {   // before the database update a verified email already means 2FA on
+                set_two_factor($pdo, (int)$user['user_id'], true);
+            }
             log_activity($pdo, (int)$user['user_id'], 'TWO_FACTOR_ON', 'Turned on two-factor authentication at login (codes go to '
                 . mask_email((string)$pending['email']) . ').', $role);
             complete_login($pdo, $user, $portal, 'after verifying ' . mask_email((string)$pending['email']) . ' and turning on two-factor authentication');
@@ -151,7 +153,9 @@ try {
             log_activity($pdo, (int)$user['user_id'], 'EMAIL_VERIFIED', 'Email set up and verified at login: ' . mask_email($pending['email']) . '.', $role);
             $user = login_account($pdo, (int)$user['user_id']);
             if ($required) {   // REQUIRE_2FA_FOR_ADMINS: no choice to make
-                set_two_factor($pdo, (int)$user['user_id'], true);
+                if (two_factor_ready($user)) {
+                    set_two_factor($pdo, (int)$user['user_id'], true);
+                }
                 log_activity($pdo, (int)$user['user_id'], 'TWO_FACTOR_ON', 'Two-factor authentication turned on at login (required for Admin accounts).', $role);
                 complete_login($pdo, $user, $portal, 'after verifying ' . mask_email($pending['email']) . ' (two-factor authentication required)');
             }

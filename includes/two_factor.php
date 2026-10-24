@@ -94,7 +94,17 @@ function email_prompt_due(array $user): bool {
     return time() - strtotime($user['email_prompt_dismissed_at']) >= EMAIL_PROMPT_REMIND_DAYS * 86400;
 }
 
-/** Turn two-factor authentication on or off for an account. */
+/**
+ * Whether the database has the 2FA on/off columns (database/supabase/06_optional_two_factor.sql
+ * has run). $user: a full users row (SELECT *). Until then 2FA can't be turned on or off.
+ */
+function two_factor_ready(array $user): bool {
+    return array_key_exists('two_factor_enabled', $user);
+}
+
+const TWO_FACTOR_NOT_READY = 'Two-factor authentication can\'t be turned on or off yet: the database update for it (06_optional_two_factor.sql) hasn\'t been run. Please contact the administrator.';
+
+/** Turn two-factor authentication on or off for an account (needs two_factor_ready()). */
 function set_two_factor(PDO $pdo, int $user_id, bool $on): void {
     $pdo->prepare("UPDATE users SET two_factor_enabled = ? WHERE user_id = ?")->execute([$on ? 1 : 0, $user_id]);
 }
