@@ -153,7 +153,8 @@ function ip_is_public(string $ip): bool {
 }
 
 /**
- * Approximate location of $ip ("Manila, Metro Manila, PH") from ipinfo.io,
+ * Approximate location of $ip from ipinfo.io -- "Philippines" with the free
+ * IPinfo Lite plan (country only), "Manila, Metro Manila, PH" with plans that give the city --
  * with the token in the IPINFO_TOKEN environment variable; cached per IP for
  * IP_LOCATION_CACHE_HOURS. null for private IPs, without a token, or when the
  * lookup fails. A 3-second limit; call it after the response (after_response()).
@@ -170,22 +171,13 @@ function ip_location(PDO $pdo, string $ip): ?string {
     } catch (Throwable $e) {
         error_log('IP location cache read failed: ' . $e->getMessage());
     }
-    $ch = curl_init('https://ipinfo.io/' . rawurlencode($ip));
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER     => ['Accept: application/json', 'Authorization: Bearer ' . $token],
-        CURLOPT_CONNECTTIMEOUT => 2,
-        CURLOPT_TIMEOUT        => 3,
-    ]);
-    $body = curl_exec($ch);
-    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    $error = curl_error($ch);
-    curl_close($ch);
-    if ($status !== 200) {
-        error_log('IP location lookup failed: ipinfo.io answered ' . ($status ?: 'nothing') . ($error !== '' ? " ({$error})" : ''));
+    // ipinfo.io gives city, region and country for tokens that include the city; a token of
+    // the free IPinfo Lite plan is answered on its own address, with the country only.
+    $data = ipinfo_get('https://ipinfo.io/' . rawurlencode($ip), $token)
+         ?? ipinfo_get('https://api.ipinfo.io/lite/' . rawurlencode($ip), $token);
+    if ($data === null) {
         return null;   // not cached: tried again next time
     }
-    $data = json_decode((string)$body, true) ?: [];
     $parts = array_filter(array_map(fn($k) => trim((string)($data[$k] ?? '')), ['city', 'region', 'country']), 'strlen');
     $location = $parts ? mb_substr(implode(', ', array_unique($parts)), 0, 100) : null;
     try {
@@ -196,6 +188,27 @@ function ip_location(PDO $pdo, string $ip): ?string {
         error_log('IP location cache write failed: ' . $e->getMessage());
     }
     return $location;
+}
+
+/** One ipinfo.io request (2 s to connect, 3 s in all): the decoded answer, or null (logged) when it failed. */
+function ipinfo_get(string $url, string $token): ?array {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => ['Accept: application/json', 'Authorization: Bearer ' . $token],
+        CURLOPT_CONNECTTIMEOUT => 2,
+        CURLOPT_TIMEOUT        => 3,
+    ]);
+    $body = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+    $data = $status === 200 ? json_decode((string)$body, true) : null;
+    if (!is_array($data) || !empty($data['bogon'])) {
+        error_log('IP location lookup failed: ' . parse_url($url, PHP_URL_HOST) . ' answered ' . ($status ?: 'nothing') . ($error !== '' ? " ({$error})" : ''));
+        return null;
+    }
+    return $data;
 }
 
 // ---------------------------------------------------------------------
