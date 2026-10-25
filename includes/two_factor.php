@@ -164,7 +164,7 @@ function otp_issue(PDO $pdo, array $user, string $purpose, string $email): array
     $code = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
     $pdo->prepare(
         "INSERT INTO login_otps (user_id, purpose, email, code_hash, ip_address, last_sent_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    )->execute([$user_id, $purpose, $email, password_hash($code, PASSWORD_DEFAULT), $_SERVER['REMOTE_ADDR'] ?? null,
+    )->execute([$user_id, $purpose, $email, password_hash($code, PASSWORD_DEFAULT), client_ip(),
                 $now, date('Y-m-d H:i:s', time() + OTP_TTL_SECONDS)]);
     $otp_id = (int)$pdo->lastInsertId();
     [$subject, [$text, $html]] = otp_email($purpose, $code, $user);
@@ -287,12 +287,16 @@ function login_page_url(string $portal): string {
  * Password, for a temporary password). $how says how, for the activity log.
  */
 function complete_login(PDO $pdo, array $user, string $portal, string $how = ''): never {
-    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $ip = client_ip();
     $user_id = (int)$user['user_id'];
     login_side_task('recording the login', fn() => record_login_attempt($pdo, (string)$user['username'], $user_id, true, $ip));
     login_side_task('suspicious-login screening', fn() => flag_suspicious_login($pdo, $user_id, $user['full_name'], $ip));
     log_activity($pdo, $user_id, 'LOGIN', 'Signed in through the ' . ($portal === 'faculty' ? 'Faculty' : 'Admin') . ' login page'
         . ($how !== '' ? ' ' . $how : '') . '.', $user['role']);
+    // Login Activity (includes/login_activity.php): the successful login, then this browser
+    // becomes / stays a trusted device (new-device alerts only -- it never skips the code)
+    login_history_record($pdo, $user_id, 'success', trusted_device_current($pdo, $user_id) === null);
+    trusted_device_remember($pdo, $user_id, device_label());
 
     session_regenerate_id(true);   // new session id on login (prevents session fixation)
     unset($_SESSION['pending_login'], $_SESSION['password_reset'], $_SESSION['login_username'], $_SESSION['login_bad_fields'],
@@ -330,7 +334,7 @@ function login_account(PDO $pdo, int $user_id): ?array {
 function raise_security_alert(PDO $pdo, array $user, string $reason): void {
     try {
         $pdo->prepare("INSERT INTO security_alerts (user_id, reason, ip_address) VALUES (?, ?, ?)")
-            ->execute([(int)$user['user_id'], $reason, $_SERVER['REMOTE_ADDR'] ?? null]);
+            ->execute([(int)$user['user_id'], $reason, client_ip()]);
         notify_role($pdo, 'admin', "Security alert for {$user['full_name']}: {$reason}");
     } catch (Throwable $e) {
         error_log('Security alert failed: ' . $e->getMessage());

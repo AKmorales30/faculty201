@@ -162,13 +162,16 @@ try {
             $_SESSION['pending_login'] = ['step' => 'enable', 'otp_id' => null] + $pending;
             verify_back($page, 'Your email is verified.', true);
         }
+        if ($pending['purpose'] === 'login') {   // a wrong / expired / used-up two-factor code: Login Activity
+            login_history_record($pdo, (int)$user['user_id'], 'failed_2fa');
+        }
         $message = otp_retry_message($result, $left);
         if ($message !== null) {
             verify_back($page, $message);
         }
         // Out of tries: start over, and it counts as a failed login
         login_side_task('recording the attempt', fn() => record_login_attempt($pdo, (string)$user['username'], (int)$user['user_id'], false,
-                                                                             $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'));
+                                                                             client_ip()));
         $what = $pending['purpose'] === 'login' ? 'login code' : 'email verification code';
         log_activity($pdo, (int)$user['user_id'], 'LOGIN_CODE_FAILED', "Too many wrong {$what}s for " . mask_email($pending['email'])
             . ' -- the login was stopped.', $role);

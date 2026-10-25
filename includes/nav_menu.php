@@ -62,7 +62,7 @@ function app_menu(PDO $pdo, array $user): array {
                  'active' => fn(string $page): bool => in_array($page, ['admin/manage_faculty.php', 'admin/academic_ranks.php', 'faculty_directory.php'], true)
                                                      || ($page === 'profile.php' && !nav_viewing_own())],
                 ['label' => 'Security Alerts', 'icon' => 'fa-triangle-exclamation', 'url' => 'admin/security_alerts.php',
-                 'active' => nav_on('admin/security_alerts.php'), 'badge' => unresolved_security_alert_count($pdo), 'badge_title' => 'Unreviewed alerts'],
+                 'active' => nav_on('admin/security_alerts.php', 'admin/login_history.php'), 'badge' => unresolved_security_alert_count($pdo), 'badge_title' => 'Unreviewed alerts'],
                 ['label' => 'Activity Logs', 'icon' => 'fa-clock-rotate-left', 'url' => 'admin/activity_logs.php', 'active' => nav_on('admin/activity_logs.php')],
             ]],
             $account,

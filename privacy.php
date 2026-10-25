@@ -7,7 +7,7 @@
  */
 require_once __DIR__ . '/includes/auth.php';
 
-$updated = 'October 22, 2026';
+$updated = 'October 25, 2026';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -44,8 +44,12 @@ $updated = 'October 22, 2026';
       Personal Data Sheet), with the details entered for them.</li>
     <li><strong>Profile:</strong> an optional profile picture, contact number and field of specialization.</li>
     <li><strong>Optional email:</strong> if you choose to add one, the email address you verify. It is used only for the purposes listed below.</li>
-    <li><strong>Security records:</strong> login attempts, activity logs and security alerts, including the time, IP address and browser of each
-      action, to protect accounts and investigate problems.</li>
+    <li><strong>Security records:</strong> activity logs and security alerts, including the time, IP address and browser of each action,
+      to protect accounts and investigate problems.</li>
+    <li><strong>Login activity:</strong> for every login attempt, the date and time, your IP address, the approximate location worked out from it
+      (city and country), your device and browser (for example "Windows · Chrome"), and whether the login succeeded or why it was refused.
+      Browsers you have logged in from are remembered with a cookie (stored only in scrambled form), so that a login from a new device can be
+      reported to you by email. A remembered device never skips two-factor authentication.</li>
   </ul>
 
   <h3>How your email is used</h3>
@@ -61,8 +65,8 @@ $updated = 'October 22, 2026';
 
   <h3>Who can see your information</h3>
   <ul>
-    <li><strong>You</strong> can see your own profile and 201 file.</li>
-    <li><strong>The administrator</strong> can see and manage all accounts and 201 files.</li>
+    <li><strong>You</strong> can see your own profile, 201 file and login activity (Profile Preference).</li>
+    <li><strong>The administrator</strong> can see and manage all accounts and 201 files, and can see the login activity of every account.</li>
     <li><strong>Deans and Program Chairs</strong> can see summary information (such as document counts) for the faculty in their college or program,
       but cannot open faculty files.</li>
   </ul>
@@ -70,19 +74,23 @@ $updated = 'October 22, 2026';
   <h3>Services the system uses</h3>
   <ul>
     <li><strong>Render</strong> hosts the website, and <strong>Supabase</strong> hosts the database where the information above is stored.</li>
-    <li><strong>Google Gmail API</strong> sends the emails described above.</li>
+    <li><strong>Google Gmail API</strong> sends the emails described above, including new-device login alerts.</li>
+    <li><strong>ipinfo.io</strong> receives the IP address of a login, only to estimate its approximate location. No name, username or other
+      account details are sent.</li>
     <li><strong>Google Gemini</strong> (when the AI features are turned on) helps write report summaries and reminders. It receives only what those
       features need, such as names, document categories, dates and seminar titles, and never ID numbers, addresses, birth dates, contact numbers,
       email addresses, passwords or the contents of your files.</li>
   </ul>
 
   <h3>Cookies and browser storage</h3>
-  <p>The system uses one session cookie to keep you logged in, and your browser's storage to remember small display choices (such as which menu
-    sections you closed). There are no advertising or tracking cookies.</p>
+  <p>The system uses a session cookie to keep you logged in, a device cookie to recognize browsers you have logged in from (for new-device
+    alerts), and your browser's storage to remember small display choices (such as which menu sections you closed). There are no advertising
+    or tracking cookies.</p>
 
   <h3>How long information is kept</h3>
   <p>Your information is kept while you have an account. Deleted accounts and documents can be restored for <?= (int)DELETED_RETENTION_DAYS ?> days and are
-    then removed. You can remove your email at any time by asking the administrator, and change it yourself in Profile Preference.</p>
+    then removed. Login activity is deleted after <?= (int)LOGIN_HISTORY_DAYS ?> days, and a remembered device after <?= (int)TRUSTED_DEVICE_DAYS ?> days
+    without a login. You can remove your email at any time by asking the administrator, and change it yourself in Profile Preference.</p>
 
   <h3>Your choices and questions</h3>
   <p>You can update your profile, email and two-factor authentication in Profile Preference. For anything else, such as correcting or removing

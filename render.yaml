@@ -40,6 +40,11 @@ services:
         value: "udmccsfaculty201.ms@gmail.com"
       - key: MAIL_FROM_NAME
         value: "Faculty-201 File Management System"
+      # Login Activity: approximate location of a login's IP address from
+      # ipinfo.io (free token from ipinfo.io/signup). Without it the location
+      # is shown as "unknown" and everything else works.
+      - key: IPINFO_TOKEN
+        sync: false
       # AI features (config/ai.example.php); without it AI is off and everything else works
       - key: GEMINI_API_KEY
         sync: false

@@ -9,3 +9,7 @@ config/database.php
 
 # Email settings (Google client secret / refresh token) (template: config/mail.example.php)
 config/mail.php
+
+# PHP libraries, installed by composer install (Dockerfile)
+vendor/
+composer.lock

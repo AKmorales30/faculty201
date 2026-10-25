@@ -51,7 +51,7 @@ if ($action === 'cancel') {
 
 try {
     require_once __DIR__ . '/includes/functions.php';
-    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    $ip = client_ip();
 
     // ----- the username -------------------------------------------------------
     if ($action === 'request') {

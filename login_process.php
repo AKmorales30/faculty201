@@ -41,9 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $username = mb_substr(mb_strtolower(trim((string)($_POST['username'] ?? ''))), 0, 150);   // the lockout key; fits login_attempts.username
 $password = (string)($_POST['password'] ?? '');
-// The connecting address only: X-Forwarded-For can be set by anyone, so it
-// isn't trusted (a known proxy in front of the app would have to be configured).
-$ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+// The visitor's real address behind Render's proxy (client_ip(): the header Cloudflare
+// sets, never the visitor's own X-Forwarded-For entry) -- for the lockout and the logs.
+$ip = client_ip();
 
 /**
  * Back to the login page with a message; the username is kept so it doesn't
@@ -112,12 +112,14 @@ $locks = array_filter([
 ]);
 if ($locks) {
     login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip, true));
+    login_history_record($pdo, $user_id, 'blocked_locked');   // Login Activity (an unknown username: user_id NULL, nothing typed is kept)
     login_fail(login_lock_message(max(array_column($locks, 'seconds_left'))));
 }
 
 $password_ok = password_verify($password, $user ? $user['password_hash'] : LOGIN_TIMING_HASH);
 if (!$user || !$password_ok) {
     login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip));
+    login_history_record($pdo, $user_id, 'failed_password');
     $attempts_left = null;
     $lock = login_side_task('lockout check', function () use ($pdo, $username, $ip, &$attempts_left) {
         return register_failed_login($pdo, $username, $ip, $attempts_left);
@@ -137,11 +139,13 @@ if (!$user || !$password_ok) {
 if (!empty($user['deleted_at'])) {
     login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip, true));
     log_activity($pdo, $user_id, 'LOGIN_BLOCKED', 'Login refused: the account is deleted.', $user['role']);
+    login_history_record($pdo, $user_id, 'blocked_deactivated');
     login_fail(ACCOUNT_DELETED_MESSAGE);
 }
 if ((int)$user['is_active'] !== 1) {
     login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip, true));
     log_activity($pdo, $user_id, 'LOGIN_BLOCKED', 'Login refused: the account is deactivated.', $user['role']);
+    login_history_record($pdo, $user_id, 'blocked_deactivated');
     login_fail(ACCOUNT_DEACTIVATED_MESSAGE);
 }
 
@@ -149,6 +153,13 @@ if ((int)$user['is_active'] !== 1) {
 if (!$portal['validate']($user)) {
     login_side_task('recording the attempt', fn() => record_login_attempt($pdo, $username, $user_id, false, $ip));
     login_fail('This account is not registered for this role. Use "Change role" to choose the correct one.');
+}
+
+// Right password from a browser that isn't one of this account's trusted devices: a "New device
+// login" Security Alert and, after the response, an email (includes/login_activity.php). Before
+// any 2FA code -- the password alone is what someone else would have. The IP alone never alerts.
+if (!trusted_device_current($pdo, (int)$user_id)) {
+    new_device_login($pdo, $user);
 }
 
 // Keep the stored hash on PHP's current default algorithm / cost

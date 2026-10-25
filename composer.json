@@ -1,0 +1,15 @@
+{
+    "name": "udm-ccs/faculty201",
+    "description": "Faculty-201 File Management System -- PHP libraries (installed in the Docker image by composer install).",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.2",
+        "matomo/device-detector": "^6.4"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true,
+        "platform": { "php": "8.2" }
+    }
+}
