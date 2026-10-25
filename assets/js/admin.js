@@ -170,12 +170,38 @@
     update();
   });
 
+  // ----- unsaved changes -------------------------------------------------------------
+  // A form whose fields were changed and not yet sent, or a page marked
+  // data-unsaved-work (e.g. an upload waiting in its preview). Search and filter
+  // forms don't count. Used by the Log out pop-up (data-confirm-unsaved).
+  var dirtyForms = [];
+  var countsAsWork = function (form) {
+    return form && !form.matches('[role="search"], [data-autosubmit], [data-confirm-unsaved], #headerSearch, .ad-logout-form');
+  };
+  ['input', 'change'].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      var form = e.target.form || (e.target.closest && e.target.closest('form'));
+      if (countsAsWork(form) && dirtyForms.indexOf(form) === -1) dirtyForms.push(form);
+    });
+  });
+  document.addEventListener('submit', function (e) {
+    var i = dirtyForms.indexOf(e.target);
+    if (i !== -1) dirtyForms.splice(i, 1);
+  });
+  var hasUnsavedWork = function () {
+    return dirtyForms.some(function (f) { return document.contains(f); }) || !!document.querySelector('[data-unsaved-work]');
+  };
+
   // ----- confirmation pop-up ------------------------------------------------------
   // <form data-confirm="text" data-confirm-title="..." data-confirm-ok="Deactivate" data-confirm-danger="1">
+  // Optional: data-confirm-cancel (the Cancel button's label), data-confirm-focus="cancel"
+  // (focus Cancel instead of nothing), data-confirm-unsaved (the text instead, when the
+  // page has unsaved changes). Esc or a click outside closes it, like Cancel.
   var confirmEl = document.getElementById('adConfirm');
   if (confirmEl && window.bootstrap) {
     var confirmModal = bootstrap.Modal.getOrCreateInstance(confirmEl);
     var okBtn = document.getElementById('adConfirmOk');
+    var cancelBtn = document.getElementById('adConfirmCancel');
     var pending = null;
     document.addEventListener('submit', function (e) {
       var form = e.target;
@@ -183,7 +209,10 @@
       e.preventDefault();
       pending = { form: form, submitter: e.submitter || null };
       document.getElementById('adConfirmTitle').textContent = form.dataset.confirmTitle || 'Are you sure?';
-      document.getElementById('adConfirmText').textContent = form.dataset.confirm;
+      document.getElementById('adConfirmText').textContent = form.dataset.confirmUnsaved && hasUnsavedWork()
+        ? form.dataset.confirm + ' ' + form.dataset.confirmUnsaved : form.dataset.confirm;
+      if (cancelBtn) cancelBtn.textContent = form.dataset.confirmCancel || 'Close';
+      confirmEl.dataset.focus = form.dataset.confirmFocus || '';
       okBtn.textContent = form.dataset.confirmOk || 'Confirm';
       okBtn.className = 'btn ' + (form.dataset.confirmDanger ? 'btn-danger' : 'btn-brand');
       confirmModal.show();
@@ -195,6 +224,9 @@
       okBtn.disabled = true;
       p.form.dataset.confirmed = '1';
       if (p.form.requestSubmit) { p.form.requestSubmit(p.submitter || undefined); } else { p.form.submit(); }
+    });
+    confirmEl.addEventListener('shown.bs.modal', function () {
+      if (confirmEl.dataset.focus === 'cancel' && cancelBtn) cancelBtn.focus();
     });
     confirmEl.addEventListener('hidden.bs.modal', function () { okBtn.disabled = false; pending = null; });
   }

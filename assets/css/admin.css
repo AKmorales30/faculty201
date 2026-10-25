@@ -193,6 +193,9 @@ body.admin-ui {
   font-size: 14px; font-weight: 600; text-decoration: none; transition: border-color 150ms, color 150ms;
 }
 .ad-logout:hover { border-color: var(--ad-navy); color: var(--ad-navy) !important; }
+.ad-logout-form { display: inline-flex; margin: 0; }
+button.ad-logout { background: #fff; font-family: inherit; cursor: pointer; }
+button.ad-logout:focus-visible { outline: 3px solid rgba(0, 50, 131, .35); outline-offset: 2px; }
 
 /* Search: a magnifier that opens into a rounded box (hover, click or focus) */
 .admin-ui .header-search {

@@ -135,9 +135,16 @@ $ad_link = function (array $item, bool $nested) use ($ad_page): string {
            title="Profile Preference — <?= h($user['full_name']) ?>" aria-label="Profile Preference — <?= h($user['full_name']) ?>">
           <?= user_avatar($ad_avatar_user, 38) ?>
         </a>
-        <a href="<?= BASE_URL ?>/logout.php" class="ad-logout" aria-label="Log out">
-          <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i><span class="ad-logout-text">Log out</span>
-        </a>
+        <?php // Log out: a POST with the CSRF token, after "Log out?" in the shared pop-up (assets/js/admin.js) ?>
+        <form method="POST" action="<?= BASE_URL ?>/logout.php" class="ad-logout-form" id="logoutForm"
+              data-confirm="Are you sure you want to log out of the Faculty-201 File Management System?"
+              data-confirm-unsaved="You have unsaved changes. Log out anyway?"
+              data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-cancel="Cancel" data-confirm-focus="cancel">
+          <?= csrf_field() ?>
+          <button type="submit" class="ad-logout" aria-label="Log out">
+            <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i><span class="ad-logout-text">Log out</span>
+          </button>
+        </form>
       </div>
     </header>
 

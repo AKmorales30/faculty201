@@ -1,5 +1,19 @@
 <?php
+/**
+ * Log out: POST with the CSRF token only -- the Log out button in the top bar,
+ * after "Log out?" (includes/header.php). A plain visit (an old link or
+ * bookmark, or another site trying to log someone out) changes nothing and
+ * goes back to the home page. The automatic sign-outs (deactivated or deleted
+ * account, includes/auth.php) don't come through here.
+ */
 require_once __DIR__ . '/includes/auth.php';
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_valid()) {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_logged_in()) {
+        $_SESSION['flash_error'] = 'Your session expired before you logged out. Please try again.';
+    }
+    header('Location: ' . BASE_URL . '/index.php');   // signed in: the dashboard; signed out: the login page
+    exit;
+}
 if (is_logged_in()) {
     try {
         require_once __DIR__ . '/includes/functions.php';   // connects to the database

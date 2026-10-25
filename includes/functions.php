@@ -251,9 +251,10 @@ function move_to_repository(int $faculty_id, string $document_type, string $sour
 /**
  * Tell every Program Chair and Dean (and the Admin, as before) that a
  * faculty member uploaded a document to their 201 file. $extra_lines
- * are appended (e.g. that the upload also updated their PDS).
+ * are appended (e.g. that the upload also updated their PDS). $archived_date:
+ * the document's own date when it went straight to Archived Docs (archive_at_upload()).
  */
-function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false, ?string $flag_reason = null): void {
+function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false, ?string $flag_reason = null, ?string $archived_date = null): void {
     $when = new DateTime('now', new DateTimeZone('Asia/Manila'));
 
     // Admin: full details, as before. The upload is in 201-Files already; a flagged one is also in Manage Document.
@@ -261,9 +262,12 @@ function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?st
          . "Faculty: {$uploader['full_name']}\n"
          . "Document Type: " . document_type_label($document_type, $subtype) . "\n"
          . "Date Uploaded: " . $when->format('F j, Y, g:i A') . "\n"
-         . ($flag_reason !== null
-             ? 'It is in 201-Files, and flagged for checking in Manage Document: ' . document_flag_text($flag_reason) . '.'
-             : 'It is in 201-Files.');
+         . match (true) {
+             $archived_date !== null => 'It is dated ' . date('F j, Y', strtotime($archived_date)) . ', more than ' . archive_period_label()
+                                        . ' ago, so it was saved to Archived Docs.',
+             $flag_reason !== null   => 'It is in 201-Files, and flagged for checking in Manage Document: ' . document_flag_text($flag_reason) . '.',
+             default                 => 'It is in 201-Files.',
+         };
     foreach ($extra_lines as $line) {
         $msg .= "\n" . $line;
     }
@@ -275,6 +279,7 @@ function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?st
         $type = employment_type_label($uploader['employment_type'] ?? null);
         $short = $uploader['full_name'] . ($type ? " ({$type})" : '')
                . ($reupload ? ' re-uploaded a file to their 201 file.' : ' uploaded a file to their 201 file.')
+               . ($archived_date !== null ? ' (An older document: saved to their Archived Docs.)' : '')
                . ' – ' . str_replace('Sep ', 'Sept ', $when->format('M j, Y, g:i A'));
         foreach (upload_notification_recipients($pdo, $uploader) as $uid) {
             notify($pdo, $uid, $short, null);
@@ -603,11 +608,12 @@ function change_document_status(PDO $pdo, array $doc, string $action, int $actor
         $path = move_document_file($doc['file_path'], restored_file_path($doc['file_path']));
         $pdo->prepare(
             "UPDATE documents SET status = 'active', posted_at = COALESCE(posted_at, filed_at), file_path = ?,
+                    archive_exempt = CASE WHEN archive_reason LIKE ? THEN 1 ELSE archive_exempt END,   -- archived for its date: not again
                     archived_at = NULL, archived_by = NULL, archive_reason = NULL,
                     deleted_at = NULL, deleted_by = NULL, delete_reason = NULL,
                     last_viewed_at = NOW()
              WHERE document_id = ?"
-        )->execute([$path, $doc['document_id']]);
+        )->execute([$path, 'Auto: document dated%', $doc['document_id']]);
         return true;
     }
     return false;
@@ -860,7 +866,8 @@ function document_url(int $document_id): string {
 /**
  * Store a faculty member's upload: move the scan into the repository, log
  * it in submission_requests as 'uploaded' and insert the documents row,
- * posted to 201-Files right away (status 'active'); $meta['flag_reason']
+ * posted to 201-Files right away (status 'active') -- or, with
+ * $meta['archive'] (archive_at_upload()), to Archived Docs; $meta['flag_reason']
  * flags it for the Admin to check in Manage Document (document_flag_for_upload()).
  * $ocr is the OcrProcessor::process() result
  * from the preview step (empty for a manual entry); $meta holds subtype /
@@ -894,8 +901,8 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
                                     title, date_start, date_end, venue, conducted_by, training_type, training_level, hours, date_issued,
                                     file_path, expiration_date, ocr_extracted_text, ocr_matched_name, ocr_confidence_note,
                                     confidence_score, predicted_category, chosen_category, is_low_confidence, flag_reason,
-                                    status, entry_method, posted_at, last_viewed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NOW(), NOW())"
+                                    status, archived_at, archive_reason, entry_method, posted_at, last_viewed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())"
         )->execute([
             $request_id, $faculty['user_id'], $document_type, $subtype,
             $meta['academic_year'] ?? null, $meta['semester'] ?? null, $meta['period_year'] ?? null,
@@ -904,6 +911,10 @@ function store_faculty_upload(PDO $pdo, array $faculty, string $document_type, a
             $ocr['text'] ?? null, $ocr['matched_name'] ?? null,
             isset($ocr['confidence_note']) ? mb_substr($ocr['confidence_note'], 0, 255) : null,
             $check['score'] ?? null, $check['predicted'] ?? null, $document_type, !empty($check['low']) ? 1 : 0, $meta['flag_reason'] ?? null,
+            // Dated ARCHIVE_UNVIEWED_YEARS+ years ago (archive_at_upload()): straight to Archived Docs
+            !empty($meta['archive']) ? 'archived' : 'active',
+            !empty($meta['archive']) ? date('Y-m-d H:i:s') : null,
+            !empty($meta['archive']) ? upload_archive_reason() : null,
             ($meta['entry_method'] ?? 'ocr') === 'manual' ? 'manual' : 'ocr',
         ]);
         $document_id = (int)$pdo->lastInsertId();
@@ -1561,6 +1572,37 @@ function archive_period_label(): string {
 
 function auto_archive_reason(): string {
     return 'Auto: not opened in ' . archive_period_label();
+}
+
+// ---------------------------------------------------------------------
+// Old documents straight to Archived Docs. At upload, a document whose own
+// date (not the upload date) is ARCHIVE_UNVIEWED_YEARS or more years ago is
+// saved as archived -- e.g. a 2005 certificate uploaded today. Its date is
+// the one read by OCR and checked in the preview, or typed in Manual Input:
+// the seminar / training end date, else its start date, else the date
+// issued. No date: 201-Files as usual (no guessing). Never the PDS (a living
+// document with versions). Restoring one marks it archive_exempt, so neither
+// rule takes it back.
+// ---------------------------------------------------------------------
+
+/** The reason stored for a document archived at upload because of its own date. */
+function upload_archive_reason(): string {
+    return 'Auto: document dated ' . (int)ARCHIVE_UNVIEWED_YEARS . '+ years ago at upload';
+}
+
+/** A document's own date (Y-m-d) from its details (document_details_clean()), or null when it has none. */
+function document_own_date(array $details): ?string {
+    return $details['date_end'] ?? $details['date_start'] ?? $details['date_issued'] ?? null;
+}
+
+/** Documents dated on or before this day (Asia/Manila) are ARCHIVE_UNVIEWED_YEARS or more years old. */
+function archive_old_date_cutoff(): string {
+    return (new DateTimeImmutable('today'))->modify('-' . (int)ARCHIVE_UNVIEWED_YEARS . ' years')->format('Y-m-d');
+}
+
+/** Whether a new $type document with own date $date goes straight to Archived Docs. */
+function archive_at_upload(string $type, ?string $date): bool {
+    return $type !== 'PDS' && $date !== null && $date <= archive_old_date_cutoff();
 }
 
 /**
