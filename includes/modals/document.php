@@ -2,7 +2,8 @@
 /**
  * Document pop-up (api/modal.php?view=document): the file and its details
  * -- faculty, document type, upload date, status. Access already checked
- * (can_access_document()). Expects $doc (modal_document()) and $me.
+ * (can_access_document()). Opening it here records the view ("Last opened").
+ * Expects $doc (modal_document()), $me and $pdo.
  */
 $is_admin = $me['role'] === 'admin';
 $is_owner = (int)$doc['faculty_id'] === (int)$me['user_id'];
@@ -11,6 +12,14 @@ $period = document_period_label($doc);
 $fmt = fn(?string $d, string $f = 'M j, Y'): string => $d ? date($f, strtotime($d)) : '—';
 $return = $is_admin ? 'admin/public_docs.php' : 'faculty/my_documents.php';
 $flagged = document_is_flagged($doc);
+// Opening the preview counts as opening the document (the auto-archive rule): recorded now, so
+// "Last opened" below already shows this view; the time before it is shown too. Not for a
+// document in Recently Deleted.
+$previous_view = $doc['last_viewed_at'] ?? null;
+$opened_now = $doc['status'] !== 'deleted';
+if ($opened_now) {
+    mark_document_viewed($pdo, (int)$doc['document_id']);
+}
 ?>
 <div data-modal-title="<?= h(document_title($doc)) ?>"></div>
 <div class="row g-3">
@@ -63,8 +72,16 @@ $flagged = document_is_flagged($doc);
           <span class="badge <?= confidence_badge_class($doc['confidence_score']) ?>"><?= h(confidence_label($doc['confidence_score'])) ?></span>
           <span class="small text-muted"><?= h(entry_method_label($doc['entry_method'])) ?></span>
         </dd>
-        <dt>Last opened</dt><dd><?= h($fmt($doc['last_viewed_at'] ?? $doc['filed_at'])) ?> <span class="small text-muted">(before this preview)</span></dd>
       <?php endif; ?>
+      <dt>Last opened</dt>
+      <dd>
+        <?php if ($opened_now): ?>
+          <?= h(date('M j, Y, g:i A')) ?> <span class="small text-muted">(now)</span>
+          <div class="small text-muted"><?= $previous_view ? 'Before this: ' . h($fmt($previous_view, 'M j, Y, g:i A')) : 'First time opened' ?></div>
+        <?php else: ?>
+          <?= h($fmt($previous_view ?? $doc['filed_at'], 'M j, Y, g:i A')) ?>
+        <?php endif; ?>
+      </dd>
     </dl>
 
     <div class="d-flex flex-wrap gap-2">
