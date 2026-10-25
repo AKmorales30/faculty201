@@ -206,13 +206,13 @@ if (($_GET['export'] ?? '') === 'csv') {
     $out = fopen('php://output', 'w');
     fwrite($out, "\xEF\xBB\xBF");   // BOM so Excel reads UTF-8 names correctly
     fputcsv($out, ['Faculty Name', 'Position', 'Seminar/Training Title', 'Date From', 'Date To', 'Venue', 'Conducted/Organized By',
-                   'Type', 'Level', 'Hours', 'Category', 'Status']);
+                   'Type', 'Level', 'Hours', 'Category', 'Status'], ',', '"', '\\');
     foreach ($rows as $r) {
         fputcsv($out, array_map($cell, [
             $r['full_name'], $position_of($r), $or_ns($r['title']), $or_ns($r['date_start']), $or_ns($r['date_end']),
             $or_ns($r['venue']), $or_ns($r['conducted_by']), $or_ns($r['training_type']), $or_ns($r['training_level']),
             $or_ns($hours_label($r['hours'])), document_type_label('Certificate', $r['document_subtype']), ucfirst($r['status']),
-        ]));
+        ]), ',', '"', '\\');
     }
     fclose($out);
     exit;

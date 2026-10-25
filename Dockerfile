@@ -7,7 +7,7 @@
 # copy (xlsx_read_sheets() in includes/pds_import.php); pdo_pgsql (with
 # libpq) connects to Supabase's PostgreSQL (config/db.php). This is what a normal XAMPP install gives you "for free" locally
 # (except OpenCV) -- on Render, we have to install it ourselves.
-FROM php:8.2-apache
+FROM php:8.5-apache
 
 RUN apt-get update && apt-get install -y \
         tesseract-ocr \
@@ -48,7 +48,7 @@ COPY docker/000-default.conf /etc/apache2/sites-available/000-default.conf
 # system for Login Activity ("Windows · Chrome"). Installed before the app is
 # copied, so this layer is cached until composer.json changes. vendor/ is
 # for PHP only, never served over the web.
-COPY --from=composer:2.7 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2.10 /usr/bin/composer /usr/bin/composer
 COPY composer.json /var/www/html/
 RUN cd /var/www/html && COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --no-interaction --no-progress --prefer-dist \
     && printf "Require all denied\n" > /var/www/html/vendor/.htaccess

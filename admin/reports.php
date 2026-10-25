@@ -128,7 +128,7 @@ if (($_GET['export'] ?? '') === 'csv') {
     header('Cache-Control: no-store');
     $out = fopen('php://output', 'w');
     fwrite($out, "\xEF\xBB\xBF");   // BOM so Excel reads UTF-8 names correctly
-    fputcsv($out, ['Faculty Name', 'Document', 'Category', 'Upload Date', 'Expiration Date', 'Expiration Status']);
+    fputcsv($out, ['Faculty Name', 'Document', 'Category', 'Upload Date', 'Expiration Date', 'Expiration Status'], ',', '"', '\\');
     foreach ($documents as $d) {
         fputcsv($out, array_map($cell, [
             $d['full_name'],
@@ -137,7 +137,7 @@ if (($_GET['export'] ?? '') === 'csv') {
             date('Y-m-d', strtotime($d['filed_at'])),
             $d['expiration_date'] ? date('Y-m-d', strtotime($d['expiration_date'])) : '',
             $status_labels[$d['expiration_status']],
-        ]));
+        ]), ',', '"', '\\');
     }
     fclose($out);
     exit;

@@ -138,7 +138,6 @@ function mail_http_post(string $url, array $headers, string $body): array {
     $answer = curl_exec($ch);
     $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $error = curl_error($ch);
-    curl_close($ch);
     return [$status, $answer, $error];
 }
 

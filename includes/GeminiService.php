@@ -131,7 +131,6 @@ class GeminiService
         $errno = curl_errno($ch);
         $curl_error = curl_error($ch);
         $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
 
         if ($errno) {
             $code = match ($errno) {

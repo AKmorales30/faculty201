@@ -10,6 +10,6 @@
     "config": {
         "optimize-autoloader": true,
         "sort-packages": true,
-        "platform": { "php": "8.2" }
+        "platform": { "php": "8.5" }
     }
 }

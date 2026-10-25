@@ -542,8 +542,6 @@ function square_jpeg(string $path, string $mime, int $size): ?string {
         ob_start();
         imagejpeg($dst, null, 85);
         $out = ob_get_clean();
-        imagedestroy($src);
-        imagedestroy($dst);
         return $out !== '' && $out !== false ? $out : null;
     }
     $convert = trim((string)@shell_exec('command -v convert 2>/dev/null'));

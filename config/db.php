@@ -89,8 +89,10 @@ if ($dbIsPgsql) {
     $sslCaPath = __DIR__ . '/skysql-ca.pem';
     $useSsl = getenv('DB_SSL') !== false ? getenv('DB_SSL') === '1' : !$dbIsLocal;
     if ($useSsl && file_exists($sslCaPath)) {
-        $options[PDO::MYSQL_ATTR_SSL_CA] = $sslCaPath;
-        $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+        // PHP 8.4+ has these as Pdo\Mysql::ATTR_* (the PDO::MYSQL_ATTR_* names are deprecated in 8.5); XAMPP's PHP 8.2 only has the old names
+        $mysqlAttr = class_exists(\Pdo\Mysql::class) ? \Pdo\Mysql::class . '::ATTR_' : 'PDO::MYSQL_ATTR_';
+        $options[constant($mysqlAttr . 'SSL_CA')] = $sslCaPath;
+        $options[constant($mysqlAttr . 'SSL_VERIFY_SERVER_CERT')] = true;
     }
     $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
 }
