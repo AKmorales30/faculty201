@@ -140,6 +140,13 @@
     });
   });
 
+  // ----- Back after logging out -------------------------------------------------------
+  // A page the browser restores from its back / forward cache (without asking the
+  // server) is loaded again, so after logging out the server sends the login page.
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted) window.location.reload();
+  });
+
   // ----- header search: results while typing (api/search.php) ---------------------
   // From 2 characters, 300 ms after the last keystroke; a newer search cancels the
   // one still on its way. Grouped results (documents; faculty for the Admin, Program

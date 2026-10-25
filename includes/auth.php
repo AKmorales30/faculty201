@@ -243,6 +243,15 @@ function end_deactivated_session(PDO $pdo, bool $deleted = false): void {
     exit;
 }
 
+// Signed-in pages are never stored by the browser (also not in its back / forward cache):
+// after logging out, Back has to ask the server again, which answers with the login page.
+// Pages and endpoints that set their own Cache-Control (e.g. no-store) replace this.
+if (!empty($_SESSION['user']) && PHP_SAPI !== 'cli' && !headers_sent()) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+}
+
 // Runs at the top level of every page / endpoint that includes this file (all of them), so the
 // connection lands in the global $pdo that includes/functions.php uses too.
 // The same read refreshes the signed-in user's name, username and email in the session, so the top bar,
