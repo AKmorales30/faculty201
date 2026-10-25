@@ -1011,3 +1011,8 @@ button.an-attention-row:focus-visible { outline: none; box-shadow: var(--ad-ring
 @media (max-width: 639.98px) {
   .ui-page-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 }
+
+/* File cells in the document tables (201-Files): a readable width, however long the file name; the
+   name on one line, cut with "...", the whole stored name on hover. Titles still wrap between words. */
+.admin-ui .table td.doc-file-cell { min-width: 200px; max-width: 340px; overflow-wrap: anywhere; }
+.doc-file-name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
