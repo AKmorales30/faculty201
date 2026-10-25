@@ -64,13 +64,13 @@ include __DIR__ . '/../includes/header.php';
 
 <noscript><div class="alert alert-warning">The charts need JavaScript. Please turn it on to see the analytics.</div></noscript>
 
-<div id="analyticsRoot" data-endpoint="<?= h(BASE_URL . '/api/analytics.php') ?>">
+<div id="analyticsRoot" data-endpoint="<?= h(BASE_URL . '/api/analytics.php') ?>" data-soon-days="<?= (int)EXPIRING_SOON_DAYS ?>">
   <div class="ui-stats an-stats" id="anCards">
     <?php foreach ([
         ['faculty', 'Total faculty', 'fa-users', 'navy', 'active accounts in scope'],
         ['documents', 'Documents in 201-Files', 'fa-folder-open', 'blue', 'posted, not archived'],
         ['trainings', 'Seminars / trainings', 'fa-chalkboard-user', 'gold', 'in the selected period'],
-        ['expiring', 'Expiring / expired', 'fa-hourglass-half', 'red', 'documents, within 30 days'],
+        ['expiring', 'Expiring / expired', 'fa-hourglass-half', 'red', 'documents, within ' . (int)EXPIRING_SOON_DAYS . ' days'],
         ['pds_incomplete', 'Incomplete PDS', 'fa-id-card', 'teal', 'full-time faculty only'],
       ] as [$key, $label, $icon, $tone, $sub]): ?>
       <div class="ui-stat an-stat is-loading" data-card="<?= h($key) ?>" aria-busy="true">
@@ -84,7 +84,7 @@ include __DIR__ . '/../includes/header.php';
   <div class="an-grid">
     <?= $chart_card('chUploads', 'Documents uploaded per month', 'fa-chart-line', 'navy', 'Line chart of documents uploaded per month', true) ?>
     <?= $chart_card('chCategories', 'Documents per category', 'fa-folder-tree', 'blue', 'Doughnut chart of documents per category in 201-Files') ?>
-    <?= $chart_card('chExpiration', 'Expiration overview', 'fa-hourglass-half', 'red', 'Doughnut chart of documents that are valid, expiring within 30 days, or expired', false, '', 'Documents with an expiration date only.') ?>
+    <?= $chart_card('chExpiration', 'Expiration overview', 'fa-hourglass-half', 'red', 'Doughnut chart of documents that are valid, expiring within ' . (int)EXPIRING_SOON_DAYS . ' days, or expired', false, '', 'Documents with an expiration date only.') ?>
     <?= $chart_card('chTrainings', 'Seminars / trainings attended', 'fa-chalkboard-user', 'gold', 'Bar chart of seminars and trainings attended over time') ?>
     <?= $chart_card('chOrganizers', 'Top training organizers', 'fa-building-columns', 'teal', 'Horizontal bar chart of the organizers with the most seminars and trainings') ?>
     <?= $chart_card('chFaculty', 'Faculty by rank', 'fa-user-tie', 'navy', 'Doughnut chart of faculty by academic rank', false,

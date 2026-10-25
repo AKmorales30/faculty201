@@ -135,6 +135,10 @@ define('REMINDER_NO_SEMINAR_MONTHS', 6);
 // dashboard card only -- the bell already gets the expiration alerts
 // (60 / 30 / 7 days and on the day), so no second notification is sent.
 define('REMINDER_EXPIRING_DAYS', 30);
+// "Expiring soon" everywhere a document list, chart or count shows it -- the
+// dashboards, profiles, the Admin's analytics and the Program Chair / Dean
+// Analytics -- so they always agree. (The reminders above use their own window.)
+define('EXPIRING_SOON_DAYS', 60);
 // The same reminder (same type and reason) is sent again only after this
 // many days; a changed reason (e.g. another document now missing) is sent
 // at the next daily check.

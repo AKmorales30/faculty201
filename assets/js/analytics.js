@@ -37,7 +37,7 @@
   function cards(c) {
     var subs = {
       pds_incomplete: c.pds_total ? 'of ' + c.pds_total.toLocaleString() + ' full-time faculty' : 'full-time faculty only',
-      expiring: c.expired ? c.expired.toLocaleString() + ' already expired' : 'documents, within 30 days'
+      expiring: c.expired ? c.expired.toLocaleString() + ' already expired' : 'documents, within ' + (root.getAttribute('data-soon-days') || '60') + ' days'
     };
     root.querySelectorAll('.an-stat').forEach(function (card) {
       var key = card.getAttribute('data-card');
