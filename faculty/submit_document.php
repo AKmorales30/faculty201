@@ -27,7 +27,20 @@ $action = $_POST['action'] ?? '';
 
 /** Temp files of a pending scan other than the one being filed (photo, page preview, photo preview). */
 function pending_extra_files(array $pending): array {
-    return array_values(array_filter([$pending['raw_path'] ?? null, $pending['page_image'] ?? null, $pending['orig_preview'] ?? null]));
+    return array_values(array_filter([$pending['raw_path'] ?? null, $pending['page_image'] ?? null, $pending['orig_preview'] ?? null,
+                                      ...($pending['pages'] ?? [])]));   // the pages of a several-picture upload
+}
+/** End a several-picture request with a JSON answer. */
+function batch_json(array $data, int $code = 200): never {
+    http_response_code($code);
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Cache-Control: private, no-store');
+    echo json_encode($data);
+    exit;
+}
+/** Delete the pictures of an unfinished several-picture upload. */
+function batch_discard(?array $batch): void {
+    foreach ((array)($batch['pages'] ?? []) as $p) { discard_files([$p['image']]); }
 }
 function discard_files(array $rel_paths): void {
     foreach ($rel_paths as $rel) {
@@ -110,9 +123,12 @@ function ocr_pending(array $pending, string $name): array {
     }
 }
 
-// Preview images of the pending scan (temp_scans/ is not web-accessible)
+// Preview images of the pending scan (temp_scans/ is not web-accessible); &n=K: page K of a several-picture upload
 if (isset($_GET['preview'])) {
-    $rel = ($_SESSION['pending_scan'] ?? [])[$_GET['preview'] === 'orig' ? 'orig_preview' : 'page_image'] ?? null;
+    $pending_pages = ($_SESSION['pending_scan'] ?? [])['pages'] ?? null;
+    $rel = $pending_pages !== null
+        ? ($pending_pages[max(1, (int)($_GET['n'] ?? 1)) - 1] ?? null)
+        : (($_SESSION['pending_scan'] ?? [])[$_GET['preview'] === 'orig' ? 'orig_preview' : 'page_image'] ?? null);
     if ($rel && is_file(ROOT_PATH . '/' . $rel)) {
         header('Content-Type: image/jpeg');
         header('Cache-Control: private, no-store');
@@ -131,6 +147,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$_POST && !$_FILES && (int)($_SERV
     exit;
 }
 // Every step (scan, re-crop, confirm, cancel) is a POST with the CSRF token
+$batch_action = in_array($action, ['batch_start', 'batch_add', 'batch_finish'], true);
+if ($batch_action && !csrf_valid()) {
+    batch_json(['ok' => false, 'error' => 'Your session expired. Please reload the page and try again.'], 403);
+}
 if ($action !== '' && !csrf_valid()) {
     $_SESSION['flash_error'] = 'Your session expired before the form was sent. Please try again.';
     header('Location: ' . BASE_URL . '/faculty/submit_document.php');
@@ -226,7 +246,10 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         $source = !empty($scan['page_image']) && is_file(ROOT_PATH . '/' . $scan['page_image'])
             ? ROOT_PATH . '/' . $scan['page_image'] : ROOT_PATH . '/' . $stmt->fetchColumn();
         try {
-            $update = pds_import_auto_apply($pdo, (int)$me['user_id'], $document_id, pds_import_extract_file($source, $scan['result']['text'] ?? null), (int)$me['user_id']);
+            // Several pictures: every page was read already, in order (no second OCR of the whole PDF)
+            $pds_read = !empty($scan['pages']) ? pds_import_from_text((string)($scan['result']['text'] ?? ''), 'ocr')
+                                               : pds_import_extract_file($source, $scan['result']['text'] ?? null);
+            $update = pds_import_auto_apply($pdo, (int)$me['user_id'], $document_id, $pds_read, (int)$me['user_id']);
             $_SESSION['pds_update'][$document_id] = ['counts' => $update['counts'], 'flags' => $update['flags'], 'duplicates' => $update['duplicates'],
                                                      'version_id' => $update['version']['version_id'] ?? null];
             if ($update['version']) {
@@ -304,6 +327,149 @@ if ($action === 'recrop' && isset($_SESSION['pending_scan']['raw_path'])) {
     }
     header('Location: ' . BASE_URL . '/faculty/submit_document.php');
     exit;
+}
+
+// ---------------------------------------------------------------------
+// Step 1, several pictures (2 to MAX_UPLOAD_PICTURES) -> one PDF. The browser
+// sends them one at a time, in their final order (shrunk to PICTURE_MAX_SIDE
+// when it can): batch_start, batch_add for each, batch_finish. So no request
+// runs long, each picture is checked, cropped and straightened (DocScanner)
+// and read (OCR) as it arrives -- the original photo isn't kept. batch_finish
+// puts a PDS in the page order printed on it ("Page 2 of 4") when every page
+// has one, combines the pages into ONE PDF (DocScanner::combine(), Pillow)
+// and opens the usual preview. Files get new names (batch_<random>_<n>);
+// what the user's files were called is only shown, never used in a path.
+// ---------------------------------------------------------------------
+if ($action === 'batch_start') {
+    batch_discard($_SESSION['photo_batch'] ?? null);
+    unset($_SESSION['photo_batch']);
+    $count = (int)($_POST['count'] ?? 0);
+    if ($count > MAX_UPLOAD_PICTURES) {
+        batch_json(['ok' => false, 'error' => 'You can upload up to ' . MAX_UPLOAD_PICTURES . ' pictures at a time.'], 400);
+    }
+    if ($count < 2) {
+        batch_json(['ok' => false, 'error' => 'Choose at least 2 pictures to combine.'], 400);
+    }
+    if (!is_dir(TEMP_SCAN_PATH)) { @mkdir(TEMP_SCAN_PATH, 0775, true); }
+    $_SESSION['photo_batch'] = ['id' => bin2hex(random_bytes(8)), 'expected' => $count, 'pages' => [], 'bytes' => 0, 'started' => time(),
+                                'type_hint' => isset($categories[$_POST['type_hint'] ?? '']) ? $_POST['type_hint'] : null];
+    batch_json(['ok' => true]);
+}
+
+if ($action === 'batch_add') {
+    $batch = $_SESSION['photo_batch'] ?? null;
+    if (!$batch || time() - (int)$batch['started'] > PENDING_LOGIN_SECONDS * 2) {
+        batch_json(['ok' => false, 'error' => 'The upload timed out. Please choose the pictures again.'], 400);
+    }
+    $n = count($batch['pages']) + 1;
+    if ($n > MAX_UPLOAD_PICTURES || $n > (int)$batch['expected']) {
+        batch_json(['ok' => false, 'error' => 'You can upload up to ' . MAX_UPLOAD_PICTURES . ' pictures at a time.'], 400);
+    }
+    $file = $_FILES['page'] ?? null;
+    $shown_name = mb_substr((string)($file['name'] ?? 'picture'), 0, 120);
+    if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        $too_big = in_array($file['error'] ?? 0, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true);
+        batch_json(['ok' => false, 'error' => $too_big ? "\"{$shown_name}\" is too large (max " . (MAX_UPLOAD_BYTES / 1048576) . ' MB).' : "\"{$shown_name}\" could not be uploaded. Please try again."], 400);
+    }
+    if ($file['size'] > MAX_UPLOAD_BYTES) {
+        batch_json(['ok' => false, 'error' => "\"{$shown_name}\" is too large (max " . (MAX_UPLOAD_BYTES / 1048576) . ' MB).'], 400);
+    }
+    if ($batch['bytes'] + $file['size'] > MAX_PICTURES_TOTAL_BYTES) {
+        batch_json(['ok' => false, 'error' => 'The pictures are too large together (max ' . (MAX_PICTURES_TOTAL_BYTES / 1048576) . ' MB in all).'], 400);
+    }
+    // The real type, from the file's content -- not its name
+    $mime = function_exists('finfo_open') ? (finfo_file(finfo_open(FILEINFO_MIME_TYPE), $file['tmp_name']) ?: '') : '';
+    $ext = match ($mime) { 'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', default => is_heic_file($file['tmp_name']) ? 'heic' : null };
+    if ($ext === null) {
+        batch_json(['ok' => false, 'error' => "\"{$shown_name}\" isn't a picture. Only JPG, PNG, WEBP or HEIC pictures can be combined into a PDF."], 400);
+    }
+    $base = 'batch_' . $batch['id'] . '_' . $n;
+    $photo = TEMP_SCAN_PATH . "/{$base}.{$ext}";
+    if (!move_uploaded_file($file['tmp_name'], $photo)) {
+        error_log('Could not move a batch picture to ' . $photo . ' (is temp_scans/ writable?)');
+        batch_json(['ok' => false, 'error' => 'The picture could not be saved on the server. Please try again.'], 500);
+    }
+    if ($ext === 'heic') {   // iPhone photo: a JPG copy for the scanner and OCR
+        $converted = convert_heic_to_jpg($photo, TEMP_SCAN_PATH . "/{$base}.jpg");
+        @unlink($photo);
+        if (!$converted) {
+            batch_json(['ok' => false, 'error' => "\"{$shown_name}\" (an iPhone HEIC photo) could not be converted on the server. Please choose it as a JPG instead "
+                . '(on the iPhone: Settings > Camera > Formats > Most Compatible).'], 400);
+        }
+        $photo = TEMP_SCAN_PATH . "/{$base}.jpg";
+    }
+    @set_time_limit(180);
+    // Crop and straighten it like a single photo; keep the cleaned page, not the photo
+    $info = DocScanner::scan($photo, TEMP_SCAN_PATH . "/{$base}_page");
+    if ($info !== null) {
+        discard_files(["temp_scans/{$base}_page.pdf", "temp_scans/{$base}_page_orig.jpg", 'temp_scans/' . basename($photo)]);
+        $image = "temp_scans/{$base}_page.jpg";
+    } else {
+        $image = 'temp_scans/' . basename($photo);   // no scanner here: the photo itself (rotated and resized when combined)
+    }
+    try {
+        $read = OcrProcessor::readPage(ROOT_PATH . '/' . $image);
+    } catch (Throwable $e) {
+        error_log('OCR of batch picture failed, continuing without its text: ' . $e->getMessage());
+        $read = ['text' => '', 'detect' => '', 'ocr' => true];
+    }
+    $batch['pages'][] = ['image' => $image, 'name' => $shown_name, 'text' => (string)$read['text'], 'detect' => (string)$read['detect'],
+                         'cropped' => $info !== null && !empty($info['cropped'])];
+    $batch['bytes'] += (int)$file['size'];
+    $_SESSION['photo_batch'] = $batch;
+    batch_json(['ok' => true, 'page' => $n]);
+}
+
+if ($action === 'batch_finish') {
+    $batch = $_SESSION['photo_batch'] ?? null;
+    if (!$batch || count($batch['pages']) < 2) {
+        batch_json(['ok' => false, 'error' => 'The pictures were not all received. Please choose them again.'], 400);
+    }
+    @set_time_limit(180);
+    $pages = $batch['pages'];
+    $join = fn(array $pages): array => ['text' => implode("\n\n", array_column($pages, 'text')), 'detect' => implode("\n\n", array_column($pages, 'detect')), 'ocr' => true];
+    $result = OcrProcessor::analyze($join($pages), $me['full_name']);
+
+    // A PDS: the page numbers printed on the form ("CS Form 212 ..., Page 2 of 4") decide the order,
+    // when every page has a different one -- also over the file names' numbering (and the user is told)
+    $page_note = null;
+    if ($has_pds && (($result['detected_type'] ?? null) === 'PDS' || $batch['type_hint'] === 'PDS')) {
+        $printed = [];
+        foreach ($pages as $i => $p) {
+            if (preg_match_all('/\bpage\s*([1-9])\s*of\s*([1-9])\b/i', $p['detect'] . "\n" . $p['text'], $m)) {
+                $printed[$i] = (int)end($m[1]);
+            }
+        }
+        if (count($printed) === count($pages) && count(array_unique($printed)) === count($printed)) {
+            asort($printed);
+            if (array_keys($printed) !== array_keys($pages)) {
+                $pages = array_values(array_map(fn($i) => $pages[$i], array_keys($printed)));
+                $result = OcrProcessor::analyze($join($pages), $me['full_name']);
+                $page_note = 'The pages were put in the order printed on the PDS (Page ' . implode(', ', array_values($printed)) . ')'
+                    . (($_POST['name_order'] ?? '') === '1' ? ', which differs from the numbering in the file names' : '') . '. Check them below.';
+            }
+        }
+    }
+
+    $pdf = 'temp_scans/batch_' . $batch['id'] . '.pdf';
+    if (!DocScanner::combine(array_map(fn($p) => ROOT_PATH . '/' . $p['image'], $pages), ROOT_PATH . '/' . $pdf, PICTURE_MAX_SIDE)) {
+        batch_discard($batch);
+        unset($_SESSION['photo_batch']);
+        batch_json(['ok' => false, 'error' => 'The pictures could not be combined into a PDF on the server. Please try again, or upload them one at a time.'], 500);
+    }
+    $pending = [
+        'relative_path' => $pdf,
+        'original_name' => count($pages) . ' pictures combined into one PDF',
+        'pages'         => array_column($pages, 'image'),   // the cleaned pages, for the preview; deleted on saving / cancelling
+        'page_names'    => array_column($pages, 'name'),
+        'page_note'     => $page_note,
+        'manual'        => false,
+    ];
+    if ($batch['type_hint'] !== null) { $pending['type_hint'] = $batch['type_hint']; }
+    $pending['result'] = $has_pds ? $result : pds_detection_without_pds($result);
+    unset($_SESSION['photo_batch']);
+    $_SESSION['pending_scan'] = $pending;
+    batch_json(['ok' => true, 'redirect' => BASE_URL . '/faculty/submit_document.php']);
 }
 
 // ---------------------------------------------------------------------
@@ -529,17 +695,31 @@ include __DIR__ . '/../includes/header.php';
           <label class="form-label small fw-semibold">Upload / Scan File</label>
           <div class="ui-dropzone" id="dropZone">
             <span class="ui-empty-icon" aria-hidden="true"><i class="fa-solid fa-cloud-arrow-up"></i></span>
-            <div class="ui-dropzone-title">Drop a file here, or choose one</div>
+            <div class="ui-dropzone-title">Drop a file here, or choose one -- or up to <?= (int)MAX_UPLOAD_PICTURES ?> pictures of the pages</div>
           <div class="d-flex gap-2 flex-wrap">
             <button type="button" class="btn btn-outline-brand flex-fill" id="chooseBtn"><i class="fa-solid fa-folder-open"></i> Choose File</button>
             <button type="button" class="btn btn-outline-brand flex-fill" id="photoBtn"><i class="fa-solid fa-camera"></i> Take Photo</button>
           </div>
           </div>
-          <!-- Only one of these carries name="scan_file" at a time: whichever was used last -->
-          <input type="file" name="scan_file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf,.xlsx" class="d-none">
+          <!-- The chosen files are kept by the script below; one file goes up in name="scan_file" as before,
+               several pictures one at a time (batch_add) and are combined into one PDF -->
+          <input type="file" name="scan_file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf,.xlsx,image/*" multiple class="d-none">
           <input type="file" id="cameraInput" accept="image/*" capture="environment" class="d-none">
-          <div class="small mt-2" id="chosenFile"><span class="text-muted">No file selected.</span></div>
-          <div class="form-text">JPG, PNG, WEBP, HEIC (iPhone), or PDF -- max <?= MAX_UPLOAD_BYTES / 1024 / 1024 ?>MB. Photos of paper documents are cropped and straightened automatically and saved as PDF; the document type is detected in the next step.
+          <div class="small mt-2" id="chosenFile" aria-live="polite"><span class="text-muted">No file selected.</span></div>
+
+          <div class="ui-page-picker mt-2" id="pagePicker" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <span class="small fw-semibold me-auto" id="pageTotal"></span>
+              <button type="button" class="btn btn-sm btn-outline-brand" id="sortByName"><i class="fa-solid fa-arrow-down-1-9" aria-hidden="true"></i> Sort by file name</button>
+              <button type="button" class="btn btn-sm btn-outline-brand" id="addMore"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add more</button>
+            </div>
+            <ol class="ui-page-grid list-unstyled mb-1" id="pageThumbs" aria-label="Pages, in order"></ol>
+            <div class="form-text">Drag the pictures (or use the arrows) to change the order. Each picture becomes one page of the PDF.</div>
+          </div>
+
+          <div class="form-text">JPG, PNG, WEBP, HEIC (iPhone), or PDF -- max <?= MAX_UPLOAD_BYTES / 1024 / 1024 ?>MB.
+            Several pages? Choose up to <?= (int)MAX_UPLOAD_PICTURES ?> pictures at once (max <?= MAX_PICTURES_TOTAL_BYTES / 1024 / 1024 ?>MB in all): they're put in order by the numbers in their file names and combined into one PDF.
+            Photos of paper documents are cropped and straightened automatically and saved as PDF; the document type is detected in the next step.
             For your PDS, the official Excel soft copy (.xlsx) is read most accurately; a PDF or scan of all or some of its pages works too.</div>
         </div>
 
@@ -632,49 +812,198 @@ include __DIR__ . '/../includes/header.php';
 <script>
 (function () {
   var MAX = <?= (int)MAX_UPLOAD_BYTES ?>;
+  var MAX_PICTURES = <?= (int)MAX_UPLOAD_PICTURES ?>;
+  var MAX_TOTAL = <?= (int)MAX_PICTURES_TOTAL_BYTES ?>;
+  var MAX_SIDE = <?= (int)PICTURE_MAX_SIDE ?>;
   var form = document.getElementById('scanForm');
   var fileInput = document.getElementById('fileInput');
   var cameraInput = document.getElementById('cameraInput');
   var chosen = document.getElementById('chosenFile');
   var scanBtn = document.getElementById('scanBtn');
+  var picker = document.getElementById('pagePicker');
+  var thumbs = document.getElementById('pageThumbs');
+  var totalEl = document.getElementById('pageTotal');
   var stream = null;
 
-  function use(input) {   // the input the file is submitted from
-    [fileInput, cameraInput].forEach(function (i) { if (i === input) i.setAttribute('name', 'scan_file'); else i.removeAttribute('name'); });
-    var f = input.files && input.files[0];
-    if (!f) { chosen.innerHTML = '<span class="text-muted">No file selected.</span>'; scanBtn.disabled = true; return; }
-    var tooBig = f.size > MAX;
-    chosen.innerHTML = '';
-    var span = document.createElement('span');
-    span.className = tooBig ? 'text-danger' : 'text-body';
-    span.textContent = (tooBig ? 'Too large (max ' + Math.round(MAX / 1048576) + 'MB): ' : 'Selected: ') + f.name + ' (' + (f.size / 1048576).toFixed(1) + ' MB)';
-    chosen.appendChild(span);
-    scanBtn.disabled = tooBig;
+  // The chosen files, in their final order: {file, url, problem}
+  var items = [];
+  var manualOrder = false;   // the user moved a page: adding more doesn't re-sort
+  var collator = window.Intl ? new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }) : null;
+  var PICTURE = /\.(jpe?g|png|webp|heic|heif)$/i;
+  var mb = function (b) { return (b / 1048576).toFixed(1) + ' MB'; };
+  var isPicture = function (f) { return PICTURE.test(f.name) || /^image\//.test(f.type); };
+  var hasNumber = function (f) { return /\d/.test(f.name.replace(PICTURE, '')); };
+
+  // Natural order of the numbers in the file names ("page2" before "page10", "IMG_0012"
+  // before "IMG_0105"); names without numbers keep the order they were chosen in
+  function sortByName() {
+    if (!items.some(function (it) { return hasNumber(it.file); })) return false;
+    items.sort(function (a, b) { return collator ? collator.compare(a.file.name, b.file.name) : (a.file.name < b.file.name ? -1 : 1); });
+    return true;
   }
-  fileInput.addEventListener('change', function () { use(fileInput); });
-  cameraInput.addEventListener('change', function () { use(cameraInput); });
+  function nameOrder() {   // whether the current order is the file names' numbering
+    if (!items.some(function (it) { return hasNumber(it.file); })) return false;
+    var copy = items.slice();
+    copy.sort(function (a, b) { return collator ? collator.compare(a.file.name, b.file.name) : (a.file.name < b.file.name ? -1 : 1); });
+    return copy.every(function (it, i) { return it === items[i]; });
+  }
+
+  function check(f, many) {
+    if (many && !isPicture(f)) return 'Only pictures can be combined. Upload a PDF or Excel file on its own.';
+    if (!/\.(jpe?g|png|webp|heic|heif|pdf|xlsx)$/i.test(f.name) && !/^image\/(jpeg|png|webp|heic|heif)$/.test(f.type)) return 'Not a supported file type.';
+    if (f.size > MAX) return 'Too large (max ' + Math.round(MAX / 1048576) + ' MB).';
+    return '';
+  }
+
+  function add(files) {
+    var list = Array.prototype.slice.call(files || []);
+    if (!list.length) return;
+    var room = MAX_PICTURES - items.length;
+    var dropped = Math.max(0, list.length - room);
+    list.slice(0, Math.max(0, room)).forEach(function (f) {
+      items.push({ file: f, url: /^image\/(jpeg|png|webp|gif)$/.test(f.type) && window.URL ? URL.createObjectURL(f) : null, problem: '' });
+    });
+    if (!manualOrder) sortByName();
+    render(dropped ? 'You can upload up to ' + MAX_PICTURES + ' pictures at a time.' : '');
+  }
+  function remove(i) {
+    if (items[i] && items[i].url) URL.revokeObjectURL(items[i].url);
+    items.splice(i, 1);
+    render('');
+  }
+  function move(from, to) {
+    if (to < 0 || to >= items.length || from === to) return;
+    items.splice(to, 0, items.splice(from, 1)[0]);
+    manualOrder = true;
+    render('');
+  }
+
+  function render(message) {
+    var many = items.length > 1;
+    items.forEach(function (it) { it.problem = check(it.file, many); });
+    var total = items.reduce(function (s, it) { return s + it.file.size; }, 0);
+    var bad = items.some(function (it) { return it.problem; }) || (many && total > MAX_TOTAL);
+
+    chosen.textContent = '';
+    var note = document.createElement('span');
+    if (message) { note.className = 'text-danger'; note.textContent = message; }
+    else if (!items.length) { note.className = 'text-muted'; note.textContent = 'No file selected.'; }
+    else if (!many) {
+      note.className = items[0].problem ? 'text-danger' : 'text-body';
+      note.textContent = (items[0].problem ? items[0].problem + ' ' : 'Selected: ') + items[0].file.name + ' (' + mb(items[0].file.size) + ')';
+    }
+    chosen.appendChild(note);
+
+    picker.hidden = !many;
+    thumbs.textContent = '';
+    if (many) {
+      totalEl.textContent = items.length + ' of ' + MAX_PICTURES + ' pictures · ' + mb(total) + ' of ' + Math.round(MAX_TOTAL / 1048576) + ' MB'
+        + (total > MAX_TOTAL ? ' -- too large together, remove some' : '');
+      totalEl.className = 'small fw-semibold me-auto' + (total > MAX_TOTAL ? ' text-danger' : '');
+      items.forEach(function (it, i) {
+        var li = document.createElement('li');
+        li.className = 'ui-page-thumb' + (it.problem ? ' has-problem' : '');
+        li.draggable = true;
+        li.dataset.index = i;
+        if (it.url) {
+          var img = document.createElement('img');
+          img.src = it.url;
+          img.alt = '';
+          li.appendChild(img);
+        } else {
+          var ph = document.createElement('span');
+          ph.className = 'ui-page-ph';
+          ph.innerHTML = '<i class="fa-solid fa-image" aria-hidden="true"></i>';
+          li.appendChild(ph);
+        }
+        var label = document.createElement('span');
+        label.className = 'ui-page-label';
+        label.textContent = 'Page ' + (i + 1);
+        var name = document.createElement('span');
+        name.className = 'ui-page-name text-truncate';
+        name.textContent = it.file.name;
+        name.title = it.file.name;
+        var size = document.createElement('span');
+        size.className = 'ui-page-size';
+        size.textContent = mb(it.file.size);
+        li.appendChild(label);
+        li.appendChild(name);
+        li.appendChild(size);
+        if (it.problem) {
+          var warn = document.createElement('span');
+          warn.className = 'ui-page-problem';
+          warn.textContent = it.problem;
+          li.appendChild(warn);
+        }
+        var tools = document.createElement('span');
+        tools.className = 'ui-page-tools';
+        [['fa-arrow-left', 'Move earlier', function () { move(i, i - 1); }, i === 0],
+         ['fa-arrow-right', 'Move later', function () { move(i, i + 1); }, i === items.length - 1],
+         ['fa-xmark', 'Remove ' + it.file.name, function () { remove(i); }, false]].forEach(function (t) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'btn btn-sm ' + (t[0] === 'fa-xmark' ? 'btn-outline-danger' : 'btn-outline-secondary');
+          b.setAttribute('aria-label', t[1] + ' (page ' + (i + 1) + ')');
+          b.title = t[1];
+          b.disabled = t[3];
+          b.innerHTML = '<i class="fa-solid ' + t[0] + '" aria-hidden="true"></i>';
+          b.addEventListener('click', t[2]);
+          tools.appendChild(b);
+        });
+        li.appendChild(tools);
+        thumbs.appendChild(li);
+      });
+    }
+    scanBtn.disabled = !items.length || bad;
+    scanBtn.innerHTML = many
+      ? '<i class="fa-solid fa-file-pdf"></i> Upload ' + items.length + ' pictures as one PDF'
+      : '<i class="fa-solid fa-magnifying-glass"></i> Scan &amp; Preview';
+  }
+
+  // Drag a thumbnail onto another to move it there (mouse; the arrows work everywhere)
+  var dragFrom = null;
+  thumbs.addEventListener('dragstart', function (e) {
+    var li = e.target.closest('.ui-page-thumb');
+    if (!li) return;
+    dragFrom = +li.dataset.index;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', String(dragFrom)); } catch (err) {}
+    li.classList.add('is-dragging');
+  });
+  thumbs.addEventListener('dragover', function (e) { if (dragFrom !== null) e.preventDefault(); });
+  thumbs.addEventListener('drop', function (e) {
+    var li = e.target.closest('.ui-page-thumb');
+    if (dragFrom === null || !li) return;
+    e.preventDefault();
+    move(dragFrom, +li.dataset.index);
+    dragFrom = null;
+  });
+  thumbs.addEventListener('dragend', function () { dragFrom = null; render(''); });
+
+  document.getElementById('sortByName').addEventListener('click', function () {
+    manualOrder = false;
+    render(sortByName() ? '' : 'The file names have no numbers, so the order stays as chosen.');
+  });
+  document.getElementById('addMore').addEventListener('click', function () { fileInput.click(); });
+  fileInput.addEventListener('change', function () { add(fileInput.files); fileInput.value = ''; });
+  cameraInput.addEventListener('change', function () { add(cameraInput.files); cameraInput.value = ''; });
   document.getElementById('chooseBtn').addEventListener('click', function () { fileInput.click(); });
 
-  // Drop a file on the drop area (new layout) -- it goes into the same file input as Choose File
+  // Drop files on the drop area
   var zone = document.getElementById('dropZone');
-  if (zone && typeof DataTransfer !== 'undefined') {
+  if (zone) {
     ['dragenter', 'dragover'].forEach(function (t) { zone.addEventListener(t, function (e) { e.preventDefault(); zone.classList.add('is-over'); }); });
     ['dragleave', 'drop'].forEach(function (t) { zone.addEventListener(t, function () { zone.classList.remove('is-over'); }); });
     zone.addEventListener('drop', function (e) {
       e.preventDefault();
-      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (!f) return;
-      var dt = new DataTransfer();
-      dt.items.add(f);
-      fileInput.files = dt.files;
-      use(fileInput);
+      if (e.dataTransfer && e.dataTransfer.files) add(e.dataTransfer.files);
     });
   }
 
   // Phones / tablets open the camera app; desktops use the webcam (if any)
   var touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   document.getElementById('photoBtn').addEventListener('click', function () {
-    if (touch || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) || typeof DataTransfer === 'undefined') {
+    if (touch || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
       cameraInput.click();
       return;
     }
@@ -684,9 +1013,7 @@ include __DIR__ . '/../includes/header.php';
         document.getElementById('cameraVideo').srcObject = s;
         bootstrap.Modal.getOrCreateInstance(document.getElementById('cameraModal')).show();
       })
-      .catch(function () {
-        chosen.innerHTML = '<span class="text-danger">No camera is available (or permission was denied). Use Choose File instead.</span>';
-      });
+      .catch(function () { render('No camera is available (or permission was denied). Use Choose File instead.'); });
   });
   document.getElementById('cameraModal').addEventListener('hidden.bs.modal', function () {
     if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
@@ -699,32 +1026,94 @@ include __DIR__ . '/../includes/header.php';
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
     canvas.toBlob(function (blob) {
-      var dt = new DataTransfer();
-      dt.items.add(new File([blob], 'photo-' + Date.now() + '.jpg', { type: 'image/jpeg' }));
-      fileInput.files = dt.files;
-      use(fileInput);
+      add([new File([blob], 'photo-' + Date.now() + '.jpg', { type: 'image/jpeg' })]);
       bootstrap.Modal.getInstance(document.getElementById('cameraModal')).hide();
     }, 'image/jpeg', 0.92);
   });
 
   // While the server works, the choices give way to the "Reading your document" panel
-  function showProgress(f, manual) {
+  function showProgress(title, file, manual) {
     var panel = document.getElementById('scanProgress');
     if (!panel) return;
-    document.getElementById('scanFile').textContent = f ? f.name : '';
-    if (manual) {
-      document.getElementById('scanTitle').textContent = 'Uploading your file';
-      document.getElementById('scanSteps').hidden = true;
-    }
+    document.getElementById('scanTitle').textContent = title;
+    document.getElementById('scanFile').textContent = file || '';
+    if (manual) document.getElementById('scanSteps').hidden = true;
     panel.previousElementSibling.hidden = true;   // the options and forms
     panel.hidden = false;
   }
+  function hideProgress() {
+    var panel = document.getElementById('scanProgress');
+    if (!panel) return;
+    panel.hidden = true;
+    panel.previousElementSibling.hidden = false;
+  }
+
+  // A JPG / PNG / WEBP no bigger than MAX_SIDE on its longest side, upright (EXIF); anything
+  // else (HEIC, or a browser that can't) goes as it is and the server does the same
+  function shrink(file) {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || !window.createImageBitmap) return Promise.resolve(file);
+    return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bmp) {
+      var f = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
+      if (f === 1 && file.type === 'image/jpeg') return file;
+      var c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * f);
+      c.height = Math.round(bmp.height * f);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      return new Promise(function (resolve) {
+        c.toBlob(function (blob) {
+          resolve(blob && blob.size < file.size ? new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file);
+        }, 'image/jpeg', 0.88);
+      });
+    }).catch(function () { return file; });
+  }
+  function post(fields) {
+    var body = new FormData();
+    body.append('csrf_token', form.querySelector('[name="csrf_token"]').value);
+    Object.keys(fields).forEach(function (k) { body.append(k, fields[k]); });
+    return fetch('submit_document.php', { method: 'POST', body: body, credentials: 'same-origin' })
+      .then(function (res) {
+        return res.json().catch(function () { throw new Error('The server could not be reached properly. Please reload the page and try again.'); });
+      })
+      .then(function (data) { if (!data.ok) throw new Error(data.error || 'Something went wrong.'); return data; });
+  }
+
   form.addEventListener('submit', function (e) {
-    if (scanBtn.disabled) { e.preventDefault(); return; }
-    scanBtn.disabled = true;   // scanning can take a while on the server
-    scanBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning document&hellip; this can take up to a minute';
-    var f = (fileInput.getAttribute('name') ? fileInput : cameraInput).files[0];
-    showProgress(f, false);
+    if (scanBtn.disabled || !items.length) { e.preventDefault(); return; }
+    scanBtn.disabled = true;
+    if (items.length === 1) {   // one file: the usual upload, as before
+      if (typeof DataTransfer !== 'undefined') {
+        var dt = new DataTransfer();
+        dt.items.add(items[0].file);
+        fileInput.files = dt.files;
+      }
+      scanBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning document&hellip; this can take up to a minute';
+      showProgress('Reading your document', items[0].file.name, false);
+      return;
+    }
+    // Several pictures: one at a time, in this order, then one PDF
+    e.preventDefault();
+    var list = items.slice(), hint = form.querySelector('[name="type_hint"]').value, byName = nameOrder();
+    showProgress('Uploading 1 of ' + list.length + '…', list.length + ' pictures', false);
+    var i = 0;
+    var next = function () {
+      if (i >= list.length) {
+        showProgress('Creating PDF…', list.length + ' pages', false);
+        return post({ action: 'batch_finish', name_order: byName ? '1' : '0' });
+      }
+      document.getElementById('scanTitle').textContent = 'Uploading ' + (i + 1) + ' of ' + list.length + '…';
+      document.getElementById('scanFile').textContent = list[i].file.name;
+      return shrink(list[i].file).then(function (f) {
+        return post({ action: 'batch_add', page: f });
+      }).then(function () { i += 1; return next(); });
+    };
+    post({ action: 'batch_start', count: String(list.length), type_hint: hint })
+      .then(next)
+      .then(function (data) { window.location.href = data.redirect; })
+      .catch(function (err) {
+        hideProgress();
+        render(err.message);
+        scanBtn.disabled = false;
+      });
   });
   var manualForm = document.getElementById('manualForm'), manualFile = document.getElementById('manualFile');
   manualFile.addEventListener('change', function () {
@@ -733,7 +1122,7 @@ include __DIR__ . '/../includes/header.php';
   });
   manualForm.addEventListener('submit', function () {
     if (!manualForm.checkValidity()) return;
-    showProgress(manualFile.files[0], true);
+    showProgress('Uploading your file', manualFile.files[0] ? manualFile.files[0].name : '', true);
     var btn = document.getElementById('manualBtn');
     setTimeout(function () { btn.disabled = true; }, 0);
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading&hellip;';
@@ -811,6 +1200,28 @@ include __DIR__ . '/../includes/header.php';
       <div class="alert alert-secondary small">
         <i class="fa-solid fa-camera-rotate"></i> Only a little text could be read from this file.
         Please retake the photo flat, in good lighting, with only the page in the frame, or upload a scan/Excel copy.
+      </div>
+      <?php endif; ?>
+
+      <?php if (!empty($pending['pages'])): /* several pictures combined into one PDF */ ?>
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+          <label class="form-label small fw-semibold mb-0">Combined PDF -- <?= count($pending['pages']) ?> pages</label>
+          <span class="badge bg-success">One picture per page, in this order</span>
+        </div>
+        <?php if (!empty($pending['page_note'])): ?>
+          <div class="alert alert-info small py-2"><i class="fa-solid fa-arrow-down-1-9" aria-hidden="true"></i> <?= h($pending['page_note']) ?></div>
+        <?php endif; ?>
+        <ol class="ui-page-grid list-unstyled mb-1">
+          <?php foreach ($pending['pages'] as $i => $unused): ?>
+            <li class="ui-page-thumb">
+              <img src="submit_document.php?preview=page&amp;n=<?= $i + 1 ?>&amp;v=<?= time() ?>" alt="Page <?= $i + 1 ?>" loading="lazy">
+              <span class="ui-page-label">Page <?= $i + 1 ?></span>
+              <span class="ui-page-name text-truncate"><?= h($pending['page_names'][$i] ?? '') ?></span>
+            </li>
+          <?php endforeach; ?>
+        </ol>
+        <div class="form-text">These cleaned-up pages are saved to your 201 file as one PDF. Wrong order or a wrong picture? Cancel and upload them again.</div>
       </div>
       <?php endif; ?>
 

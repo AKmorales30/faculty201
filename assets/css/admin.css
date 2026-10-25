@@ -988,3 +988,26 @@ button.an-attention-row:focus-visible { outline: none; box-shadow: var(--ad-ring
 @media (max-width: 639.98px) {
   .header-search-results { position: fixed; top: 70px; left: 12px; right: 12px; width: auto; max-height: calc(100vh - 90px); }
 }
+
+/* ---------- Several pictures -> one PDF (faculty/submit_document.php) ---------- */
+.ui-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; }
+.ui-page-thumb {
+  position: relative; display: flex; flex-direction: column; gap: 3px; padding: 8px; min-width: 0;
+  background: #fff; border: 1px solid var(--ad-line); border-radius: 10px; box-shadow: var(--ad-shadow);
+}
+.ui-page-thumb[draggable="true"] { cursor: grab; }
+.ui-page-thumb.is-dragging { opacity: .5; }
+.ui-page-thumb.has-problem { border-color: var(--ad-red); background: #FDF4F3; }
+.ui-page-thumb img, .ui-page-ph {
+  width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 6px; background: var(--ad-skeleton);
+  display: flex; align-items: center; justify-content: center; color: var(--ad-muted); font-size: 26px;
+}
+.ui-page-label { font-size: 12.5px; font-weight: 700; color: var(--ad-navy); }
+.ui-page-name { font-size: 12.5px; color: var(--ad-ink); }
+.ui-page-size { font-size: 12px; color: var(--ad-muted); }
+.ui-page-problem { font-size: 12px; font-weight: 600; color: var(--ad-red); line-height: 1.3; }
+.ui-page-tools { display: flex; gap: 4px; margin-top: 2px; }
+.ui-page-tools .btn { flex: 1; padding: 2px 0; font-size: 12px; }
+@media (max-width: 639.98px) {
+  .ui-page-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+}

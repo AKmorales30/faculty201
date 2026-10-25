@@ -95,7 +95,7 @@ function analytics_data(PDO $pdo, array $viewer, string $from, string $to): arra
     $docs = "FROM documents d JOIN users u ON u.user_id = d.faculty_id WHERE d.status = 'active' AND $scope";
     $range_end = (new DateTimeImmutable($to))->modify('+1 day')->format('Y-m-d');   // filed_at is a timestamp: < the next day
     $today = date('Y-m-d');
-    $soon = (new DateTimeImmutable('today'))->modify('+30 days')->format('Y-m-d');
+    $soon = (new DateTimeImmutable('today'))->modify('+' . (int)EXPIRING_SOON_DAYS . ' days')->format('Y-m-d');   // the same window as the Admin's
 
     // ----- summary cards ------------------------------------------------------
     $faculty = analytics_int($pdo, "SELECT COUNT(*) $users", $sp);
@@ -190,7 +190,7 @@ function analytics_data(PDO $pdo, array $viewer, string $from, string $to): arra
         'categories'  => $categories,
         'trainings'   => $training_series,
         'organizers'  => $organizers,
-        'expiration'  => ['labels' => ['Valid', 'Expiring within 30 days', 'Expired'],
+        'expiration'  => ['labels' => ['Valid', 'Expiring within ' . (int)EXPIRING_SOON_DAYS . ' days', 'Expired'],
                           'values' => [$expiry['valid'] ?? 0, $expiry['expiring'] ?? 0, $expiry['expired'] ?? 0]],
         'ranks'       => ['labels' => array_map('strval', array_keys($ranks)), 'values' => array_values($ranks)],
         'employment'  => ['labels' => array_keys($employment), 'values' => array_values($employment)],

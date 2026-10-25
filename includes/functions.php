@@ -1310,7 +1310,7 @@ function faculty_document_counts(PDO $pdo, int $faculty_id): array {
  * -- implements the "document expiration monitoring" module described
  * in the capstone paper (Ch.1, p.18).
  */
-function documents_expiring_soon(PDO $pdo, int $days = 60): array {
+function documents_expiring_soon(PDO $pdo, int $days = EXPIRING_SOON_DAYS): array {
     $stmt = $pdo->prepare(
         "SELECT d.*, u.full_name FROM documents d
          JOIN users u ON u.user_id = d.faculty_id
@@ -1402,7 +1402,7 @@ function document_display_name(string $file_path): string {
  * period with a later expiration date (re-uploads are new rows, the old
  * one stays as history). $faculty_id limits it to one person's 201 file.
  */
-function expiring_documents(PDO $pdo, ?int $faculty_id = null, int $days = 60): array {
+function expiring_documents(PDO $pdo, ?int $faculty_id = null, int $days = EXPIRING_SOON_DAYS): array {
     $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.expiration_date, u.full_name
             FROM documents d
             JOIN users u ON u.user_id = d.faculty_id
