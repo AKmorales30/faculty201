@@ -3,6 +3,7 @@
  *   - the toast after saving slides in, then hides itself (or with its X)
  *   - numbers marked data-count count up, bars / columns / the donut grow in
  *   - filter forms marked data-autosubmit apply as soon as a filter changes
+ *   - search boxes in forms marked data-live-search filter the table while typing
  *   - Change Password: the password rules tick as they are met
  *   - rows marked data-href open that page (click, Enter or Space)
  *   - forms marked data-confirm ask first in the confirmation pop-up (#adConfirm)
@@ -65,6 +66,65 @@
       if (!e.target.matches('select, input[type="checkbox"], input[type="radio"]')) return;
       if (form.requestSubmit) { form.requestSubmit(); } else { form.submit(); }
     });
+  });
+
+  // ----- table search: filters while typing ---------------------------------------
+  // A form marked data-live-search reloads its results 300 ms after typing stops in
+  // its search box (name="q"): the page is fetched with the form's other filters
+  // (back to page 1) and only the results are swapped -- everything after the form in
+  // its card, and its result count -- so the box keeps the cursor. data-live-search="#id"
+  // names the results instead. The address keeps the search, so a refresh shows the
+  // same. A newer search cancels the one on its way. Enter still submits normally.
+  var liveTimer = null, liveCtrl = null;
+  var liveRefresh = function (form, input) {
+    var target = form.getAttribute('data-live-search');
+    var card = form.closest('.ui-card, .card');
+    if (!target && !card) return;
+    var params = new URLSearchParams(new FormData(form));
+    params.delete('page');
+    var url = (form.getAttribute('action') || window.location.pathname) + '?' + params.toString();
+    var forms = Array.prototype.slice.call(document.querySelectorAll('form[data-live-search]'));
+    var index = forms.indexOf(form);
+    if (liveCtrl) liveCtrl.abort();
+    liveCtrl = window.AbortController ? new AbortController() : null;
+    (target ? document.querySelector(target) : card).setAttribute('aria-busy', 'true');
+    fetch(url, { credentials: 'same-origin', headers: { 'X-Live-Search': '1' }, signal: liveCtrl ? liveCtrl.signal : undefined })
+      .then(function (res) {
+        if (res.status === 401 || res.redirected && /index\.php/.test(res.url)) { window.location.reload(); throw new Error('signed out'); }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        if (target) {
+          var fresh = doc.querySelector(target), old = document.querySelector(target);
+          if (!fresh || !old) { window.location.href = url; return; }
+          old.replaceWith(document.importNode(fresh, true));
+        } else {
+          var newForm = doc.querySelectorAll('form[data-live-search]')[index];
+          var newCard = newForm && newForm.closest('.ui-card, .card');
+          if (!newCard) { window.location.href = url; return; }
+          // Everything after the form: the table, its footer and pager
+          var parent = form.parentNode;
+          while (form.nextSibling) parent.removeChild(form.nextSibling);
+          var node = newForm.nextSibling;
+          while (node) { var next = node.nextSibling; parent.appendChild(document.importNode(node, true)); node = next; }
+          var count = form.querySelector('.ui-count'), newCount = newForm.querySelector('.ui-count');
+          if (count && newCount) count.textContent = newCount.textContent;
+          card.removeAttribute('aria-busy');
+        }
+        history.replaceState(null, '', url);
+      })
+      .catch(function (err) {
+        if (err && (err.name === 'AbortError' || err.message === 'signed out')) return;
+        if (form.requestSubmit) { form.requestSubmit(); } else { form.submit(); }   // fall back to an ordinary search
+      });
+  };
+  document.addEventListener('input', function (e) {
+    var input = e.target;
+    if (!input.matches || !input.matches('form[data-live-search] input[name="q"]')) return;
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(function () { liveRefresh(input.form, input); }, 300);
   });
 
   // ----- rows that open a page --------------------------------------------------

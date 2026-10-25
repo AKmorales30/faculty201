@@ -32,7 +32,7 @@ $ad_title = $page_title ?? 'Home';
 $ad_avatar_user = ['user_id' => $user['user_id'], 'full_name' => $user['full_name'], 'profile_picture' => current_user_picture($pdo)];
 $ad_is_admin = $user['role'] === 'admin';
 $ad_search_page = $ad_is_admin ? 'admin/public_docs.php' : 'faculty/my_documents.php';
-$ad_search_ph = $ad_is_admin ? 'Title, faculty or document type' : 'Search my documents';
+$ad_search_ph = $ad_is_admin ? 'Title, faculty or document type' : ($user['role'] === 'faculty' ? 'Search my documents' : 'Search documents or faculty');
 
 /** One menu link: (round icon) label [count]. */
 $ad_link = function (array $item, bool $nested) use ($ad_page): string {
@@ -115,9 +115,11 @@ $ad_link = function (array $item, bool $nested) use ($ad_page): string {
       <div class="ad-actions">
         <?php if (empty($user['must_change_password'])): ?>
         <form class="header-search" id="headerSearch" role="search" method="GET" action="<?= h(BASE_URL . '/' . $ad_search_page) ?>"
-              data-endpoint="<?= h(BASE_URL . '/api/modal.php?view=search') ?>">
-          <label for="headerSearchInput" class="visually-hidden">Search documents</label>
-          <input type="search" name="q" id="headerSearchInput" class="header-search-input" maxlength="100" autocomplete="off" placeholder="<?= h($ad_search_ph) ?>">
+              data-endpoint="<?= h(BASE_URL . '/api/modal.php?view=search') ?>" data-live-endpoint="<?= h(BASE_URL . '/api/search.php') ?>">
+          <label for="headerSearchInput" class="visually-hidden">Search documents<?= $user['role'] !== 'faculty' ? ' and faculty' : '' ?></label>
+          <input type="search" name="q" id="headerSearchInput" class="header-search-input" maxlength="100" autocomplete="off" placeholder="<?= h($ad_search_ph) ?>"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="headerSearchResults">
+          <div class="header-search-results" id="headerSearchResults" role="listbox" aria-label="Search results" hidden></div>
           <button type="button" class="header-search-btn" aria-controls="headerSearchInput" aria-expanded="false"
                   data-tooltip data-bs-placement="bottom" title="Search documents" aria-label="Search documents">
             <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>

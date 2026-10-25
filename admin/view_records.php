@@ -18,7 +18,7 @@ $faculty = array_values(array_filter($everyone, function ($f) use ($terms) {
     foreach ($terms as $t) { if (!str_contains($name, $t)) { return false; } }
     return true;
 }));
-if ($q !== '') {
+if ($q !== '' && !live_search_request()) {
     log_my_activity($pdo, 'SEARCH', 'Faculty Records -- ' . describe_filters(['Name' => $q])
         . ' (' . count($faculty) . ' match' . (count($faculty) === 1 ? '' : 'es') . ').');
 }
@@ -54,7 +54,7 @@ include __DIR__ . '/../includes/header.php';
 <?= admin_docs_tabs('faculty') ?>
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <p class="text-muted mb-0">Faculty Records: everyone with a 201 file. Open a person to see their posted documents by category.</p>
-  <form method="GET" class="d-flex" role="search" autocomplete="off">
+  <form method="GET" class="d-flex" role="search" autocomplete="off" data-live-search="#facultyRecords">
     <div class="faculty-search">
       <input type="search" name="q" id="facultySearch" value="<?= h($q) ?>" class="form-control form-control-sm" placeholder="Search faculty name..."
              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="facultySuggest" aria-label="Search faculty name">
@@ -64,6 +64,7 @@ include __DIR__ . '/../includes/header.php';
   </form>
 </div>
 
+<div id="facultyRecords">
 <?php if ($q !== ''): ?>
   <p class="small text-muted mb-3">
     <?= count($faculty) ?> result<?= count($faculty) === 1 ? '' : 's' ?> for "<?= h($q) ?>" ·
@@ -116,6 +117,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
   </section>
 <?php endforeach; ?>
+</div>
 
 <script>
 // Live suggestions while typing: matches the start of any part of the name
