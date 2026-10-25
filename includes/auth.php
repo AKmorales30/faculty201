@@ -32,6 +32,16 @@ function client_ip(): string {
 }
 
 /**
+ * Whether this request is a table search refreshing while the user types
+ * (assets/js/admin.js, data-live-search). Such a search isn't written to
+ * Activity Logs -- one per keystroke pause would flood it; the same search
+ * submitted or opened as a page is.
+ */
+function live_search_request(): bool {
+    return ($_SERVER['HTTP_X_LIVE_SEARCH'] ?? '') === '1';
+}
+
+/**
  * Cache-busting ?v= for a file under the app root (its modification time): a
  * changed CSS / JS file gets a new URL, so browsers never run an old cached
  * copy against a new page. Lives here so the landing page has it too.

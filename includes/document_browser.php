@@ -40,7 +40,7 @@ $documents = array_filter($all_docs, function ($d) use ($active_type, $active_su
     if ($q !== '' && stripos(($d['ocr_extracted_text'] ?? '') . ' ' . $d['file_path'] . ' ' . $d['title'] . ' ' . $d['conducted_by'] . ' ' . $d['venue'], $q) === false) { return false; }
     return true;
 });
-if ($q !== '') {
+if ($q !== '' && !live_search_request()) {
     log_my_activity($pdo, 'SEARCH', '201 file of ' . $faculty['full_name'] . ' -- ' . describe_filters([
         'Keywords' => $q,
         'Folder'   => $active_type !== '' ? document_type_label($active_type, $active_sub ?: null) : '',
@@ -87,7 +87,7 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
   <?= pds_version_card($pdo, (int)$faculty['user_id'], current_user()) ?>
 <?php endif; ?>
 <section class="ui-card" aria-label="Documents">
-  <form class="ui-toolbar" method="GET" role="search">
+  <form class="ui-toolbar" method="GET" role="search" data-live-search>
     <?php foreach (['id' => $_GET['id'] ?? null, 'type' => $active_type ?: null, 'sub' => $active_sub ?: null] as $k => $v): if ($v === null) continue; ?>
       <input type="hidden" name="<?= $k ?>" value="<?= h((string)$v) ?>">
     <?php endforeach; ?>

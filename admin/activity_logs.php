@@ -99,7 +99,7 @@ include __DIR__ . '/../includes/header.php';
 
 <?php $filtered = (bool)array_diff_key($filter_query, ['tab' => 1]); ?>
 <section class="ui-card" aria-label="<?= $tab === 'activity' ? 'Activity' : 'Login attempts' ?>">
-  <form method="GET" class="ui-toolbar" data-autosubmit role="search">
+  <form method="GET" class="ui-toolbar" data-autosubmit data-live-search role="search">
     <?php if ($tab === 'logins'): ?><input type="hidden" name="tab" value="logins"><?php endif; ?>
     <label class="ui-search" for="fQ">
       <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>

@@ -1,10 +1,12 @@
 <?php
 /**
- * Header search results (api/modal.php?view=search&q=...): documents whose
- * title, faculty name, organizer or file name contains the words, or whose
- * document type matches them. The Admin searches every faculty member's
- * posted, For Review and archived documents; anyone else only their own.
- * Each result opens its document pop-up. Expects $me, $pdo.
+ * Header search results (api/modal.php?view=search&q=...; "See all results"
+ * and Enter in the top bar search): documents whose title, faculty name,
+ * organizer, file name or extracted text (OCR) contains the words, or whose
+ * document type matches them -- posted (active) documents only, like the
+ * live search (api/search.php). The Admin searches every faculty member's;
+ * anyone else only their own. No PDS of part-time faculty. Each result opens
+ * its document pop-up. Expects $me, $pdo.
  */
 $q = mb_substr(trim(preg_replace('/\s+/', ' ', (string)($_GET['q'] ?? ''))), 0, 100);
 $is_admin = $me['role'] === 'admin';
@@ -27,8 +29,8 @@ if (mb_strlen($q) >= 2) {
 
     $like = '%' . addcslashes($q, '%_\\') . '%';
     $like_op = sql_like();
-    $match = ["d.title $like_op ?", "d.file_path $like_op ?", "d.conducted_by $like_op ?"];
-    $params = [$like, $like, $like];
+    $match = ["d.title $like_op ?", "d.file_path $like_op ?", "d.conducted_by $like_op ?", "d.ocr_extracted_text $like_op ?"];
+    $params = [$like, $like, $like, $like];
     if ($is_admin) { $match[] = "u.full_name $like_op ?"; $params[] = $like; }
     if ($type_keys) {
         $match[] = "d.document_type IN (" . implode(',', array_fill(0, count($type_keys), '?')) . ")";
@@ -41,12 +43,13 @@ if (mb_strlen($q) >= 2) {
     $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.title, d.file_path, d.status, d.filed_at,
                    d.academic_year, d.semester, d.period_year, u.full_name
             FROM documents d JOIN users u ON u.user_id = d.faculty_id
-            WHERE d.status IN ('active', 'for_review', 'archived') AND (" . implode(' OR ', $match) . ")";
+            WHERE d.status = 'active' AND (" . implode(' OR ', $match) . ")
+              AND NOT (d.document_type = 'PDS' AND NOT " . sql_has_pds('u') . ")";
     if (!$is_admin) {
         $sql .= " AND d.faculty_id = ?";
         $params[] = (int)$me['user_id'];
     }
-    $stmt = $pdo->prepare($sql . " ORDER BY d.status = 'active' DESC, d.filed_at DESC LIMIT " . ($limit + 1));
+    $stmt = $pdo->prepare($sql . " ORDER BY d.filed_at DESC, d.document_id DESC LIMIT " . ($limit + 1));
     $stmt->execute($params);
     $rows = $stmt->fetchAll();
 

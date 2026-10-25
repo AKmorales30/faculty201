@@ -51,7 +51,7 @@ if ($q !== '') {
 $stmt = $pdo->prepare($sql . " ORDER BY doc_date DESC, d.document_id DESC");
 $stmt->execute($params);
 $documents = $stmt->fetchAll();
-if ($q !== '') {
+if ($q !== '' && !live_search_request()) {
     log_my_activity($pdo, 'SEARCH', 'Archive of ' . $owner['full_name'] . ' -- ' . describe_filters([
         'Keywords' => $q, 'Category' => $category !== '' ? $categories[$category]['label'] : '',
     ]) . ' (' . count($documents) . ' result' . (count($documents) === 1 ? '' : 's') . ').');
@@ -75,7 +75,7 @@ if ($is_admin) { include_once __DIR__ . '/includes/document_actions.php'; }   //
         . ($is_admin ? ' Opening one does not restore it; restore it here, with a reason.' : ' This list shows the document details only; the files can be opened by their owner and the Admin.'))) ?>
 
 <section class="ui-card" aria-label="Archived documents">
-  <form method="GET" class="ui-toolbar" data-autosubmit role="search">
+  <form method="GET" class="ui-toolbar" data-autosubmit data-live-search role="search">
     <?php if (!$is_own): ?><input type="hidden" name="id" value="<?= $target_id ?>"><?php endif; ?>
     <label class="ui-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
       <input type="search" name="q" value="<?= h($q) ?>" placeholder="Title, file name, organizer, venue" aria-label="Search archived documents"></label>

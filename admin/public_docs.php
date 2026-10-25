@@ -140,7 +140,7 @@ $filter_query = array_filter([
 ], fn($v) => $v !== '');
 
 // Activity log: a search was run (not just the page opened), once -- not again for each results page
-if ($active && $page === 1) {
+if ($active && $page === 1 && !live_search_request()) {
     log_my_activity($pdo, 'SEARCH', '201-Files -- ' . describe_filters([
         'Keywords'   => $q,
         'Type'       => $type !== '' ? $categories[$type]['label'] : '',
@@ -170,7 +170,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
 <?php endif; ?>
 
 <section class="ui-card" aria-label="201-Files">
-  <form method="GET" id="searchForm" class="ui-toolbar" data-autosubmit role="search">
+  <form method="GET" id="searchForm" class="ui-toolbar" data-autosubmit data-live-search role="search">
     <label class="ui-search" for="fQ">
       <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
       <span class="visually-hidden">Search title, faculty, organizer or extracted text</span>
