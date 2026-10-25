@@ -51,4 +51,35 @@ class DocScanner
         unset($res['ok']);
         return $res;
     }
+
+    /**
+     * Combine page pictures into one PDF, in the order given (ocr/combine_pdf.py,
+     * Pillow): EXIF-rotated, at most $maxSide pixels on the longest side, one
+     * picture per page. Returns whether $outPdf was written.
+     */
+    public static function combine(array $pages, string $outPdf, int $maxSide = 2000): bool
+    {
+        $script = __DIR__ . '/combine_pdf.py';
+        if (!$pages || !is_file($script)) {
+            return false;
+        }
+        require_once __DIR__ . '/OcrProcessor.php';
+        OcrProcessor::useToolDirs();
+        $cmd = escapeshellcmd(DOCSCAN_PYTHON) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($outPdf);
+        foreach ($pages as $p) {
+            if (!is_file($p)) { return false; }
+            $cmd .= ' ' . escapeshellarg($p);
+        }
+        $cmd .= ' --max-side ' . (int)$maxSide;
+        if (DIRECTORY_SEPARATOR === '/' && trim((string)@shell_exec('command -v timeout 2>/dev/null')) !== '') {
+            $cmd = 'timeout 120 ' . $cmd;
+        }
+        $out = @shell_exec($cmd . ' 2>/dev/null');
+        $res = is_string($out) ? json_decode(trim((string)strrchr("\n" . trim($out), "\n")), true) : null;
+        if (!is_array($res) || empty($res['ok']) || !is_file($outPdf)) {
+            error_log('combine_pdf failed: ' . (is_array($res) ? ($res['error'] ?? 'no result') : 'no output'));
+            return false;
+        }
+        return true;
+    }
 }

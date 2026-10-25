@@ -51,6 +51,14 @@ define('PDS_UNDO_DAYS', 7);
 define('PDS_DETECT_MIN_SCORE', 4);
 define('PDS_DETECT_ASK_SCORE', 2);
 define('MAX_UPLOAD_BYTES', 10 * 1024 * 1024); // 10MB
+// Several pictures at once (faculty/submit_document.php): up to this many
+// pictures, each at most MAX_UPLOAD_BYTES, together at most
+// MAX_PICTURES_TOTAL_BYTES; they're combined into one PDF, one picture per
+// page, no bigger than PICTURE_MAX_SIDE pixels on the longest side (the
+// browser shrinks JPG / PNG to it before sending; the server again).
+define('MAX_UPLOAD_PICTURES', 10);
+define('MAX_PICTURES_TOTAL_BYTES', 50 * 1024 * 1024); // 50MB
+define('PICTURE_MAX_SIDE', 2000);
 
 // Keyword hints used by the OCR classifier (OcrProcessor.php) to
 // auto-categorize an upload. Matched case-insensitively as whole words

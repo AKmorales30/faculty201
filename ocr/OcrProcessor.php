@@ -42,10 +42,32 @@ class OcrProcessor
      */
     public static function process(string $filePath, string $facultyFullName, bool $alreadyPrepared = false): array
     {
-        require_once __DIR__ . '/PdsDetector.php';
         self::useToolDirs();
         // A page from DocScanner is already upright and cleaned up; skip the extra preparation
         $read = $alreadyPrepared ? self::ocrImage($filePath, false) : self::extractText($filePath);
+        return self::analyze($read, $facultyFullName);
+    }
+
+    /**
+     * OCR of one page image already made upright by DocScanner -- one picture of a
+     * several-picture upload (faculty/submit_document.php), read as it arrives.
+     * @return array{text: string, detect: string, ocr: bool}
+     */
+    public static function readPage(string $imagePath): array
+    {
+        self::useToolDirs();
+        return self::ocrImage($imagePath, false);
+    }
+
+    /**
+     * The type, details and confidence of a document from its text (process()'s
+     * second half): one file, or the pages of a several-picture upload joined in
+     * order ('text' and 'detect' of each readPage(), separated by blank lines).
+     */
+    public static function analyze(array $read, string $facultyFullName): array
+    {
+        require_once __DIR__ . '/PdsDetector.php';
+        $read += ['text' => '', 'detect' => '', 'ocr' => true];
         $text = $read['text'];
 
         $pds = PdsDetector::detect($read['detect']);
