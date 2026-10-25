@@ -18,7 +18,7 @@
       <div class="modal-header"><h2 class="modal-title" id="adConfirmTitle">Are you sure?</h2></div>
       <div class="modal-body"><p class="mb-0" id="adConfirmText" style="font-size:15px;line-height:1.6;color:var(--ad-ink-2)"></p></div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-outline-secondary" id="adConfirmCancel" data-bs-dismiss="modal">Close</button>
         <button type="button" class="btn btn-brand" id="adConfirmOk">Confirm</button>
       </div>
     </div>

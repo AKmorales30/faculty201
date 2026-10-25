@@ -176,6 +176,9 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
         'entry_method'   => !empty($scan['manual']) ? 'manual' : 'ocr',
         'flag_reason'    => document_flag_for_upload($check, !empty($scan['manual']), $type, $scan['result']['text'] ?? null),
     ];
+    // Its own date (as checked in the preview / typed in), ARCHIVE_UNVIEWED_YEARS+ years ago: straight to Archived Docs
+    $own_date = document_own_date($details);
+    $meta['archive'] = archive_at_upload($type, $own_date);
     if ($cat['frequency'] === 'semester') {
         $ay  = $_POST['academic_year'] ?? '';
         $sem = (int)($_POST['semester'] ?? 0);
@@ -210,7 +213,8 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     [$request_id, $document_id] = $stored;
     log_my_activity($pdo, 'UPLOAD', "Uploaded document #{$document_id} \"{$scan['original_name']}\" as " . document_type_label($type, $subtype)
         . (!empty($scan['manual']) ? ' (details entered manually)' : '')
-        . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '') . '; posted to 201-Files'
+        . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '')
+        . ($meta['archive'] ? '; saved to Archived Docs (dated ' . date('M j, Y', strtotime($own_date)) . ', ' . archive_period_label() . ' or more ago)' : '; posted to 201-Files')
         . ($meta['flag_reason'] ? ' and flagged for checking (' . document_flag_text($meta['flag_reason']) . ')' : '') . '.');
 
     // Relevant information -> PDS
@@ -251,7 +255,8 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
 
     $stmt = $pdo->prepare("SELECT user_id, role, full_name, employment_type, program, college FROM users WHERE user_id = ?");
     $stmt->execute([$me['user_id']]);
-    notify_new_upload($pdo, $stmt->fetch(), $type, $subtype, $request_id, $extra_lines, $reupload, $meta['flag_reason']);
+    notify_new_upload($pdo, $stmt->fetch(), $type, $subtype, $request_id, $extra_lines, $reupload, $meta['flag_reason'],
+                      $meta['archive'] ? $own_date : null);
 
     unset($_SESSION['pending_scan']);
     header('Location: ' . BASE_URL . '/faculty/submit_document.php?submitted=' . $document_id);   // step 3: saved (and what changed in the PDS)
@@ -408,7 +413,8 @@ $pending = $_SESSION['pending_scan'] ?? null;
 $submitted = null;
 $pds_version = null;
 if (!$pending && isset($_GET['submitted'])) {
-    $stmt = $pdo->prepare("SELECT document_id, document_type, document_subtype, title, file_path, status, flag_reason, reviewed_at
+    $stmt = $pdo->prepare("SELECT document_id, document_type, document_subtype, title, file_path, status, flag_reason, reviewed_at,
+                                  date_start, date_end, date_issued, archive_reason
                            FROM documents WHERE document_id = ? AND faculty_id = ? AND status <> 'deleted'");
     $stmt->execute([(int)$_GET['submitted'], (int)$me['user_id']]);
     $submitted = $stmt->fetch() ?: null;
@@ -439,10 +445,20 @@ include __DIR__ . '/../includes/header.php';
 <?php if ($submitted): ?>
   <section class="ui-card ui-done" aria-labelledby="doneTitle">
     <span class="ui-done-icon" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
+    <?php $saved_archived = $submitted['status'] === 'archived';
+          $saved_date = $saved_archived ? document_own_date($submitted) : null; ?>
+    <?php if ($saved_archived): ?>
+      <h2 class="ui-done-title" id="doneTitle">Saved to Archived Docs<?= $saved_date ? ' (document dated ' . h(date('Y', strtotime($saved_date))) . ')' : '' ?></h2>
+      <p class="ui-done-text"><strong><?= h(document_title($submitted)) ?></strong>
+        (<?= h(document_type_label($submitted['document_type'], $submitted['document_subtype'])) ?>) is dated
+        <?= $saved_date ? h(date('F j, Y', strtotime($saved_date))) : 'more than ' . h(archive_period_label()) . ' ago' ?>, more than <?= h(archive_period_label()) ?> ago,
+        so it was saved to <a href="<?= BASE_URL ?>/archive.php">your Archived Docs</a>. You can view and download it there; the Admin can move it to 201-Files if it's needed.
+    <?php else: ?>
     <h2 class="ui-done-title" id="doneTitle">Saved to your 201-Files</h2>
     <p class="ui-done-text"><strong><?= h(document_title($submitted)) ?></strong>
       (<?= h(document_type_label($submitted['document_type'], $submitted['document_subtype'])) ?>) is in your 201-Files now.
-      <?php if (document_is_flagged($submitted)): ?>The system flagged it for the Admin to check (<?= h(document_flag_text($submitted['flag_reason'])) ?>); it stays in your 201-Files, and the Admin may correct its type or details.<?php endif; ?>
+    <?php endif; ?>
+      <?php if (document_is_flagged($submitted) && !$saved_archived): ?>The system flagged it for the Admin to check (<?= h(document_flag_text($submitted['flag_reason'])) ?>); it stays in your 201-Files, and the Admin may correct its type or details.<?php endif; ?>
       <?php if ($me['role'] === 'faculty'): ?>Your Program Chair and Dean have been notified.<?php endif; ?></p>
     <?php if ($submitted['document_type'] === 'PDS'): ?>
       <div class="ui-done-pds text-start">
@@ -462,7 +478,11 @@ include __DIR__ . '/../includes/header.php';
     <div class="ui-done-actions">
       <a href="<?= BASE_URL ?>/faculty/submit_document.php" class="btn btn-outline-brand"><i class="fa-solid fa-plus" aria-hidden="true"></i> Upload another</a>
       <?php if ($submitted['document_type'] === 'PDS'): ?><a href="<?= BASE_URL ?>/faculty/pds.php" class="btn btn-outline-brand"><i class="fa-solid fa-id-card" aria-hidden="true"></i> Open My PDS</a><?php endif; ?>
-      <a href="<?= BASE_URL ?>/faculty/my_documents.php?type=<?= h(rawurlencode($submitted['document_type'])) ?>" class="btn btn-brand">Go to 201-Files</a>
+      <?php if ($saved_archived): ?>
+        <a href="<?= BASE_URL ?>/archive.php" class="btn btn-brand">Go to Archived Docs</a>
+      <?php else: ?>
+        <a href="<?= BASE_URL ?>/faculty/my_documents.php?type=<?= h(rawurlencode($submitted['document_type'])) ?>" class="btn btn-brand">Go to 201-Files</a>
+      <?php endif; ?>
     </div>
   </section>
 
@@ -884,7 +904,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
       </div>
 
-      <form action="submit_document.php" method="POST" id="uploadForm">
+      <form action="submit_document.php" method="POST" id="uploadForm" data-unsaved-work>
         <?= csrf_field() ?>
 
         <div class="row g-3 mb-3">
@@ -995,6 +1015,12 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
 
+        <?php // Shown by the script below while the document's own date is ARCHIVE_UNVIEWED_YEARS+ years ago (the server decides again on saving) ?>
+        <div class="alert alert-info small d-flex gap-2 align-items-start" id="archiveNotice" role="status" aria-live="polite"
+             data-cutoff="<?= h(archive_old_date_cutoff()) ?>" data-period="<?= h(archive_period_label()) ?>" hidden>
+          <i class="fa-solid fa-box-archive mt-1" aria-hidden="true"></i><span></span>
+        </div>
+
         <div class="d-flex gap-2">
           <button type="submit" name="action" value="confirm" class="btn btn-brand flex-grow-1">
             <i class="fa-solid fa-check"></i> Save Document
@@ -1007,6 +1033,37 @@ include __DIR__ . '/../includes/header.php';
 
     </div>
   </div>
+
+<script>
+// "This document is dated ..., so it will be saved to Archived Docs": its own date -- the
+// seminar / training end date, else its start date, else the date issued (the fields that
+// apply to the chosen type) -- on or before the cutoff. Not for the PDS. Updates as the
+// type or dates change. The server checks again on saving (archive_at_upload()).
+(function () {
+  var form = document.getElementById('uploadForm');
+  var notice = document.getElementById('archiveNotice');
+  if (!form || !notice) return;
+  var cutoff = notice.getAttribute('data-cutoff');
+  function value(name) {
+    var el = form.querySelector('input[name="details[' + name + ']"]');
+    return el && !el.disabled && /^\d{4}-\d{2}-\d{2}$/.test(el.value) ? el.value : '';
+  }
+  function update() {
+    var type = (form.querySelector('[name="document_type"]') || {}).value || '';
+    var date = type === 'Certificate' ? (value('date_end') || value('date_start') || value('date_issued')) : value('date_issued');
+    var show = type !== '' && type !== 'PDS' && date !== '' && date <= cutoff;
+    notice.hidden = !show;
+    if (show) {
+      var shown = new Date(date + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      notice.querySelector('span').textContent = 'This document is dated ' + shown + ', more than ' + notice.getAttribute('data-period')
+        + ' ago, so it will be saved to Archived Docs.';
+    }
+  }
+  form.addEventListener('input', update);
+  form.addEventListener('change', function () { setTimeout(update, 0); });   // after the type's fields are shown / hidden
+  setTimeout(update, 0);   // after the script below has set up the fields for the type
+})();
+</script>
 
 <script>
 // Show only the fields that apply to the chosen document type / subtype.
