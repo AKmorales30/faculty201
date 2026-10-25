@@ -125,7 +125,7 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
                 $q !== '' || $active_type ? $show_all_url : null, 'fa-folder-open') ?>
         <?php endif; ?>
         <?php foreach ($documents as $d):
-          $expiring = $d['expiration_date'] && strtotime($d['expiration_date']) <= strtotime('+60 days');
+          $expiring = $d['expiration_date'] && strtotime($d['expiration_date']) <= strtotime('+' . (int)EXPIRING_SOON_DAYS . ' days');
           $is_latest = isset($latest_ids[(int)$d['document_id']]);
         ?>
         <tr class="<?= $is_latest ? '' : 'doc-history' ?>">
@@ -143,7 +143,7 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
             </div>
           </td>
           <td class="small"><?= h(document_period_label($d)) ?: '<span class="text-muted">—</span>' ?></td>
-          <td class="small text-break">
+          <td class="small doc-file-cell">
             <?php if (trim((string)$d['title']) !== ''): ?>
               <div class="fw-semibold"><?= h($d['title']) ?></div>
               <?php if ($d['document_type'] === 'Certificate'): ?>
@@ -152,7 +152,8 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
             <?php elseif ($d['document_type'] === 'Certificate'): ?>
               <div class="text-muted fst-italic">Seminar / training details not specified</div>
             <?php endif; ?>
-            <div class="<?= trim((string)$d['title']) !== '' || $d['document_type'] === 'Certificate' ? 'text-muted' : '' ?>"><?= h(basename($d['file_path'])) ?></div>
+            <?php // The file's readable name (no upload timestamp / random suffix), on one line; the whole stored name on hover ?>
+            <div class="doc-file-name <?= trim((string)$d['title']) !== '' || $d['document_type'] === 'Certificate' ? 'text-muted' : '' ?>" title="<?= h(basename($d['file_path'])) ?>"><?= h(document_display_name($d['file_path'])) ?></div>
           </td>
           <td>
             <?php if ($d['ocr_matched_name']): ?>

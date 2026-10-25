@@ -256,13 +256,13 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
                 $active ? 'public_docs.php' : null) ?>
         <?php endif; ?>
         <?php foreach ($documents as $d):
-          $expiring = $d['expiration_date'] && strtotime($d['expiration_date']) <= strtotime('+60 days');
+          $expiring = $d['expiration_date'] && strtotime($d['expiration_date']) <= strtotime('+' . (int)EXPIRING_SOON_DAYS . ' days');
           $view_url = BASE_URL . '/api/modal.php?view=document&id=' . (int)$d['document_id'];
         ?>
         <tr class="row-clickable" tabindex="0" role="button" data-app-modal="<?= h($view_url) ?>" aria-label="Open <?= h(document_title($d)) ?>">
-          <td class="text-break">
-            <div class="fw-semibold"><?= trim((string)$d['title']) !== '' ? h($d['title']) : h(basename($d['file_path'])) ?></div>
-            <?php if (trim((string)$d['title']) !== ''): ?><div class="ui-cell-sub"><?= h(basename($d['file_path'])) ?></div><?php endif; ?>
+          <td class="doc-file-cell">
+            <div class="fw-semibold"><?= h(document_title($d)) ?></div>
+            <?php if (trim((string)$d['title']) !== ''): ?><div class="ui-cell-sub doc-file-name" title="<?= h(basename($d['file_path'])) ?>"><?= h(document_display_name($d['file_path'])) ?></div><?php endif; ?>
             <?php if ($d['ocr_matched_name']): ?><div class="ui-cell-sub">Name read: <?= h($d['ocr_matched_name']) ?></div><?php endif; ?>
             <?php if ($d['status'] === 'archived'): ?><div class="mt-1"><span class="badge bg-light">Archived</span></div><?php endif; ?>
             <?php if (document_is_flagged($d)): ?><div class="mt-1"><span class="badge bg-review" title="<?= h(ucfirst(document_flag_text($d['flag_reason']))) ?>"><i class="fa-solid fa-flag" aria-hidden="true"></i> Flagged for checking</span></div><?php endif; ?>
