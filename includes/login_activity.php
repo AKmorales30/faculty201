@@ -202,7 +202,6 @@ function ipinfo_get(string $url, string $token): ?array {
     $body = curl_exec($ch);
     $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $error = curl_error($ch);
-    curl_close($ch);
     $data = $status === 200 ? json_decode((string)$body, true) : null;
     if (!is_array($data) || !empty($data['bogon'])) {
         error_log('IP location lookup failed: ' . parse_url($url, PHP_URL_HOST) . ' answered ' . ($status ?: 'nothing') . ($error !== '' ? " ({$error})" : ''));
