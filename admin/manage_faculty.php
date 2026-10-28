@@ -627,7 +627,14 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                 <?php endif; ?>
               </td>
               <td><div class="ui-actions">
-                <?= admin_icon_link(BASE_URL . '/profile.php?id=' . (int)$u['user_id'], 'fa-eye', 'View profile') ?>
+                <?php
+                  // The profile pop-up (api/modal.php?view=person) for faculty, Chairs and Deans; an Admin
+                  // account has no 201 file, so its full page. Ctrl / middle click still opens the full page.
+                  $profile_modal = $u['role'] !== 'admin'
+                      ? 'data-app-modal="' . h(BASE_URL . '/api/modal.php?view=person&id=' . (int)$u['user_id']) . '" data-app-modal-size="lg" data-app-modal-title="Faculty profile"'
+                      : '';
+                ?>
+                <?= admin_icon_link(BASE_URL . '/profile.php?id=' . (int)$u['user_id'], 'fa-eye', 'View profile', $profile_modal) ?>
                 <?php
                   // Tooltip / screen-reader text of each icon button. Pause only marks the employment as paused
                   // (the account can still log in); Deactivate is what blocks the login.
