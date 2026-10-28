@@ -136,6 +136,13 @@ class PdsDetector
         ];
     }
 
+    /** Whether $text contains $phrase, matched as fuzzily as the form's labels (also for document titles, OcrProcessor::titleType()). */
+    public static function hasPhrase(string $text, string $phrase): bool
+    {
+        $norm = self::normalize($text);
+        return self::found(self::normalize($phrase), $norm === '' ? [] : explode(' ', $norm), str_replace(' ', '', $norm));
+    }
+
     /** A 0-1 confidence for a detected PDS: CONFIDENCE_THRESHOLD at PDS_DETECT_MIN_SCORE, rising to 1. */
     public static function confidence(array $detection): float
     {

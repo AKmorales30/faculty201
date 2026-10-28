@@ -89,6 +89,17 @@ define('DOCUMENT_TYPE_KEYWORDS', [
     'Other'       => ['memorandum', 'memo', 'notice', 'promotion', 'special order', 'office order', 'notice of salary adjustment'],
 ]);
 
+// A document's printed title decides its category outright, ahead of the
+// keyword scores above and the PDS check (OcrProcessor::titleType()): a
+// line of the text that is one of these titles -- matched as forgivingly
+// as the PDS labels, so a letter-spaced title or one OCR misread a little
+// ("TRANSCRlPT 0F REC0RDS") still counts. Only a title line counts: the
+// same words inside a sentence ("... submit my Transcript of Records" in
+// an affidavit) don't.
+define('DOCUMENT_TITLE_PHRASES', [
+    'TOR' => ['official transcript of records', 'transcript of records', 'official transcript'],
+]);
+
 // Confidence check on the auto-categorization (Fig. 5 "confident?"). The
 // classifier's confidence is 0-1 (see OcrProcessor::confidence()); at or
 // above this the detected category is pre-selected on the upload form,

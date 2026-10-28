@@ -10,7 +10,9 @@
  * - Text is extracted with the Tesseract OCR engine (TESSERACT_BINARY_PATH,
  *   see config/config.php) for image scans, and with pdftotext / a
  *   rasterized first page for PDF scans, depending on what's installed.
- * - Categorization is a transparent keyword classifier against
+ * - A printed title (DOCUMENT_TITLE_PHRASES, e.g. "Official Transcript of
+ *   Records") decides the type outright (titleType()).
+ * - Otherwise categorization is a transparent keyword classifier against
  *   DOCUMENT_TYPE_KEYWORDS: each candidate type's keyword hits are
  *   counted and the highest-scoring type is suggested. This mirrors
  *   what the paper describes (Ch.3 3.1: "automated document
@@ -22,12 +24,18 @@
  *   faculty member is told to confirm the type manually instead of the
  *   system silently guessing.
  */
+require_once __DIR__ . '/PdsDetector.php';   // ocrImage() needs it as well as analyze()
+
 class OcrProcessor
 {
+    /** Confidence of a type recognized by its printed title (titleType()). */
+    private const TITLE_CONFIDENCE = 0.95;
+
     /**
-     * Run OCR + classification on a scanned file. A Personal Data Sheet is
-     * looked for first (PdsDetector: many form labels, matched fuzzily);
-     * only if it isn't one does the keyword classifier decide.
+     * Run OCR + classification on a scanned file. A title line that names
+     * the type (titleType()) decides first; then a Personal Data Sheet is
+     * looked for (PdsDetector: many form labels, matched fuzzily); only if
+     * it isn't one does the keyword classifier decide.
      *
      * @return array{
      *   text: string,
@@ -66,13 +74,19 @@ class OcrProcessor
      */
     public static function analyze(array $read, string $facultyFullName): array
     {
-        require_once __DIR__ . '/PdsDetector.php';
         $read += ['text' => '', 'detect' => '', 'ocr' => true];
         $text = $read['text'];
 
         $pds = PdsDetector::detect($read['detect']);
         [$detectedType, $scores] = self::classify($read['detect']);
-        if ($pds['is_pds']) {
+        $titleType = self::titleType($read['detect']);
+        if ($titleType !== null) {
+            // The document says what it is. A TOR's personal details (date of birth, address,
+            // schools attended) can add up to a PDS's score, so the PDS check doesn't overrule it.
+            $detectedType = $titleType;
+            $pds['is_pds'] = $pds['ask'] = false;
+            $confidence = self::TITLE_CONFIDENCE;
+        } elseif ($pds['is_pds']) {
             $detectedType = 'PDS';
             $scores['PDS'] = max($scores['PDS'] ?? 0, $pds['score']);
             arsort($scores);
@@ -85,7 +99,7 @@ class OcrProcessor
         $matchedName = self::matchName($text, $facultyFullName);
         // Too little readable text from a photo / scan: the page tells the faculty member how to retake it
         $ocrPoor = $read['ocr'] && self::looksUnreadable($text);
-        $confidenceNote = self::buildConfidenceNote($detectedType, $detectedSubtype, $scores, $confidence, $matchedName, $text, $pds);
+        $confidenceNote = self::buildConfidenceNote($detectedType, $detectedSubtype, $scores, $confidence, $matchedName, $text, $pds, $titleType !== null);
 
         return [
             'text'             => $text,
@@ -322,6 +336,32 @@ class OcrProcessor
         }
         $which = @shell_exec('command -v ' . escapeshellarg($bin) . ' 2>/dev/null');
         return is_string($which) && trim($which) !== '';
+    }
+
+    /**
+     * The category whose title (DOCUMENT_TITLE_PHRASES) is a line of the text,
+     * or null. A title line is the title and little else (a page number beside
+     * it, say) in capitalized words, and doesn't carry on a sentence from the
+     * line before: "... undertake to submit my" / "Transcript of Records" in an
+     * affidavit is a sentence, not a title.
+     */
+    private static function titleType(string $text): ?string
+    {
+        $prev = '';
+        foreach (preg_split('/\R/', $text) as $line) {
+            $continues = (bool)preg_match('/\b[a-z]\w*,?\s*$/', $prev);   // the line before ends in a lowercase word
+            if (trim($line) !== '') { $prev = $line; }
+            $chars = strlen(preg_replace('/[^A-Za-z0-9]/', '', $line));
+            if ($chars < 8 || $continues || preg_match('/(?<![A-Za-z])(?!(?:of|and)\b)[a-z]{2,}/', $line)) { continue; }
+            foreach (DOCUMENT_TITLE_PHRASES as $type => $phrases) {
+                foreach ($phrases as $phrase) {
+                    if ($chars <= strlen(preg_replace('/[^A-Za-z0-9]/', '', $phrase)) + 12 && PdsDetector::hasPhrase($line, $phrase)) {
+                        return $type;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -658,14 +698,16 @@ class OcrProcessor
         return null;
     }
 
-    private static function buildConfidenceNote(?string $detectedType, ?string $detectedSubtype, array $scores, float $confidence, ?string $matchedName, string $text, array $pds): string
+    private static function buildConfidenceNote(?string $detectedType, ?string $detectedSubtype, array $scores, float $confidence, ?string $matchedName, string $text, array $pds, bool $byTitle = false): string
     {
         if ($text === '') {
             return 'No text could be extracted automatically. Please select the document type manually and double-check the details before confirming.';
         }
         $notes = [];
         $percent = round($confidence * 100) . '%';
-        if ($pds['is_pds']) {
+        if ($byTitle) {
+            $notes[] = 'Recognized as ' . document_type_label($detectedType, $detectedSubtype) . " from its title ({$percent} confidence).";
+        } elseif ($pds['is_pds']) {
             $pages = PdsDetector::pagesLabel($pds['pages']);
             $notes[] = 'Recognized as a Personal Data Sheet (CS Form No. 212)' . ($pages !== '' ? " -- {$pages}" : '')
                      . ": {$pds['score']} points from " . count($pds['matched']) . ' of the form\'s labels.';
