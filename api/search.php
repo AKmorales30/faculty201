@@ -8,7 +8,7 @@
  *              else's: their own (only the owner and the Admin may open a
  *              document, can_access_document()). No PDS of a part-time
  *              faculty member (faculty_has_pds()).
- *   Faculty    Admin: everyone with a 201 file (opens their 201-Files);
+ *   Faculty    Admin: everyone who keeps files (opens their documents);
  *              Program Chair / Dean: the faculty in their scope
  *              (profile_scope_sql(); opens the profile pop-up). Not for faculty.
  * Matches title, type / category, organizer, extracted text (OCR) and, for
@@ -110,7 +110,7 @@ try {
             'url'    => BASE_URL . '/document_details.php?id=' . (int)$d['document_id'],
         ];
     }
-    $groups[] = ['key' => 'documents', 'label' => $is_admin ? 'Documents in 201-Files' : 'Your 201-Files', 'items' => $docs];
+    $groups[] = ['key' => 'documents', 'label' => $is_admin ? 'Documents in My Files' : 'My Files', 'items' => $docs];
 
     // ----- faculty (Admin, Program Chair, Dean) -------------------------------------
     if ($is_admin || $overseer) {

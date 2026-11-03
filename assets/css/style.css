@@ -164,10 +164,10 @@ body { background-color: #f4f6f9; color: var(--c-charcoal); }
   background-color: var(--c-navy);
 }
 /* =====================================================================
-   POST-LOGIN SYSTEM: 201-file folder cards, notifications, alerts
+   POST-LOGIN SYSTEM: My Files folder cards, notifications, alerts
    ===================================================================== */
 
-/* Faculty 201-file category folder tiles (Faculty "My 201 File",
+/* Faculty My Files category folder tiles (Faculty "My Files",
    Admin "Faculty Records" drill-down) */
 .folder-card {
   border: 1px solid #e6e9ef;
@@ -245,7 +245,7 @@ body { overflow-x: hidden; }
 .notif-message { white-space: pre-line; }
 .notif-message::first-line { font-weight: 600; }
 
-/* 201 File browser */
+/* My Files browser */
 .min-w-0 { min-width: 0; }
 .folder-title { line-height: 1.2; }
 .doc-history td { color: #6c757d; }

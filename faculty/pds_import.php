@@ -3,7 +3,7 @@
  * Import an uploaded PDS file into the digital PDS -- review, then save.
  *
  * Opened right after a PDS is uploaded (faculty/submit_document.php), or
- * later from the PDS page / 201 file for any uploaded PDS document. Shows,
+ * later from the PDS page / My Files for any uploaded PDS document. Shows,
  * section by section, what was read from the file (includes/pds_import.php)
  * next to what the digital PDS holds now:
  *   - empty fields in the PDS are ticked to be filled in;
@@ -39,7 +39,7 @@ $stmt->execute([$document_id]);
 $doc = $stmt->fetch();
 if (!$doc || $doc['document_type'] !== 'PDS' || !in_array($doc['owner_role'], ['faculty', 'program_chair', 'dean'], true)
     || (!$is_admin && (int)$doc['faculty_id'] !== (int)$me['user_id'])) {
-    $_SESSION['flash_error'] = 'You can only import a PDS file from your own 201 file.';
+    $_SESSION['flash_error'] = 'You can only import a PDS file from My Files.';
     header('Location: ' . BASE_URL . '/index.php');
     exit;
 }
@@ -170,7 +170,7 @@ include __DIR__ . '/../includes/header.php';
   <div class="alert alert-warning">
     <div class="fw-semibold mb-1"><i class="fa-solid fa-triangle-exclamation"></i> No PDS details could be read from this file.</div>
     <?= $ex['source'] === 'ocr' ? 'The scan or photo may be too blurry, tilted or small to read. ' : '' ?>
-    The file is kept in the 201 file. <?= $is_own ? 'Please update your digital PDS by hand' : 'The faculty member can update their digital PDS by hand' ?>,
+    The file is kept in My Files. <?= $is_own ? 'Please update your digital PDS by hand' : 'The faculty member can update their digital PDS by hand' ?>,
     or upload a clearer copy -- the official Excel (.xlsx) soft copy gives the best result.
   </div>
   <a href="<?= h(BASE_URL . '/' . $back) ?>" class="btn btn-brand"><?= $is_own ? 'Go to My PDS' : 'Back' ?></a>

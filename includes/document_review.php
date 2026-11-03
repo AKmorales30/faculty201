@@ -3,7 +3,7 @@
  * Checking a document's type and details (Admin > Files > Manage Document).
  * Loaded by includes/functions.php.
  *
- * Every new upload is posted to 201-Files right away. The system flags the
+ * Every new upload is posted to My Files right away. The system flags the
  * ones worth checking (documents.flag_reason: low confidence, no text
  * read, entered manually, type changed by the uploader); Manage Document
  * lists them. The Admin opens one in the pop-up (api/modal.php?view=review),
@@ -150,7 +150,7 @@ function review_save_document(PDO $pdo, array $doc, array $in, array $admin, boo
     } else {
         log_my_activity($pdo, 'DOCUMENT_REVIEW_EDIT', "Corrected {$what} in Manage Document{$change_text}.");
     }
-    // The owner hears about it only when the type was corrected (their document is in 201-Files either way)
+    // The owner hears about it only when the type was corrected (their document is in My Files either way)
     if ($type_changed) {
         $place = $doc['status'] === 'archived' ? 'archive.php' : 'faculty/my_documents.php?type=' . rawurlencode($type);
         notify($pdo, (int)$doc['faculty_id'], 'The Admin corrected the document type of your '

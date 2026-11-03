@@ -3,7 +3,7 @@ USE faculty201_repository;
 -- Default password for ALL seeded accounts below is:  Password123
 -- (bcrypt hash below is real and verified against PHP's password_verify())
 INSERT INTO users (role, full_name, email, password_hash, employment_type, employment_status, date_engaged) VALUES
-('admin',         'Chrystal Jewelle Arnesto', 'admin@ccs.udm.edu.ph',        '$2b$10$ucYlHMTarCTqWABtKlMzIO4s72/pLe11WRMyUJeT04GP1SyAxeqMa', NULL, NULL, NULL),
+('admin',         'Selverino J. Galela', 'admin@ccs.udm.edu.ph',        '$2b$10$ucYlHMTarCTqWABtKlMzIO4s72/pLe11WRMyUJeT04GP1SyAxeqMa', NULL, NULL, NULL),
 ('program_chair', 'Engr. Rosario Villanueva', 'programchair@ccs.udm.edu.ph', '$2b$10$ucYlHMTarCTqWABtKlMzIO4s72/pLe11WRMyUJeT04GP1SyAxeqMa', NULL, NULL, NULL),
 ('dean',          'Dr. Fernando Del Rosario', 'dean@ccs.udm.edu.ph',         '$2b$10$ucYlHMTarCTqWABtKlMzIO4s72/pLe11WRMyUJeT04GP1SyAxeqMa', 'full_time', 'active', '2015-06-01'),
 ('faculty',       'Adrian Kyle Morales',      'amorales@ccs.udm.edu.ph',     '$2b$10$ucYlHMTarCTqWABtKlMzIO4s72/pLe11WRMyUJeT04GP1SyAxeqMa', 'full_time', 'active', '2019-08-15'),

@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/pds.php';
 require_once __DIR__ . '/../includes/pds_import.php';
-require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
+require_role(['faculty', 'program_chair', 'dean']);   // own files only
 
 $page_title = 'Profile Preference';   // the top bar; My PDS is a tab of it
 $me = current_user();

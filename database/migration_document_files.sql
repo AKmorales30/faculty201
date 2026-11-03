@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migration: keep the 201-file documents themselves in the database
+-- Migration: keep the faculty documents themselves in the database
 --
 -- Render's free plan wipes the server's disk on every deploy / restart,
 -- which deleted every uploaded file under uploads/ while the documents

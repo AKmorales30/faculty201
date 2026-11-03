@@ -10,7 +10,7 @@
  * export of the same rows. Every generation is written to the activity log.
  *
  * Whose certificates: profile_scope_sql() -- the Admin everyone with a
- * 201 file, a Dean their college's faculty and Program Chairs, a Program
+ * files, a Dean their college's faculty and Program Chairs, a Program
  * Chair their program's faculty (each also their own).
  * Archived documents are left out unless "Include archived" is ticked.
  * Certificates without details show "Not specified"; their owner or the
@@ -246,7 +246,7 @@ include __DIR__ . '/includes/header.php';
       default         => '',
   }; ?>
 <div class="no-print">
-<?= admin_intro('Seminars and trainings taken from uploaded certificates in the faculty 201 files, with their details. Filter the report, then print it, save it as PDF or export it to CSV.' . $scope_note,
+<?= admin_intro('Seminars and trainings taken from uploaded certificates in the faculty files, with their details. Filter the report, then print it, save it as PDF or export it to CSV.' . $scope_note,
     '<button type="button" class="btn btn-outline-brand" onclick="window.print()"><i class="fa-solid fa-print" aria-hidden="true"></i> Print / Save as PDF</button>'
   . '<a href="training_report.php?' . h(http_build_query($filter_query + ['export' => 'csv'])) . '" class="btn btn-brand"><i class="fa-solid fa-file-csv" aria-hidden="true"></i> Export CSV</a>') ?>
 </div>

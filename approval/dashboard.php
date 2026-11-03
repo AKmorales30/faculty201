@@ -1,14 +1,14 @@
 <?php
 /**
- * Program Chair / Dean Home. They keep their own 201 file like faculty do,
+ * Program Chair / Dean Home. They keep their own files like faculty do,
  * and follow the faculty they oversee (profile_scope_sql(): a Program Chair
  * their program, a Dean their college):
- *   - their own counts (201-Files, Flagged for checking, unread notifications, archived)
+ *   - their own counts (My Files, Flagged for checking, unread notifications, archived)
  *   - their own reminders (AI-worded when AI is on), each with a link to the
  *     page that fixes it and Dismiss (api/reminders.php, POST + CSRF token)
  *   - the faculty in their scope with an open reminder, per kind (each kind
  *     opens only that list in the pop-up) and per person
- *   - their own 201-file checklist and expiring documents
+ *   - their own files checklist and expiring documents
  * They are notified when faculty in their scope upload, but can't open
  * faculty files -- people link to the profile (can_view_profile()).
  */
@@ -73,7 +73,7 @@ include __DIR__ . '/../includes/header.php';
     <h2 class="ui-greet">Welcome back, <?= h(person_first_name($me)) ?></h2>
     <p class="ui-greet-sub">
       <?php if ($scope): ?>
-        You're notified whenever faculty in <strong><?= h($scope) ?></strong> upload to their 201 file.
+        You're notified whenever faculty in <strong><?= h($scope) ?></strong> upload a document.
       <?php else: ?>
         Your <?= $unit ?> hasn't been set yet, so you won't receive upload notifications. Please ask the Admin to set it.
       <?php endif; ?>
@@ -87,14 +87,14 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="ui-stats">
   <a class="ui-stat" href="<?= BASE_URL ?>/faculty/my_documents.php">
-    <div class="ui-stat-top"><span class="ui-stat-label">My 201-Files</span><span class="ui-stat-icon tone-navy" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span></div>
+    <div class="ui-stat-top"><span class="ui-stat-label">My Files</span><span class="ui-stat-icon tone-navy" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span></div>
     <div class="ui-stat-value" data-count="<?= (int)($by_status['active'] ?? 0) ?>"><?= (int)($by_status['active'] ?? 0) ?></div>
-    <div class="ui-stat-sub">posted to your 201 file</div>
+    <div class="ui-stat-sub">posted to My Files</div>
   </a>
   <a class="ui-stat" href="<?= BASE_URL ?>/faculty/my_documents.php?tab=flagged" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=flagged') ?>" data-app-modal-title="Flagged for checking">
     <div class="ui-stat-top"><span class="ui-stat-label">Flagged for checking</span><span class="ui-stat-icon tone-gold" aria-hidden="true"><i class="fa-solid fa-flag"></i></span></div>
     <div class="ui-stat-value" data-count="<?= $flagged_count ?>"><?= $flagged_count ?></div>
-    <div class="ui-stat-sub">in your 201-Files; the Admin may correct them</div>
+    <div class="ui-stat-sub">in My Files; the Admin may correct them</div>
   </a>
   <a class="ui-stat" href="<?= BASE_URL ?>/approval/notifications.php">
     <div class="ui-stat-top"><span class="ui-stat-label">Unread Notifications</span><span class="ui-stat-icon tone-teal" aria-hidden="true"><i class="fa-solid fa-bell"></i></span></div>
@@ -151,10 +151,10 @@ include __DIR__ . '/../includes/header.php';
             <?php endforeach; ?>
           </ul>
         <?php elseif ($reminder_status['checked_at'] !== null): ?>
-          <p class="ui-card-note">No one in <?= h($scope) ?> needs follow-up on their 201 file right now.</p>
+          <p class="ui-card-note">No one in <?= h($scope) ?> needs follow-up on their files right now.</p>
         <?php endif; ?>
         <div class="ui-card-foot">
-          <span>Checked once a day; the list clears as faculty update their 201 files.<?= count($follow_people) > count($follow_shown) ? ' Showing ' . count($follow_shown) . ' of ' . count($follow_people) . '.' : '' ?></span>
+          <span>Checked once a day; the list clears as faculty update their files.<?= count($follow_people) > count($follow_shown) ? ' Showing ' . count($follow_shown) . ' of ' . count($follow_people) . '.' : '' ?></span>
           <div class="ui-ai-foot-btns">
             <a href="<?= BASE_URL ?>/reminder_list.php" class="btn btn-sm btn-outline-brand">Full list</a>
             <a href="<?= BASE_URL ?>/faculty_directory.php" class="btn btn-sm btn-outline-brand">Open Faculty Profiles</a>

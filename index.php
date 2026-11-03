@@ -123,12 +123,12 @@ $view = $step !== '' ? 'step' : ($role !== '' ? 'login' : 'roles');
   <section class="ld-hero" aria-labelledby="ld-title">
     <p class="ld-eyebrow">College of Computing Studies</p>
     <h2 class="ld-title" id="ld-title">
-      <span class="ld-nowrap">Faculty-201 File</span>
+      <span class="ld-nowrap">Faculty File</span>
       <span>Management System</span>
     </h2>
     <hr class="ld-rule">
     <p class="ld-lead">
-      A secure, centralized system for uploading, storing, and monitoring faculty 201-file documents.
+      A secure, centralized system for uploading, storing, and monitoring faculty documents.
     </p>
   </section>
 

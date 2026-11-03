@@ -33,14 +33,14 @@ $updated = 'October 25, 2026';
   <p class="ld-doc-meta"><?= h(SYSTEM_NAME) ?> &middot; College of Computing Studies, Universidad de Manila &middot; Last updated <?= h($updated) ?></p>
 
   <p>The <?= h(SYSTEM_NAME) ?> ("the system") is used by the College of Computing Studies of Universidad de Manila to upload, store and monitor the
-    201-file documents of its faculty. Only accounts created by the system administrator can log in. This policy explains what information the
+    documents of its faculty. Only accounts created by the system administrator can log in. This policy explains what information the
     system keeps, why, and who can see it.</p>
 
   <h3>Information the system keeps</h3>
   <ul>
     <li><strong>Account details:</strong> your name, username, role, program or college, academic rank, employment details and a password (stored only
       as a one-way hash, never readable).</li>
-    <li><strong>Your 201 file:</strong> the documents you or the administrator upload (for example certificates, seminar and training records and your
+    <li><strong>My Files:</strong> the documents you or the administrator upload (for example certificates, seminar and training records and your
       Personal Data Sheet), with the details entered for them.</li>
     <li><strong>Profile:</strong> an optional profile picture, contact number and field of specialization.</li>
     <li><strong>Optional email:</strong> if you choose to add one, the email address you verify. It is used only for the purposes listed below.</li>
@@ -65,8 +65,8 @@ $updated = 'October 25, 2026';
 
   <h3>Who can see your information</h3>
   <ul>
-    <li><strong>You</strong> can see your own profile, 201 file and login activity (Profile Preference).</li>
-    <li><strong>The administrator</strong> can see and manage all accounts and 201 files, and can see the login activity of every account.</li>
+    <li><strong>You</strong> can see your own profile, files and login activity (Profile Preference).</li>
+    <li><strong>The administrator</strong> can see and manage all accounts and faculty files, and can see the login activity of every account.</li>
     <li><strong>Deans and Program Chairs</strong> can see summary information (such as document counts) for the faculty in their college or program,
       but cannot open faculty files.</li>
   </ul>

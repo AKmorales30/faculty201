@@ -15,7 +15,7 @@
 --      documents would move, then the list.
 --   2. If that's right, remove the "--" in front of every line of STEP 2
 --      (select those lines, Ctrl / Cmd + /) and Run again. Running STEP 2
---      twice is harmless: moved documents are no longer in 201-Files.
+--      twice is harmless: moved documents are no longer in My Files.
 -- =====================================================================
 
 -- STEP 1 -- preview: how many would move

@@ -1,7 +1,7 @@
 <?php
 /**
  * Analytics for Program Chairs and Deans (Report > Analytics): summary
- * cards, charts of their faculty's 201-Files and seminars / trainings, and
+ * cards, charts of their faculty's My Files and seminars / trainings, and
  * the faculty needing attention. The page is the frame; the numbers come
  * from api/analytics.php (assets/js/analytics.js), which works them out on
  * the server for the viewer's scope only (includes/analytics.php):
@@ -36,7 +36,7 @@ $chart_card = function (string $id, string $title, string $icon, string $tone, s
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<?= admin_intro('Charts of the 201-Files and seminars / trainings of the faculty in <strong>' . h($scope_label) . '</strong>. Documents count only when posted to 201-Files (not archived or deleted).') ?>
+<?= admin_intro('Charts of the documents in My Files and seminars / trainings of the faculty in <strong>' . h($scope_label) . '</strong>. Documents count only when posted to My Files (not archived or deleted).') ?>
 
 <?php if (!$scope_set): ?>
   <?= admin_empty('No ' . ($is_dean ? 'college' : 'program') . ' set', 'Ask the Admin to set your ' . ($is_dean ? 'college' : 'program') . ' to see its analytics.', null, 'fa-chart-line') ?>
@@ -68,7 +68,7 @@ include __DIR__ . '/../includes/header.php';
   <div class="ui-stats an-stats" id="anCards">
     <?php foreach ([
         ['faculty', 'Total faculty', 'fa-users', 'navy', 'active accounts in scope'],
-        ['documents', 'Documents in 201-Files', 'fa-folder-open', 'blue', 'posted, not archived'],
+        ['documents', 'Documents in My Files', 'fa-folder-open', 'blue', 'posted, not archived'],
         ['trainings', 'Seminars / trainings', 'fa-chalkboard-user', 'gold', 'in the selected period'],
         ['expiring', 'Expiring / expired', 'fa-hourglass-half', 'red', 'documents, within ' . (int)EXPIRING_SOON_DAYS . ' days'],
         ['pds_incomplete', 'Incomplete PDS', 'fa-id-card', 'teal', 'full-time faculty only'],
@@ -83,7 +83,7 @@ include __DIR__ . '/../includes/header.php';
 
   <div class="an-grid">
     <?= $chart_card('chUploads', 'Documents uploaded per month', 'fa-chart-line', 'navy', 'Line chart of documents uploaded per month', true) ?>
-    <?= $chart_card('chCategories', 'Documents per category', 'fa-folder-tree', 'blue', 'Doughnut chart of documents per category in 201-Files') ?>
+    <?= $chart_card('chCategories', 'Documents per category', 'fa-folder-tree', 'blue', 'Doughnut chart of documents per category in My Files') ?>
     <?= $chart_card('chExpiration', 'Expiration overview', 'fa-hourglass-half', 'red', 'Doughnut chart of documents that are valid, expiring within ' . (int)EXPIRING_SOON_DAYS . ' days, or expired', false, '', 'Documents with an expiration date only.') ?>
     <?= $chart_card('chTrainings', 'Seminars / trainings attended', 'fa-chalkboard-user', 'gold', 'Bar chart of seminars and trainings attended over time') ?>
     <?= $chart_card('chOrganizers', 'Top training organizers', 'fa-building-columns', 'teal', 'Horizontal bar chart of the organizers with the most seminars and trainings') ?>
@@ -103,7 +103,7 @@ include __DIR__ . '/../includes/header.php';
 
     <?= $chart_card('chEmployment', 'Comparison by employment type', 'fa-scale-balanced', 'blue',
         'Grouped bar chart of faculty, documents and seminars / trainings for full-time faculty, part-time faculty and Program Chairs', true, '',
-        'Faculty and documents in 201-Files: now. Seminars / trainings: in the selected period.') ?>
+        'Faculty and documents in My Files: now. Seminars / trainings: in the selected period.') ?>
   </div>
 </div>
 

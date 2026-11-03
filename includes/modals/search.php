@@ -65,7 +65,7 @@ $rows = array_slice($rows, 0, $limit);
 <?php else: ?>
   <p class="small text-muted mb-2">
     <?= $more ? 'The first ' . $limit : count($rows) ?> document<?= count($rows) === 1 ? '' : 's' ?>
-    <?= $is_admin ? 'across all faculty' : 'in your 201 file' ?> · click one to preview it.
+    <?= $is_admin ? 'across all faculty' : 'in My Files' ?> · click one to preview it.
   </p>
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
@@ -89,6 +89,6 @@ $rows = array_slice($rows, 0, $limit);
     </table>
   </div>
   <div data-modal-footer>
-    <a href="<?= h($full_page) ?>"><i class="fa-solid fa-sliders"></i> Search with more filters in <?= $is_admin ? '201-Files' : 'your 201-Files' ?></a>
+    <a href="<?= h($full_page) ?>"><i class="fa-solid fa-sliders"></i> Search with more filters in My Files</a>
   </div>
 <?php endif; ?>

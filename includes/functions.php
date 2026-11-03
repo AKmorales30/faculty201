@@ -188,7 +188,7 @@ function status_badge(string $status): array {
         'chair_confirmed'  => ['Confirmed by Program Chair — awaiting Dean', 'bg-info text-dark'],
         'dean_confirmed'   => ['Confirmed by Dean — awaiting Program Chair', 'bg-info text-dark'],
         'fully_confirmed'  => ['Fully Confirmed — filing in progress', 'bg-primary'],
-        'uploaded'         => ['Uploaded to 201 File', 'bg-success'],
+        'uploaded'         => ['Uploaded to My Files', 'bg-success'],
         'rejected'         => ['Rejected', 'bg-danger'],
     ];
     return $map[$status] ?? [$status, 'bg-secondary'];
@@ -196,7 +196,7 @@ function status_badge(string $status): array {
 
 /**
  * status_badge() for an upload-log row that also has document_status
- * (documents.status): Posted (uploads go to 201-Files right away); a
+ * (documents.status): Posted (uploads go to My Files right away); a
  * document later archived or deleted says so. 'for_review' is the old
  * review step, kept for documents not yet moved on by the migration.
  */
@@ -250,14 +250,14 @@ function move_to_repository(int $faculty_id, string $document_type, string $sour
 
 /**
  * Tell every Program Chair and Dean (and the Admin, as before) that a
- * faculty member uploaded a document to their 201 file. $extra_lines
+ * faculty member uploaded a document to My Files. $extra_lines
  * are appended (e.g. that the upload also updated their PDS). $archived_date:
  * the document's own date when it went straight to Archived Docs (archive_at_upload()).
  */
 function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?string $subtype, int $request_id, array $extra_lines = [], bool $reupload = false, ?string $flag_reason = null, ?string $archived_date = null): void {
     $when = new DateTime('now', new DateTimeZone('Asia/Manila'));
 
-    // Admin: full details, as before. The upload is in 201-Files already; a flagged one is also in Manage Document.
+    // Admin: full details, as before. The upload is in My Files already; a flagged one is also in Manage Document.
     $msg = "New Document Uploaded\n"
          . "Faculty: {$uploader['full_name']}\n"
          . "Document Type: " . document_type_label($document_type, $subtype) . "\n"
@@ -265,8 +265,8 @@ function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?st
          . match (true) {
              $archived_date !== null => 'It is dated ' . date('F j, Y', strtotime($archived_date)) . ', more than ' . archive_period_label()
                                         . ' ago, so it was saved to Archived Docs.',
-             $flag_reason !== null   => 'It is in 201-Files, and flagged for checking in Manage Document: ' . document_flag_text($flag_reason) . '.',
-             default                 => 'It is in 201-Files.',
+             $flag_reason !== null   => 'It is in My Files, and flagged for checking in Manage Document: ' . document_flag_text($flag_reason) . '.',
+             default                 => 'It is in My Files.',
          };
     foreach ($extra_lines as $line) {
         $msg .= "\n" . $line;
@@ -278,7 +278,7 @@ function notify_new_upload(PDO $pdo, array $uploader, string $document_type, ?st
     if (($uploader['role'] ?? '') === 'faculty') {
         $type = employment_type_label($uploader['employment_type'] ?? null);
         $short = $uploader['full_name'] . ($type ? " ({$type})" : '')
-               . ($reupload ? ' re-uploaded a file to their 201 file.' : ' uploaded a file to their 201 file.')
+               . ($reupload ? ' re-uploaded a file to My Files.' : ' uploaded a file to My Files.')
                . ($archived_date !== null ? ' (An older document: saved to their Archived Docs.)' : '')
                . ' – ' . str_replace('Sep ', 'Sept ', $when->format('M j, Y, g:i A'));
         foreach (upload_notification_recipients($pdo, $uploader) as $uid) {
@@ -460,7 +460,7 @@ function document_file_bytes(PDO $pdo, int $document_id): ?string {
 }
 
 /**
- * Who may open a 201-file document: its owner (posted, waiting for review,
+ * Who may open a faculty document: its owner (posted, waiting for review,
  * archived, or in Recently Deleted -- to preview it before restoring), or
  * the Admin. Program Chairs and Deans can see faculty profiles, archive
  * lists and report details, but can't view, download or change anyone
@@ -564,10 +564,10 @@ function move_document_file(string $from, string $to): string {
  * Recently Deleted) or 'restore':
  *   archived -> posted
  *   deleted  -> back where it was when deleted (status_before_delete:
- *               201-Files or Archived Docs), with its details;
+ *               My Files or Archived Docs), with its details;
  *               only within DELETED_RETENTION_DAYS (deleted_restore_open())
  * Deleting moves the local file into uploads/_deleted/; restoring moves it
- * back. Restoring to 201-Files counts as a view (last_viewed_at), so the
+ * back. Restoring to My Files counts as a view (last_viewed_at), so the
  * auto-archive doesn't take it straight back.
  * Returns false if the action doesn't apply to the document's current status.
  */
@@ -791,7 +791,7 @@ function run_daily_deleted_cleanup(PDO $pdo, bool $force = false): ?array {
 // and For Review documents move to Archived Docs, labeled with the former
 // faculty member's name. The users row stays (purged_at): documents, the
 // PDS and the activity log point to it, and deleting it would delete those
-// official 201-file records with it (ON DELETE CASCADE).
+// official faculty records with it (ON DELETE CASCADE).
 // ---------------------------------------------------------------------
 
 /** Permanently delete one account past its restore window. Returns how many documents moved to Archived Docs, or null if it doesn't qualify. */
@@ -810,7 +810,7 @@ function purge_deleted_account(PDO $pdo, int $user_id): ?int {
             return null;
         }
         $reason = mb_substr("Former faculty: {$u['full_name']}. The account was deleted permanently on " . date('F j, Y')
-            . '; the document is kept as an official 201-file record.', 0, 255);
+            . '; the document is kept as an official faculty record.', 0, 255);
         $stmt = $pdo->prepare("UPDATE documents SET status = 'archived', archived_at = NOW(), archived_by = NULL, archive_reason = ?
                                WHERE faculty_id = ? AND status IN ('active', 'for_review')");
         $stmt->execute([$reason, $user_id]);
@@ -858,7 +858,7 @@ function run_daily_account_cleanup(PDO $pdo, bool $force = false): ?array {
     return run_once_a_day($pdo, 'account_cleanup_last_run', 'cleanup_deleted_accounts', $force);
 }
 
-/** URL that serves a 201-file document through the access check (document.php). */
+/** URL that serves a faculty document through the access check (document.php). */
 function document_url(int $document_id): string {
     return BASE_URL . '/document.php?id=' . $document_id;
 }
@@ -866,7 +866,7 @@ function document_url(int $document_id): string {
 /**
  * Store a faculty member's upload: move the scan into the repository, log
  * it in submission_requests as 'uploaded' and insert the documents row,
- * posted to 201-Files right away (status 'active') -- or, with
+ * posted to My Files right away (status 'active') -- or, with
  * $meta['archive'] (archive_at_upload()), to Archived Docs; $meta['flag_reason']
  * flags it for the Admin to check in Manage Document (document_flag_for_upload()).
  * $ocr is the OcrProcessor::process() result
@@ -969,7 +969,7 @@ function confidence_label($score): string {
 }
 
 // ---------------------------------------------------------------------
-// Flagged for checking. Uploads are posted to 201-Files right away; the
+// Flagged for checking. Uploads are posted to My Files right away; the
 // system flags the ones the Admin should check (documents.flag_reason, a
 // comma-separated list of the codes below). The Admin corrects the type /
 // details in Manage Document and marks it checked (reviewed_at). A flag
@@ -1061,7 +1061,7 @@ function academic_year_options(): array {
 }
 
 /**
- * What a faculty member's 201 file should currently contain, and whether
+ * What a faculty member's files should currently contain, and whether
  * it does: PDS for this year, FTA (and IPCR for full-time) for the
  * current semester -- during Summer, the 2nd semester just ended -- and
  * Contract of Service / Affidavit of Undertaking for part-time faculty.
@@ -1174,7 +1174,7 @@ function file_outstanding_requests(PDO $pdo): void {
             ->execute([$filePath, $req['request_id']]);
 
         notify($pdo, (int)$req['faculty_id'],
-            "Your {$req['document_type_hint']} has been added to your 201 file.", (int)$req['request_id']);
+            "Your {$req['document_type_hint']} has been added to My Files.", (int)$req['request_id']);
     }
 }
 
@@ -1185,7 +1185,7 @@ function safe_filename(string $original): string {
 }
 
 /**
- * The Faculty 201 File categories (from the interview). Every folder
+ * The Faculty File categories (from the interview). Every folder
  * view, upload form, filter and chart in the system is built from this
  * single list so the categories stay consistent everywhere. The key is
  * what's stored in documents.document_type.
@@ -1400,7 +1400,7 @@ function document_display_name(string $file_path): string {
  * each with days_left. Leaves out documents of deactivated accounts and
  * versions that were replaced: a newer upload in the same folder and
  * period with a later expiration date (re-uploads are new rows, the old
- * one stays as history). $faculty_id limits it to one person's 201 file.
+ * one stays as history). $faculty_id limits it to one person's files.
  */
 function expiring_documents(PDO $pdo, ?int $faculty_id = null, int $days = EXPIRING_SOON_DAYS): array {
     $sql = "SELECT d.document_id, d.faculty_id, d.document_type, d.document_subtype, d.file_path, d.expiration_date, u.full_name
@@ -1541,7 +1541,7 @@ function run_daily_expiration_check(PDO $pdo, bool $force = false): ?array {
 // record are kept; the owner sees it in their Archived Docs, the
 // Admin can restore it (which counts as a view). Opening an archived
 // document does not restore it. Archived documents are left out of
-// 201-Files, searches, dashboards, expiration alerts and analytics, which all
+// My Files, searches, dashboards, expiration alerts and analytics, which all
 // filter on status = 'active'. Runs at most once a day
 // (run_daily_auto_archive(), dashboards and cron/auto_archive.php).
 // ---------------------------------------------------------------------
@@ -1580,7 +1580,7 @@ function auto_archive_reason(): string {
 // saved as archived -- e.g. a 2005 certificate uploaded today. Its date is
 // the one read by OCR and checked in the preview, or typed in Manual Input:
 // the seminar / training end date, else its start date, else the date
-// issued. No date: 201-Files as usual (no guessing). Never the PDS (a living
+// issued. No date: My Files as usual (no guessing). Never the PDS (a living
 // document with versions). Restoring one marks it archive_exempt, so neither
 // rule takes it back.
 // ---------------------------------------------------------------------

@@ -4,7 +4,7 @@
  * detected type and its confidence, why it was flagged, the details read
  * from it, and a form to correct them -- Save corrections, or Save & mark
  * as checked (off the Flagged for checking list). The document is in
- * 201-Files either way. The form posts to admin/manage_documents.php (CSRF
+ * My Files either way. The form posts to admin/manage_documents.php (CSRF
  * token), which checks everything again (review_save_document()). Expects
  * $doc (modal_document(), status active or archived) and $me.
  *
@@ -138,7 +138,7 @@ if (!preg_match('#^(admin/[a-z_]+|archive|profile)\.php(\?[A-Za-z0-9_.%=&\-\[\]+
         <?php endif; ?>
         <button type="submit" name="do" value="save" class="btn <?= $flagged ? 'btn-outline-brand' : 'btn-brand' ?>"><i class="fa-solid fa-floppy-disk"></i> Save corrections</button>
       </div>
-      <div class="form-text">The document stays in <?= h($doc['full_name']) ?>'s <?= $doc['status'] === 'archived' ? 'Archived Docs' : '201-Files' ?>. <?= $flagged ? 'Marking it as checked takes it off the Flagged for checking list. ' : '' ?><?= h($doc['full_name']) ?> is notified only if you change the document type.</div>
+      <div class="form-text">The document stays in <?= h($doc['full_name']) ?>'s <?= $doc['status'] === 'archived' ? 'Archived Docs' : 'files' ?>. <?= $flagged ? 'Marking it as checked takes it off the Flagged for checking list. ' : '' ?><?= h($doc['full_name']) ?> is notified only if you change the document type.</div>
     </form>
   </div>
 </div>

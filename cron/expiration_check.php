@@ -13,7 +13,7 @@
  * the website uses if they aren't the XAMPP defaults (see config/db.php).
  *
  * Windows (XAMPP + Task Scheduler):
- *   1. Task Scheduler > Create Basic Task... > name "Faculty 201 expiration alerts"
+ *   1. Task Scheduler > Create Basic Task... > name "Faculty Files expiration alerts"
  *   2. Trigger: Daily, 6:00 AM
  *   3. Action: Start a program
  *        Program/script:  C:\xampp\php\php.exe

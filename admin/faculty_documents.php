@@ -4,7 +4,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_role('admin');
 
 $faculty_id = (int)($_GET['id'] ?? 0);
-$stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ? AND role IN ('faculty', 'program_chair', 'dean')");   // Chairs and Deans keep a 201 file too
+$stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ? AND role IN ('faculty', 'program_chair', 'dean')");   // Chairs and Deans keep files too
 $stmt->execute([$faculty_id]);
 $faculty = $stmt->fetch();
 
@@ -14,14 +14,14 @@ if (!$faculty) {
     exit;
 }
 
-$page_title = $faculty['full_name'] . ' — 201 File';
+$page_title = $faculty['full_name'] . ' — Files';
 $link_base = '?id=' . $faculty_id . '&';
 
 include __DIR__ . '/../includes/header.php';
 ?>
 
 <a href="<?= BASE_URL ?>/admin/view_records.php" class="small text-muted d-inline-block mb-3">
-  <i class="fa-solid fa-arrow-left"></i> Back to 201-Files &rsaquo; By faculty
+  <i class="fa-solid fa-arrow-left"></i> Back to My Files &rsaquo; By faculty
 </a>
 
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">

@@ -1,7 +1,7 @@
 <?php
 /**
  * Top of every page after login (every page includes it; all of them
- * require login), the same for every role -- Faculty-201 File Management
+ * require login), the same for every role -- Faculty File Management
  * System. Expects $page_title to be set by the including page; $pdo from
  * includes/auth.php. Layout:
  *
@@ -11,7 +11,7 @@
  * The menu is app_menu() (includes/nav_menu.php) for the user's role. Below
  * 992px the sidebar is a slide-out menu (Bootstrap offcanvas-lg), opened by
  * the round menu button in the top bar. The header search looks in every
- * document for the Admin and in their own 201 file for everyone else
+ * document for the Admin and in their own files for everyone else
  * (api/modal.php?view=search scopes it on the server); without JavaScript it
  * opens the role's document list with the same search. The avatar opens
  * Profile Preference; the bell, the notifications.
@@ -137,7 +137,7 @@ $ad_link = function (array $item, bool $nested) use ($ad_page): string {
         </a>
         <?php // Log out: a POST with the CSRF token, after "Log out?" in the shared pop-up (assets/js/admin.js) ?>
         <form method="POST" action="<?= BASE_URL ?>/logout.php" class="ad-logout-form" id="logoutForm"
-              data-confirm="Are you sure you want to log out of the Faculty-201 File Management System?"
+              data-confirm="Are you sure you want to log out of the Faculty File Management System?"
               data-confirm-unsaved="You have unsaved changes. Log out anyway?"
               data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-cancel="Cancel" data-confirm-focus="cancel">
           <?= csrf_field() ?>

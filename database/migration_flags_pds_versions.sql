@@ -10,7 +10,7 @@
 USE faculty201_repository;
 
 -- ---------------------------------------------------------------------
--- 1. Flagged for checking. A new upload is posted to 201-Files at once.
+-- 1. Flagged for checking. A new upload is posted to My Files at once.
 --    The system flags it for the Admin to check (Manage Document) when its
 --    type was detected with low confidence, no text could be read, or the
 --    uploader entered or picked the type themselves -- comma-separated
@@ -33,7 +33,7 @@ UPDATE documents
        status = 'active',
        posted_at = COALESCE(posted_at, filed_at)
  WHERE status = 'for_review';
--- Deleted ones restore to 201-Files, not to the old queue
+-- Deleted ones restore to My Files, not to the old queue
 UPDATE documents SET status_before_delete = 'active' WHERE status = 'deleted' AND status_before_delete = 'for_review';
 UPDATE documents SET posted_at = filed_at WHERE status = 'deleted' AND posted_at IS NULL;
 

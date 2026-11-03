@@ -16,7 +16,7 @@
  *      viewer's scope -- profile_scope_sql(); the details are worked out now)
  *   expiring             everyone              documents expired or expiring within 60 days
  *   expired, expiring_7, expiring_30, expiring_60   one expiration bucket of those
- *   flagged              everyone              uploads flagged for checking (already in 201-Files);
+ *   flagged              everyone              uploads flagged for checking (already in My Files);
  *                                              'for_review' is the old name
  *   recent_uploads       everyone              the latest uploads
  *     (document lists: the Admin sees every faculty member's; anyone else

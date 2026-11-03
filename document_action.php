@@ -1,9 +1,9 @@
 <?php
 /**
- * Delete / archive / restore / permanently delete a 201-file document
+ * Delete / archive / restore / permanently delete a faculty document
  * (POST + CSRF token only).
  *
- *   Faculty (and Program Chairs / Deans, for their own 201 file):
+ *   Faculty (and Program Chairs / Deans, for their own files):
  *     delete  -- their own posted document, within
  *                FACULTY_DELETE_WINDOW_HOURS of uploading it; the reason is
  *                optional. It goes to Recently Deleted.
@@ -122,14 +122,14 @@ if (!change_document_status($pdo, $doc, $action, (int)$me['user_id'], $stored_re
     $back('flash_error', "That can't be done: the document is currently " . strtolower(document_status_badge($doc['status'])[0]) . '.');
 }
 
-// Where a restored document went back to (201-Files / Archived Docs)
+// Where a restored document went back to (My Files / Archived Docs)
 $now_status = null;
 if ($action === 'restore') {
     $stmt = $pdo->prepare("SELECT status FROM documents WHERE document_id = ?");
     $stmt->execute([$doc['document_id']]);
     $now_status = $stmt->fetchColumn();
 }
-$place = ['active' => '201-Files', 'archived' => 'Archived Docs'][$now_status] ?? '';
+$place = ['active' => 'My Files', 'archived' => 'Archived Docs'][$now_status] ?? '';
 $until = $action === 'delete' ? deleted_purge_at(date('Y-m-d H:i:s'))->format('F j, Y') : '';
 
 // Activity log: document, file, owner, action, reason
@@ -144,8 +144,8 @@ log_my_activity($pdo, 'DOCUMENT_' . strtoupper($action),
 // The owner hears about anything the Admin does to their document
 if ($is_admin && (int)$doc['faculty_id'] !== (int)$me['user_id']) {
     $message = match ($action) {
-        'archive' => "The Admin moved your {$name} to your Archived Docs; it no longer appears in your 201-Files, but you can still view it there. Reason: {$reason}.",
-        'delete'  => "The Admin deleted your {$name} from your 201 file. Reason: {$reason}. It stays in Recently Deleted until {$until}, "
+        'archive' => "The Admin moved your {$name} to your Archived Docs; it no longer appears in My Files, but you can still view it there. Reason: {$reason}.",
+        'delete'  => "The Admin deleted your {$name} from My Files. Reason: {$reason}. It stays in Recently Deleted until {$until}, "
                    . 'when it is permanently deleted -- contact the Admin if it should be restored.',
         'restore' => "The Admin restored your {$name} to your {$place}. Reason: {$reason}.",
     };

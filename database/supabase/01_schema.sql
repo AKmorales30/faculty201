@@ -1,5 +1,5 @@
 -- =====================================================================
--- Faculty-201 File Management System -- PostgreSQL schema for Supabase
+-- Faculty File Management System -- PostgreSQL schema for Supabase
 --
 -- The final state of database/schema.sql + every database/migration_*.sql,
 -- rewritten for PostgreSQL. Same table and column names as the MySQL

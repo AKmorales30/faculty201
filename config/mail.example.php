@@ -50,7 +50,7 @@ return [
 
     // Gmail: the account that authorized step 2
     'from_email'            => 'PASTE-YOUR-GMAIL-ADDRESS-HERE',
-    'from_name'             => 'Faculty-201 File Management System',
+    'from_name'             => 'Faculty File Management System',
 
     // Local testing only: write every email to this file instead of sending
     // it (codes included -- never set this on a real server). Empty = send.

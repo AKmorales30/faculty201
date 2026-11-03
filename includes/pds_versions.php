@@ -193,7 +193,7 @@ function pds_can_view_version_content(array $viewer, int $faculty_id): bool {
 }
 
 /**
- * The PDS line shown in 201-Files, on My PDS, on profiles and in reports:
+ * The PDS line shown in My Files, on My PDS, on profiles and in reports:
  * "Personal Data Sheet — Version 4 · Last updated October 20, 2026, 11:19 AM",
  * then how and by whom, with a Version history button (pop-up) and -- for the
  * owner and the Admin -- a button to open the PDS. Empty when $viewer may not

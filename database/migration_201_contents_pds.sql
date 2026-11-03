@@ -1,8 +1,8 @@
 -- =====================================================================
--- Migration: full 201-file contents + digital PDS
+-- Migration: full faculty file contents + digital PDS
 --
 -- Expands the repository from 3 document categories (TOR / Diploma /
--- Certificate) to the full Faculty 201 File agreed in the interview:
+-- Certificate) to the full Faculty File agreed in the interview:
 -- PDS, Certificates, Diploma, TOR, FTA, IPCR, Contract of Service,
 -- Affidavit of Undertaking, and Other Documents -- with subtypes
 -- (e.g. Certificates > Seminar) and the semester / year a document

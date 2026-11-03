@@ -2,8 +2,8 @@
 /**
  * Faculty Profiles -- the accounts whose profile the viewer may open
  * (profile_scope_sql()): a Dean sees their college's faculty and Program
- * Chairs, a Program Chair their program's faculty, the Admin everyone with
- * a 201 file. Each opens the profile pop-up (api/modal.php?view=person),
+ * Chairs, a Program Chair their program's faculty, the Admin everyone who keeps
+ * files. Each opens the profile pop-up (api/modal.php?view=person),
  * or profile.php?id=N without JavaScript / with Ctrl-click.
  */
 require_once __DIR__ . '/includes/auth.php';
@@ -35,7 +35,7 @@ include __DIR__ . '/includes/header.php';
 
 <?= admin_intro(
     $scope_label
-        ? 'Faculty in <strong>' . h($scope_label) . '</strong>. Open a profile to see their details, 201-file summary and archive.'
+        ? 'Faculty in <strong>' . h($scope_label) . '</strong>. Open a profile to see their details, files summary and archive.'
         : 'Your ' . ($me['role'] === 'dean' ? 'college' : 'program') . ' hasn\'t been set yet, so no faculty are listed. Please ask the Admin to set it.',
     $people ? '<label class="ui-search ui-search-wide"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>'
             . '<input type="search" id="directoryFilter" placeholder="Filter by name, position or rank" aria-label="Filter faculty" autocomplete="off"></label>' : ''

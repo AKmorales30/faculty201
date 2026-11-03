@@ -89,7 +89,7 @@
       type: 'bar',
       data: { labels: pe.labels, datasets: [
         { label: 'Faculty', data: pe.faculty, backgroundColor: colors.teal, borderRadius: 6 },
-        { label: 'Documents in 201-Files', data: pe.documents, backgroundColor: colors.navy, borderRadius: 6 },
+        { label: 'Documents in My Files', data: pe.documents, backgroundColor: colors.navy, borderRadius: 6 },
         { label: 'Seminars / trainings', data: pe.trainings, backgroundColor: colors.gold, borderRadius: 6 }
       ] },
       options: { plugins: { legend: { position: 'bottom' } }, scales: { y: axis() } }

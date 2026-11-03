@@ -27,7 +27,7 @@ try {
 
 include __DIR__ . '/includes/header.php';
 ?>
-<p class="text-muted mb-3">From the daily reminder check. Each person listed has already been reminded on their dashboard<?= $types[$type]['notify'] ? ' and in their notifications' : '' ?>; they leave the list once their 201 file is updated.
+<p class="text-muted mb-3">From the daily reminder check. Each person listed has already been reminded on their dashboard<?= $types[$type]['notify'] ? ' and in their notifications' : '' ?>; they leave the list once their files is updated.
   <?php if ($me['role'] === 'program_chair'): ?>You see the faculty of your program.<?php elseif ($me['role'] === 'dean'): ?>You see the faculty and Program Chairs of your college.<?php endif; ?></p>
 
 <ul class="nav nav-pills flex-wrap gap-1 mb-3">

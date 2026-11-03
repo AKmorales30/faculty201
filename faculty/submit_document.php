@@ -5,15 +5,15 @@ require_once __DIR__ . '/../includes/pds.php';
 require_once __DIR__ . '/../includes/pds_import.php';
 require_once __DIR__ . '/../ocr/OcrProcessor.php';
 require_once __DIR__ . '/../ocr/DocScanner.php';
-require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Deans keep their own 201 file too
+require_role(['faculty', 'program_chair', 'dean']);   // Program Chairs and Deans keep their own files too
 
 // Upload Document: two ways in, one page --
 //   Upload & auto-detect   the file is read (OCR) and its type and details are
 //                          detected, then checked by the uploader on a preview
 //   Enter details manually the uploader picks the type and types the details in
 //                          themselves (no OCR); the file is still attached, as
-//                          every 201-file record is a document
-// Either way the document goes to the uploader's 201-Files right away; the
+//                          every faculty record is a document
+// Either way the document goes to the uploader's My Files right away; the
 // system flags the ones the Admin should check (Manage Document). An uploaded
 // PDS is read into the digital PDS automatically.
 $page_title = 'Upload Document';
@@ -159,10 +159,10 @@ if ($action !== '' && !csrf_valid()) {
 
 // ---------------------------------------------------------------------
 // Step 2a: faculty confirmed the previewed scan / entered details -> store it,
-// posted to their 201-Files right away (no review step), update the PDS where
+// posted to their My Files right away (no review step), update the PDS where
 // applicable, then notify the Admin and the Program Chair / Dean. Uploads the
 // Admin should check (low confidence, no text read, type entered or changed
-// by the uploader) are flagged in Manage Document -- still in 201-Files.
+// by the uploader) are flagged in Manage Document -- still in My Files.
 // A PDS is read into the digital PDS automatically (pds_import_auto_apply()).
 // ---------------------------------------------------------------------
 if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
@@ -234,7 +234,7 @@ if ($action === 'confirm' && isset($_SESSION['pending_scan'])) {
     log_my_activity($pdo, 'UPLOAD', "Uploaded document #{$document_id} \"{$scan['original_name']}\" as " . document_type_label($type, $subtype)
         . (!empty($scan['manual']) ? ' (details entered manually)' : '')
         . ($check['low'] ? ' (low-confidence categorization, ' . confidence_label($check['score']) . ')' : '')
-        . ($meta['archive'] ? '; saved to Archived Docs (dated ' . date('M j, Y', strtotime($own_date)) . ', ' . archive_period_label() . ' or more ago)' : '; posted to 201-Files')
+        . ($meta['archive'] ? '; saved to Archived Docs (dated ' . date('M j, Y', strtotime($own_date)) . ', ' . archive_period_label() . ' or more ago)' : '; posted to My Files')
         . ($meta['flag_reason'] ? ' and flagged for checking (' . document_flag_text($meta['flag_reason']) . ')' : '') . '.');
 
     // Relevant information -> PDS
@@ -597,7 +597,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <?php if ($step === 1): ?>
-<?= admin_intro('Add a document to your 201 file. Upload it and let the system read it and detect its type, or enter its details yourself. Either way it goes to your 201-Files right away.' . ($has_pds ? ' An uploaded PDS also updates your digital PDS automatically.' : '')) ?>
+<?= admin_intro('Add a document to My Files. Upload it and let the system read it and detect its type, or enter its details yourself. Either way it goes to My Files right away.' . ($has_pds ? ' An uploaded PDS also updates your digital PDS automatically.' : '')) ?>
 <?php endif; ?>
 
 <ol class="ui-steps" aria-label="Steps">
@@ -618,13 +618,13 @@ include __DIR__ . '/../includes/header.php';
       <p class="ui-done-text"><strong><?= h(document_title($submitted)) ?></strong>
         (<?= h(document_type_label($submitted['document_type'], $submitted['document_subtype'])) ?>) is dated
         <?= $saved_date ? h(date('F j, Y', strtotime($saved_date))) : 'more than ' . h(archive_period_label()) . ' ago' ?>, more than <?= h(archive_period_label()) ?> ago,
-        so it was saved to <a href="<?= BASE_URL ?>/archive.php">your Archived Docs</a>. You can view and download it there; the Admin can move it to 201-Files if it's needed.
+        so it was saved to <a href="<?= BASE_URL ?>/archive.php">your Archived Docs</a>. You can view and download it there; the Admin can move it to My Files if it's needed.
     <?php else: ?>
-    <h2 class="ui-done-title" id="doneTitle">Saved to your 201-Files</h2>
+    <h2 class="ui-done-title" id="doneTitle">Saved to My Files</h2>
     <p class="ui-done-text"><strong><?= h(document_title($submitted)) ?></strong>
-      (<?= h(document_type_label($submitted['document_type'], $submitted['document_subtype'])) ?>) is in your 201-Files now.
+      (<?= h(document_type_label($submitted['document_type'], $submitted['document_subtype'])) ?>) is in My Files now.
     <?php endif; ?>
-      <?php if (document_is_flagged($submitted) && !$saved_archived): ?>The system flagged it for the Admin to check (<?= h(document_flag_text($submitted['flag_reason'])) ?>); it stays in your 201-Files, and the Admin may correct its type or details.<?php endif; ?>
+      <?php if (document_is_flagged($submitted) && !$saved_archived): ?>The system flagged it for the Admin to check (<?= h(document_flag_text($submitted['flag_reason'])) ?>); it stays in My Files, and the Admin may correct its type or details.<?php endif; ?>
       <?php if ($me['role'] === 'faculty'): ?>Your Program Chair and Dean have been notified.<?php endif; ?></p>
     <?php if ($submitted['document_type'] === 'PDS'): ?>
       <div class="ui-done-pds text-start">
@@ -647,7 +647,7 @@ include __DIR__ . '/../includes/header.php';
       <?php if ($saved_archived): ?>
         <a href="<?= BASE_URL ?>/archive.php" class="btn btn-brand">Go to Archived Docs</a>
       <?php else: ?>
-        <a href="<?= BASE_URL ?>/faculty/my_documents.php?type=<?= h(rawurlencode($submitted['document_type'])) ?>" class="btn btn-brand">Go to 201-Files</a>
+        <a href="<?= BASE_URL ?>/faculty/my_documents.php?type=<?= h(rawurlencode($submitted['document_type'])) ?>" class="btn btn-brand">Go to My Files</a>
       <?php endif; ?>
     </div>
   </section>
@@ -1221,7 +1221,7 @@ include __DIR__ . '/../includes/header.php';
             </li>
           <?php endforeach; ?>
         </ol>
-        <div class="form-text">These cleaned-up pages are saved to your 201 file as one PDF. Wrong order or a wrong picture? Cancel and upload them again.</div>
+        <div class="form-text">These cleaned-up pages are saved to My Files as one PDF. Wrong order or a wrong picture? Cancel and upload them again.</div>
       </div>
       <?php endif; ?>
 
@@ -1236,7 +1236,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="border rounded bg-light text-center p-2" id="pagePreview">
           <img src="submit_document.php?preview=page&amp;v=<?= time() ?>" alt="Processed document" class="img-fluid" style="max-height:480px">
         </div>
-        <div class="form-text">This cleaned-up page is what will be saved to your 201 file, as a PDF.
+        <div class="form-text">This cleaned-up page is what will be saved to My Files, as a PDF.
           Not right? <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="adjustBtn">Adjust the crop</button></div>
 
         <div id="cropEditor" class="border rounded p-2 mt-2" hidden>

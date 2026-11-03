@@ -1,6 +1,6 @@
 <?php
 /**
- * Files > 201-Files (Admin): every faculty member's posted documents --
+ * Files > My Files (Admin): every faculty member's posted documents --
  * uploads that passed the classification review in Manage Document -- with
  * search, filters, sorting and paging. Archived documents can be included.
  * The "By faculty" tab is Faculty Records (admin/view_records.php).
@@ -8,14 +8,14 @@
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
-require_role('admin');   // the only role that searches across faculty; others see only their own 201 file
+require_role('admin');   // the only role that searches across faculty; others see only their own files
 
-$page_title = '201-Files';
+$page_title = 'My Files';
 $categories = document_categories();
 const SEARCH_PER_PAGE = 25;
 const NOT_SET = '__none';   // filter value for "program / employment type not set"
 
-// Filter options from the values actually stored for people with a 201 file
+// Filter options from the values actually stored for people who keep files
 $owner_roles = "u.role IN ('faculty', 'program_chair', 'dean')";
 $program_options = [];
 if (only_program() === null) {   // one program: the filter would change nothing, so it isn't offered
@@ -141,7 +141,7 @@ $filter_query = array_filter([
 
 // Activity log: a search was run (not just the page opened), once -- not again for each results page
 if ($active && $page === 1 && !live_search_request()) {
-    log_my_activity($pdo, 'SEARCH', '201-Files -- ' . describe_filters([
+    log_my_activity($pdo, 'SEARCH', 'My Files -- ' . describe_filters([
         'Keywords'   => $q,
         'Type'       => $type !== '' ? $categories[$type]['label'] : '',
         'Program'    => $program !== '' ? $program_options[$program] : '',
@@ -169,7 +169,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Archive / Delet
   <div class="alert alert-warning"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> <?= h($date_error) ?></div>
 <?php endif; ?>
 
-<section class="ui-card" aria-label="201-Files">
+<section class="ui-card" aria-label="My Files">
   <form method="GET" id="searchForm" class="ui-toolbar" data-autosubmit data-live-search role="search">
     <label class="ui-search" for="fQ">
       <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>

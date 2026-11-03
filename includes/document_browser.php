@@ -1,7 +1,7 @@
 <?php
 /**
- * 201-file folder tiles + document list of posted documents, shared by the
- * faculty member's 201-Files and the Admin per-faculty drill-down. View
+ * My Files folder tiles + document list of posted documents, shared by the
+ * faculty member's My Files and the Admin per-faculty drill-down. View
  * opens the preview pop-up.
  *
  * Expects: $pdo, $faculty (users row), $link_base (query-string prefix
@@ -41,7 +41,7 @@ $documents = array_filter($all_docs, function ($d) use ($active_type, $active_su
     return true;
 });
 if ($q !== '' && !live_search_request()) {
-    log_my_activity($pdo, 'SEARCH', '201 file of ' . $faculty['full_name'] . ' -- ' . describe_filters([
+    log_my_activity($pdo, 'SEARCH', 'Files of ' . $faculty['full_name'] . ' -- ' . describe_filters([
         'Keywords' => $q,
         'Folder'   => $active_type !== '' ? document_type_label($active_type, $active_sub ?: null) : '',
     ]) . ' (' . count($documents) . ' result' . (count($documents) === 1 ? '' : 's') . ').');
@@ -138,7 +138,7 @@ $show_all_url = rtrim($link_base, '?&') ?: '?';
                 <span class="badge bg-light text-muted border">Previous version</span>
               <?php endif; ?>
               <?php if (document_is_flagged($d)): ?>
-                <span class="badge bg-review doc-flag-badge" data-tooltip title="<?= h(ucfirst(document_flag_text($d['flag_reason']))) ?>. It stays in 201-Files; the Admin may correct its type or details.">Flagged for checking</span>
+                <span class="badge bg-review doc-flag-badge" data-tooltip title="<?= h(ucfirst(document_flag_text($d['flag_reason']))) ?>. It stays in My Files; the Admin may correct its type or details.">Flagged for checking</span>
               <?php endif; ?>
             </div>
           </td>

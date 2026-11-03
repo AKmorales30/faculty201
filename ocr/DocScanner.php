@@ -6,7 +6,7 @@
  * crops away the table / background, corrects the perspective, evens out
  * the lighting and turns the page upright. The result is a JPEG (used for
  * OCR and the preview) and a one-page PDF, which is what gets filed in
- * the 201 file instead of the original photo.
+ * My Files instead of the original photo.
  *
  * If Python / OpenCV aren't installed (e.g. a plain XAMPP setup) scan()
  * returns null and the upload is handled as before.

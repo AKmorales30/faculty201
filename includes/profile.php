@@ -415,7 +415,7 @@ function recent_logins(PDO $pdo, int $user_id): array {
 }
 
 /**
- * The 201-file summary on a profile.
+ * The files summary on a profile.
  * @return array{counts: array<string,int>, total: int, archived: int, trainings: int, trainings_archived: int, expired: int, expiring: int}
  */
 function profile_201_summary(PDO $pdo, int $user_id): array {

@@ -1,6 +1,6 @@
 <?php
 /**
- * Serves a 201-file document after an access check. Direct URLs to
+ * Serves a faculty document after an access check. Direct URLs to
  * uploads/ are blocked by the web server, so this is the only way to open
  * a filed document.
  *
@@ -33,7 +33,7 @@ if (!$doc || !can_access_document($me, $doc)) {
 
 log_my_activity($pdo, 'VIEW_DOCUMENT', "Viewed document #{$doc['document_id']} \"" . basename($doc['file_path']) . '" ('
     . document_type_label($doc['document_type'], $doc['document_subtype'])
-    . ((int)$doc['faculty_id'] === (int)$me['user_id'] ? ', own 201 file' : ', 201 file of ' . $doc['full_name'])
+    . ((int)$doc['faculty_id'] === (int)$me['user_id'] ? ', own files' : ', files of ' . $doc['full_name'])
     . ($doc['status'] !== 'active' ? ', ' . str_replace('_', ' ', $doc['status']) : '') . ').');
 mark_document_viewed($pdo, (int)$doc['document_id']);
 

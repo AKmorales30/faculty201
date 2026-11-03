@@ -1,7 +1,7 @@
 <?php
 /**
  * Faculty profile pop-up (api/modal.php?view=person&id=N) for Faculty
- * Profiles and the Program Chair / Dean Home: who they are, their 201-file
+ * Profiles and the Program Chair / Dean Home: who they are, their files
  * summary (counts and the checklist -- never the files) and their open
  * follow-up reminders. "Open full profile" and "View archive" go to
  * profile.php?id=N and archive.php?id=N, which check access again.
@@ -52,7 +52,7 @@ $fields = [
 
 <?php require_once __DIR__ . '/../pds.php'; ?>
 <div class="mb-3"><?= pds_version_card($pdo, $pid, $me, true) ?></div>
-<div class="ui-person-section">201 file summary</div>
+<div class="ui-person-section">Files summary</div>
 <div class="ui-person-counts">
   <span><strong><?= (int)$summary['total'] ?></strong> posted document<?= $summary['total'] === 1 ? '' : 's' ?></span>
   <span><strong><?= (int)$summary['trainings'] ?></strong> seminar<?= $summary['trainings'] === 1 ? '' : 's' ?> / trainings</span>
@@ -76,7 +76,7 @@ $fields = [
 
 <div data-modal-footer class="d-flex flex-wrap gap-2">
   <?php if ($me['role'] === 'admin'): ?>
-    <a href="<?= BASE_URL ?>/admin/faculty_documents.php?id=<?= $pid ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> 201 File</a>
+    <a href="<?= BASE_URL ?>/admin/faculty_documents.php?id=<?= $pid ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> Files</a>
   <?php endif; ?>
   <a href="<?= BASE_URL ?>/profile.php?id=<?= $pid ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-circle-user" aria-hidden="true"></i> Open full profile</a>
   <a href="<?= BASE_URL ?>/archive.php?id=<?= $pid ?>" class="btn btn-sm btn-brand"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> View archive</a>

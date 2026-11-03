@@ -1,6 +1,6 @@
 {
     "name": "udm-ccs/faculty201",
-    "description": "Faculty-201 File Management System -- PHP libraries (installed in the Docker image by composer install).",
+    "description": "Faculty File Management System -- PHP libraries (installed in the Docker image by composer install).",
     "type": "project",
     "license": "proprietary",
     "require": {

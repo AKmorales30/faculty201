@@ -39,7 +39,7 @@ services:
       - key: MAIL_FROM_EMAIL
         value: "udmccsfaculty201.ms@gmail.com"
       - key: MAIL_FROM_NAME
-        value: "Faculty-201 File Management System"
+        value: "Faculty File Management System"
       # Login Activity: approximate location of a login's IP address from
       # ipinfo.io (free token from ipinfo.io/signup). Without it the location
       # is shown as "unknown" and everything else works.
