@@ -60,7 +60,7 @@ if ($opened_now) {
         <?php if ($flagged): ?>
           <div class="small text-muted mt-1"><?= $is_admin
             ? h(ucfirst(document_flag_text($doc['flag_reason']))) . '. It is listed in Manage Document until you mark it checked.'
-            : 'It is in your 201-Files. The system asked the Admin to check its type and details (' . h(document_flag_text($doc['flag_reason'])) . '); you are notified if the type is corrected.' ?></div>
+            : 'It is in My Files. The system asked the Admin to check its type and details (' . h(document_flag_text($doc['flag_reason'])) . '); you are notified if the type is corrected.' ?></div>
         <?php endif; ?>
       </dd>
       <?php if ($doc['expiration_date']): $days = days_until($doc['expiration_date']); [$exp_label, $exp_badge] = expiration_badge($days); ?>

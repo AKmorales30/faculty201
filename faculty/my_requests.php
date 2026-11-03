@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
-require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
+require_role(['faculty', 'program_chair', 'dean']);   // own files only
 
-$page_title = 'Upload History';   // the Upload history tab of 201-Files
+$page_title = 'Upload History';   // the Upload history tab of My Files
 $me = current_user();
 $categories = document_categories();
 
@@ -18,7 +18,7 @@ $requests = $stmt->fetchAll();
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<?= admin_intro('Every document you\'ve uploaded, newest first, with where it is now: Posted, Archived or Deleted. Uploads are posted to your 201-Files right away.',
+<?= admin_intro('Every document you\'ve uploaded, newest first, with where it is now: Posted, Archived or Deleted. Uploads are posted to My Files right away.',
     '<a href="' . BASE_URL . '/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> Upload Document</a>') ?>
 <?= my_docs_tabs($pdo, 'history') ?>
 

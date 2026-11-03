@@ -11,7 +11,7 @@
  * (ensure_reminders_checked(); ai_reminder_checks records each account's
  * last finished check).
  *
- * Personal reminders, for everyone with a 201 file (faculty, Program
+ * Personal reminders, for everyone who keeps files (faculty, Program
  * Chairs, Deans; paused faculty too, minus this semester's FTA / IPCR):
  *
  *   no_seminar    no seminar / training certificate uploaded in the last
@@ -48,7 +48,7 @@
 
 /**
  * type => label, icon, link (relative to BASE_URL), link text, whether it
- * goes to the bell, whether it's about one's own 201 file (personal),
+ * goes to the bell, whether it's about one's own files (personal),
  * summary sentence for Admin / Chair / Dean and the short "with ..." phrase
  * of the follow-up message.
  */
@@ -60,7 +60,7 @@ function reminder_types(): array {
                            'short' => 'no seminar / training certificate in ' . (int)REMINDER_NO_SEMINAR_MONTHS . ' months'],
         'missing_docs' => ['label' => 'Missing required documents', 'icon' => 'fa-folder-open',
                            'link' => 'faculty/submit_document.php', 'link_text' => 'Upload now', 'notify' => true, 'personal' => true,
-                           'summary' => 'missing required 201-file documents', 'short' => 'missing required documents'],
+                           'summary' => 'missing required faculty documents', 'short' => 'missing required documents'],
         'pds'          => ['label' => 'PDS needs updating', 'icon' => 'fa-id-card',
                            'link' => 'faculty/pds.php', 'link_text' => 'Update my PDS', 'notify' => true, 'personal' => true,
                            'summary' => 'an incomplete or outdated PDS', 'short' => 'an incomplete or outdated PDS'],
@@ -73,7 +73,7 @@ function reminder_types(): array {
     ];
 }
 
-/** The reminders about one's own 201 file -- all but the Admin / Chair / Dean follow-up. */
+/** The reminders about one's own files -- all but the Admin / Chair / Dean follow-up. */
 function personal_reminder_types(): array {
     return array_filter(reminder_types(), fn($meta) => $meta['personal']);
 }
@@ -126,7 +126,7 @@ function reminder_conditions(PDO $pdo, array $user, array $prefetched): array {
     if ($missing) {
         $out['missing_docs'] = [
             'key'    => 'missing_docs:' . implode('|', $missing),
-            'reason' => 'Missing from the 201 file: ' . reminder_list_text($missing, 6) . '.',
+            'reason' => 'Missing from My Files: ' . reminder_list_text($missing, 6) . '.',
             'facts'  => ['missing_documents' => array_slice($missing, 0, 6)],
         ];
     }
@@ -196,7 +196,7 @@ function reminder_follow_up_condition(PDO $pdo, array $viewer): ?array {
     $who = $people === 1 ? "1 faculty member{$where} needs" : "{$people} faculty{$where} need";
     return [
         'key'    => 'follow_up:' . implode('|', array_keys($counts)),
-        'reason' => "{$who} follow-up on their 201 file" . ($people === 1 ? '' : 's') . ': ' . implode('; ', $parts) . '.',
+        'reason' => "{$who} follow-up on their files: " . implode('; ', $parts) . '.',
         'facts'  => ['who' => $who, 'plural' => $people !== 1, 'parts' => $parts],
         'link'   => 'reminder_list.php?type=' . array_key_first(array_intersect_key(personal_reminder_types(), $counts)),
     ];
@@ -207,14 +207,14 @@ function reminder_template_message(string $type, string $first_name, array $fact
     $hi = "Hi, {$first_name}! ";
     switch ($type) {
         case 'follow_up':
-            return $hi . $facts['who'] . ' to update their 201 file' . ($facts['plural'] ? 's' : '') . ' (' . implode('; ', $facts['parts']) . '). Open the list to follow up.';
+            return $hi . $facts['who'] . ' to update their files (' . implode('; ', $facts['parts']) . '). Open the list to follow up.';
         case 'no_seminar':
             return $hi . ($facts['last_certificate_uploaded'] === 'never'
-                ? "You haven't uploaded a seminar or training certificate yet. Please upload your certificates to keep your 201 file complete."
-                : "It's been over {$facts['months']} months since you uploaded a seminar or training certificate. Please upload any recent ones to keep your 201 file complete.");
+                ? "You haven't uploaded a seminar or training certificate yet. Please upload your certificates to keep your files complete."
+                : "It's been over {$facts['months']} months since you uploaded a seminar or training certificate. Please upload any recent ones to keep your files complete.");
         case 'missing_docs':
             $n = count($facts['missing_documents']);
-            return $hi . 'Your 201 file is still missing ' . reminder_list_text($facts['missing_documents'], 3) . '. Please upload ' . ($n === 1 ? 'it' : 'them') . ' when you can.';
+            return $hi . 'Your files are still missing ' . reminder_list_text($facts['missing_documents'], 3) . '. Please upload ' . ($n === 1 ? 'it' : 'them') . ' when you can.';
         case 'pds':
             return $hi . 'Your PDS needs attention (' . implode('; ', $facts['pds_issues']) . '). Please review and update it on the My PDS page.';
         case 'expiring':
@@ -226,9 +226,9 @@ function reminder_template_message(string $type, string $first_name, array $fact
                 default                        => "{$have} expired or will expire within " . $facts['within_days'] . ' days',
             };
             return $hi . ($total === 1 ? 'One of your documents ' : "{$total} of your documents ") . $what
-                 . '. Please upload ' . ($total === 1 ? 'an updated copy' : 'updated copies') . ' to keep your 201 file complete.';
+                 . '. Please upload ' . ($total === 1 ? 'an updated copy' : 'updated copies') . ' to keep your files complete.';
     }
-    return $hi . 'Please check your 201 file.';
+    return $hi . 'Please check My Files.';
 }
 
 /**
@@ -287,7 +287,7 @@ function reminder_write_messages(PDO $pdo, array $items): array {
  * The reminder check: work out each account's conditions, resolve
  * reminders whose condition cleared, and send the new / repeated / changed
  * ones. Every active account, whatever its role, uploads or profile
- * details: first the personal reminders of everyone with a 201 file (all
+ * details: first the personal reminders of everyone who keeps files (all
  * but the Admin), then the follow-up of the Admin, Program Chairs and
  * Deans, so it counts today's personal ones. An account whose check fails
  * is logged and left out -- the others still get theirs -- and is not
@@ -334,7 +334,7 @@ function check_reminders(PDO $pdo, ?int $only_user = null): array {
     $run = ['checked' => count($users), 'sent' => 0, 'updated' => 0, 'resolved' => 0, 'ai_written' => 0];
     $failed = [];
 
-    // 1. Personal reminders: everyone with a 201 file
+    // 1. Personal reminders: everyone who keeps files
     $new = [];
     foreach ($users as $u) {
         $uid = (int)$u['user_id'];

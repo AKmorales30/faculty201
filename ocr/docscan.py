@@ -7,7 +7,7 @@ Document scanner for photos of paper documents.
 Finds the sheet of paper in a photo, crops away the background (table,
 other papers, hands...), corrects the perspective so the page is a flat
 rectangle, evens out the lighting, turns it upright, and writes it as a
-JPEG (for OCR and preview) and a one-page PDF (for the 201 file). The
+JPEG (for OCR and preview) and a one-page PDF (for My Files). The
 corners can also be given by hand (--corners) when the detection was off.
 
 If no sheet can be found with confidence -- e.g. the image is already a

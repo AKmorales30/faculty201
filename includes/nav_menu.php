@@ -43,7 +43,7 @@ function app_menu(PDO $pdo, array $user): array {
         return [
             ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'admin/dashboard.php', 'active' => nav_on('admin/dashboard.php', 'reminder_list.php')],
             ['group' => 'Files', 'icon' => 'fa-folder', 'items' => [
-                ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'admin/public_docs.php',
+                ['label' => 'My Files', 'icon' => 'fa-folder-open', 'url' => 'admin/public_docs.php',
                  'active' => nav_on('admin/public_docs.php', 'admin/search_documents.php', 'admin/view_records.php', 'admin/faculty_documents.php', 'document_details.php')],
                 ['label' => 'Archived Docs', 'icon' => 'fa-box-archive', 'url' => 'admin/archived_documents.php',
                  'active' => nav_on('admin/archived_documents.php', 'archive.php')],
@@ -69,7 +69,7 @@ function app_menu(PDO $pdo, array $user): array {
         ];
     }
 
-    // Faculty, Program Chairs and Deans keep their own 201 file
+    // Faculty, Program Chairs and Deans keep their own files
     $own_public = nav_on('faculty/my_documents.php', 'faculty/my_requests.php', 'document_details.php');
     $own_archive = fn(string $page): bool => $page === 'archive.php' && nav_viewing_own();
 
@@ -78,7 +78,7 @@ function app_menu(PDO $pdo, array $user): array {
             ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'faculty/dashboard.php', 'active' => nav_on('faculty/dashboard.php')],
             ['label' => 'Upload Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
             ['group' => 'File', 'icon' => 'fa-folder', 'items' => [
-                ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public],
+                ['label' => 'My Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public],
                 ['label' => 'Archived Docs', 'icon' => 'fa-box-archive', 'url' => 'archive.php', 'active' => $own_archive],
                 ['label' => 'Recently Deleted', 'icon' => 'fa-trash-can-arrow-up', 'url' => 'recently_deleted.php', 'active' => nav_on('recently_deleted.php')],
             ]],
@@ -86,12 +86,12 @@ function app_menu(PDO $pdo, array $user): array {
         ];
     }
 
-    // Program Chair / Dean: their own 201 file, plus profiles and the training report of the faculty they oversee
+    // Program Chair / Dean: their own files, plus profiles and the training report of the faculty they oversee
     return [
         ['label' => 'Home', 'icon' => 'fa-house', 'url' => 'approval/dashboard.php', 'active' => nav_on('approval/dashboard.php', 'reminder_list.php')],
         ['label' => 'Upload Document', 'icon' => 'fa-file-circle-plus', 'url' => 'faculty/submit_document.php', 'active' => nav_on('faculty/submit_document.php')],
         ['group' => 'Files', 'icon' => 'fa-folder', 'items' => [
-            ['label' => '201-Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public],
+            ['label' => 'My Files', 'icon' => 'fa-folder-open', 'url' => 'faculty/my_documents.php', 'active' => $own_public],
             ['label' => 'Archived Docs', 'icon' => 'fa-box-archive', 'url' => 'archive.php', 'active' => $own_archive],
             ['label' => 'Recently Deleted', 'icon' => 'fa-trash-can-arrow-up', 'url' => 'recently_deleted.php', 'active' => nav_on('recently_deleted.php')],
         ]],

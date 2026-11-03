@@ -2,7 +2,7 @@
 /**
  * Files > Manage Document (Admin): documents flagged for checking.
  *
- * Uploads are posted to 201-Files right away. The system flags the ones
+ * Uploads are posted to My Files right away. The system flags the ones
  * worth checking (documents.flag_reason): the type was detected with low
  * confidence, no text could be read, the details were entered manually,
  * or the uploader picked a different type than the one detected. A flag
@@ -12,7 +12,7 @@
  * needed and marks it checked (review_save_document(),
  * includes/document_review.php). The owner is notified only when the type
  * is corrected. The Admin can correct any document the same way from its
- * pop-up in 201-Files or Archived Docs.
+ * pop-up in My Files or Archived Docs.
  *
  * Tabs: Flagged for checking (oldest first) and Checked (the latest 100
  * checked or corrected, with corrections marked).
@@ -106,7 +106,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Delete button +
 ?>
 
 <?php $filtered = $from !== '' || $to !== '' || $category !== '' || $low_only; ?>
-<?= admin_intro('Uploads go to 201-Files right away. The system flags the ones worth checking — the type was detected with low confidence (below ' . h(confidence_label(CONFIDENCE_THRESHOLD)) . '), no text could be read, or the details were entered manually. Open one to correct its type or details, then <strong>mark it as checked</strong>. The faculty member is notified only if you change the type. You can also correct any document from its pop-up in 201-Files.') ?>
+<?= admin_intro('Uploads go to My Files right away. The system flags the ones worth checking — the type was detected with low confidence (below ' . h(confidence_label(CONFIDENCE_THRESHOLD)) . '), no text could be read, or the details were entered manually. Open one to correct its type or details, then <strong>mark it as checked</strong>. The faculty member is notified only if you change the type. You can also correct any document from its pop-up in My Files.') ?>
 
 <div class="nav page-tabs" role="tablist" aria-label="Manage Document">
   <?php foreach ($tabs as $key => $label): ?>
@@ -198,7 +198,7 @@ include_once __DIR__ . '/../includes/document_actions.php';   // Delete button +
           <td><?= admin_confidence($d['confidence_score']) ?></td>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['filed_at']))) ?></td>
           <td class="text-nowrap"><?= h(date('M j, Y', strtotime($d['reviewed_at']))) ?><?php if ($d['reviewed_by_name']): ?><div class="ui-cell-sub">by <?= h($d['reviewed_by_name']) ?></div><?php endif; ?><?php if ($d['flag_reason']): ?><div class="ui-cell-sub">was flagged: <?= h(implode(', ', document_flag_labels($d['flag_reason']))) ?></div><?php endif; ?></td>
-          <td><span class="badge <?= $st_badge ?>"><?= h($st_label === 'Posted' ? 'In 201-Files' : $st_label) ?></span></td>
+          <td><span class="badge <?= $st_badge ?>"><?= h($st_label === 'Posted' ? 'In My Files' : $st_label) ?></span></td>
         </tr>
         <?php endforeach; ?>
       </tbody>

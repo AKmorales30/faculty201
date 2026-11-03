@@ -10,7 +10,7 @@
 --                               except the Admin's Archived Documents page
 --                   archived -- hidden from everyone but the Admin; file
 --                               and record kept as they are
---                   deleted  -- removed from the 201 file; the local file
+--                   deleted  -- removed from My Files; the local file
 --                               copy moves to uploads/_deleted/ and the
 --                               database copy (document_files) is kept,
 --                               so the Admin can still restore it

@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_role('admin');
 
-// Files > Archived Docs: documents taken out of 201-Files -- archived
+// Files > Archived Docs: documents taken out of My Files -- archived
 // (automatically when nobody has opened them in ARCHIVE_UNVIEWED_YEARS
 // years, or by the Admin). They can be restored or deleted here. Opening an
 // archived document doesn't restore it. Each faculty member sees their own
@@ -49,7 +49,7 @@ include __DIR__ . '/../includes/header.php';
 include_once __DIR__ . '/../includes/document_actions.php';   // Restore / Delete buttons + confirmation dialog
 ?>
 
-<?= admin_intro('Documents taken out of 201-Files — archived by the Admin, or automatically when nobody has opened them in ' . h(archive_period_label()) . ' (checked once a day).
+<?= admin_intro('Documents taken out of My Files — archived by the Admin, or automatically when nobody has opened them in ' . h(archive_period_label()) . ' (checked once a day).
   Their owners still see them in their Archived Docs. Opening one does not restore it; restore it here, with a reason.
   Deleted documents are in <a href="' . BASE_URL . '/recently_deleted.php">Recently Deleted</a>' . ($deleted_count ? ' (' . $deleted_count . ')' : '') . '.') ?>
 

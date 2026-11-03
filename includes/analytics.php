@@ -7,7 +7,7 @@
  *   Dean           the faculty and Program Chairs of their college
  * (With one program -- PROGRAMS in config.php -- both see the same faculty.)
  * The viewer themselves isn't counted. Only active accounts, and only active
- * documents (201-Files: not archived, deleted or still for review).
+ * documents (My Files: not archived, deleted or still for review).
  *
  * PDS numbers count only accounts that keep a PDS (faculty_has_pds() /
  * sql_has_pds(): no part-time faculty). Dates are Asia/Manila (PHP and the
@@ -114,7 +114,7 @@ function analytics_data(PDO $pdo, array $viewer, string $from, string $to): arra
     $months = analytics_months($from, $to);
     $uploads = ['labels' => array_values($months), 'values' => array_map(fn($ym) => $per_month[$ym] ?? 0, array_keys($months))];
 
-    // ----- documents per category (201-Files now) ------------------------------
+    // ----- documents per category (My Files now) ------------------------------
     $by_type = analytics_pairs($pdo, "SELECT d.document_type, COUNT(*) $docs GROUP BY d.document_type", $sp);
     $categories = ['labels' => [], 'values' => []];
     foreach (document_categories() as $key => $cat) {

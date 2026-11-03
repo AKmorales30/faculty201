@@ -58,7 +58,7 @@ for ($i = 0; $i < 6; $i++) {
 $months_max = max(1, ...array_column($months, 'n'));
 $months_range = $month_start->format('M') . ' – ' . date('M Y');
 
-// Documents per category: posted documents (201-Files)
+// Documents per category: posted documents (My Files)
 $categories = document_categories();
 $category_colors = ['Certificate' => '#D99C0B', 'FTA' => '#0077AE', 'Diploma' => '#003283', 'TOR' => '#006560', 'PDS' => '#5B7DB8',
                     'IPCR' => '#6FA9A4', 'Contract' => '#8A6206', 'Affidavit' => '#C9A55A', 'Other' => '#B8BEC9'];
@@ -104,15 +104,15 @@ include __DIR__ . '/../includes/header.php';
   <a class="ui-stat" href="<?= BASE_URL ?>/admin/manage_documents.php" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=flagged') ?>" data-app-modal-title="Flagged for checking">
     <div class="ui-stat-top"><span class="ui-stat-label">Flagged for checking</span><span class="ui-stat-icon tone-gold" aria-hidden="true"><i class="fa-solid fa-flag"></i></span></div>
     <div class="ui-stat-value" data-count="<?= (int)$flagged_count ?>"><?= (int)$flagged_count ?></div>
-    <div class="ui-stat-sub">uploads to check — already in 201-Files</div>
+    <div class="ui-stat-sub">uploads to check — already in My Files</div>
   </a>
   <div class="ui-stat" role="group" aria-label="Posted This Month">
     <div class="ui-stat-top"><span class="ui-stat-label">Posted This Month</span><span class="ui-stat-icon tone-teal" aria-hidden="true"><i class="fa-solid fa-upload"></i></span></div>
     <div class="ui-stat-value" data-count="<?= (int)$month_count ?>"><?= (int)$month_count ?></div>
-    <div class="ui-stat-sub">this month's uploads now in 201-Files</div>
+    <div class="ui-stat-sub">this month's uploads now in My Files</div>
   </div>
   <a class="ui-stat" href="<?= BASE_URL ?>/admin/public_docs.php">
-    <div class="ui-stat-top"><span class="ui-stat-label">201-Files</span><span class="ui-stat-icon tone-blue" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span></div>
+    <div class="ui-stat-top"><span class="ui-stat-label">My Files</span><span class="ui-stat-icon tone-blue" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span></div>
     <div class="ui-stat-value" data-count="<?= (int)$filed_count ?>"><?= (int)$filed_count ?></div>
     <div class="ui-stat-sub">posted documents</div>
   </a>
@@ -139,9 +139,9 @@ include __DIR__ . '/../includes/header.php';
           <p class="ui-ai-text"><?= h($r['message']) ?></p>
         <?php endforeach; ?>
       <?php elseif ($ai_status['checked_at'] === null): ?>
-        <p class="ui-ai-text">The daily follow-up check hasn't run yet. Run it now to see which faculty need follow-up on their 201 files.</p>
+        <p class="ui-ai-text">The daily follow-up check hasn't run yet. Run it now to see which faculty need follow-up on their files.</p>
       <?php else: ?>
-        <p class="ui-ai-text">No faculty need follow-up on their 201 files right now.</p>
+        <p class="ui-ai-text">No faculty need follow-up on their files right now.</p>
       <?php endif; ?>
 
       <div class="ui-breakdown">
@@ -160,7 +160,7 @@ include __DIR__ . '/../includes/header.php';
       </div>
 
       <div class="ui-ai-foot">
-        <span><?= array_filter(array_column($ai_messages, 'ai_generated')) ? 'AI-generated summary. Check the details before acting on it.' : 'Checked once a day; the list clears as faculty update their 201 files.' ?></span>
+        <span><?= array_filter(array_column($ai_messages, 'ai_generated')) ? 'AI-generated summary. Check the details before acting on it.' : 'Checked once a day; the list clears as faculty update their files.' ?></span>
         <div class="ui-ai-foot-btns">
           <form method="POST" action="<?= BASE_URL ?>/api/reminders.php">
             <?= csrf_field() ?>
@@ -222,7 +222,7 @@ include __DIR__ . '/../includes/header.php';
   <section class="ui-card" aria-labelledby="catTitle" data-animate>
     <div class="ui-card-head">
       <h2 class="ui-card-title" id="catTitle">Documents per category</h2>
-      <span class="ui-card-meta">201-Files</span>
+      <span class="ui-card-meta">My Files</span>
     </div>
     <div class="ui-donut-wrap">
       <div class="ui-donut" style="background: <?= h($donut_css) ?>" role="img" aria-label="<?= (int)$filed_count ?> posted documents by category">

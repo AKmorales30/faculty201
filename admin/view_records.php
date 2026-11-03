@@ -7,7 +7,7 @@ $page_title = 'Faculty Records';
 $categories = document_categories();
 $q = trim($_GET['q'] ?? '');
 
-// Everyone with a 201 file: Deans and Program Chairs keep one too
+// Everyone who keeps files: Deans and Program Chairs do too
 $stmt = $pdo->query("SELECT * FROM users WHERE role IN ('dean', 'program_chair', 'faculty') ORDER BY full_name");
 $everyone = $stmt->fetchAll();
 
@@ -53,7 +53,7 @@ include __DIR__ . '/../includes/header.php';
 
 <?= admin_docs_tabs('faculty') ?>
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-  <p class="text-muted mb-0">Faculty Records: everyone with a 201 file. Open a person to see their posted documents by category.</p>
+  <p class="text-muted mb-0">Faculty Records: everyone who keeps files. Open a person to see their posted documents by category.</p>
   <form method="GET" class="d-flex" role="search" autocomplete="off" data-live-search="#facultyRecords">
     <div class="faculty-search">
       <input type="search" name="q" id="facultySearch" value="<?= h($q) ?>" class="form-control form-control-sm" placeholder="Search faculty name..."

@@ -1,6 +1,6 @@
 <?php
 /**
- * Markup helpers shared by the pages of the Faculty-201 File Management
+ * Markup helpers shared by the pages of the Faculty File Management
  * System (every role uses the same layout: includes/header.php /
  * footer.php). Styles: assets/css/admin.css (scoped to body.admin-ui);
  * behaviour: assets/js/admin.js.

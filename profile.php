@@ -286,7 +286,7 @@ if (!$u || !can_view_profile($pdo, $me, $target_id)) {
     exit;
 }
 
-$has_201 = in_array($u['role'], ['faculty', 'program_chair', 'dean'], true);   // accounts with a 201 file and a PDS
+$has_201 = in_array($u['role'], ['faculty', 'program_chair', 'dean'], true);   // accounts with files and a PDS
 $pds_data = $has_201 ? pds_load($pdo, $target_id)['data'] : [];
 $from_pds = fn(string $key): string => !in_array(trim((string)($pds_data[$key] ?? '')), ['', 'N/A'], true) ? trim($pds_data[$key]) : '';
 $employee_id = $u['employee_id'] ?: $from_pds('agency_employee_no');
@@ -297,7 +297,7 @@ $logins = recent_logins($pdo, $target_id);
 $last_login = $is_own ? ($logins[1] ?? null) : ($logins[0] ?? null);   // your latest login is this session
 $categories = document_categories();
 
-// Where the 201-file links go: your own pages, or the Admin's. Program Chairs
+// Where the My Files links go: your own pages, or the Admin's. Program Chairs
 // and Deans see the counts and the archive list, but can't open faculty files.
 $viewer_admin = $me['role'] === 'admin';
 $category_link = function (string $type) use ($is_own, $viewer_admin, $target_id): ?string {
@@ -324,7 +324,7 @@ include __DIR__ . '/includes/header.php';
 
 <?php if (!$is_own): ?>
   <a href="<?= BASE_URL ?>/<?= $viewer_admin ? 'admin/view_records.php' : 'faculty_directory.php' ?>" class="small text-muted d-inline-block mb-3">
-    <i class="fa-solid fa-arrow-left"></i> Back to <?= $viewer_admin ? '201-Files &rsaquo; By faculty' : 'Faculty Profiles' ?>
+    <i class="fa-solid fa-arrow-left"></i> Back to <?= $viewer_admin ? 'My Files &rsaquo; By faculty' : 'Faculty Profiles' ?>
   </a>
 <?php endif; ?>
 
@@ -360,7 +360,7 @@ include __DIR__ . '/includes/header.php';
       <?php if (!$is_own && ($viewer_admin || $has_201)): ?>
         <div class="d-flex flex-wrap gap-2 mt-3 justify-content-center justify-content-sm-start">
           <?php if ($viewer_admin && $has_201): ?>
-            <a href="<?= BASE_URL ?>/admin/faculty_documents.php?id=<?= $target_id ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-folder-open"></i> 201 File</a>
+            <a href="<?= BASE_URL ?>/admin/faculty_documents.php?id=<?= $target_id ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-folder-open"></i> Files</a>
           <?php endif; ?>
           <?php if ($has_201): ?>
             <a href="<?= h($archive_link) ?>" class="btn btn-sm btn-outline-brand"><i class="fa-solid fa-box-archive"></i> Archive (<?= (int)$summary['archived'] ?>)</a>
@@ -633,7 +633,7 @@ include __DIR__ . '/includes/header.php';
 
     <?php if ($summary): ?>
     <div class="card stat-card mb-4">
-      <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-folder-open text-brand"></i> 201 File Summary</div>
+      <div class="card-header bg-white fw-semibold"><i class="fa-solid fa-folder-open text-brand"></i> Files Summary</div>
       <div class="card-body">
         <div class="row g-2 text-center mb-3">
           <div class="col-6 col-md-3">

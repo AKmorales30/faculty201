@@ -1,8 +1,8 @@
 <?php
 /**
- * 201-Files -- a faculty member's (or Program Chair's / Dean's) own 201
- * file, in three tabs:
- *   Posted          every document in their 201 file, by category
+ * My Files -- a faculty member's (or Program Chair's / Dean's) own
+ * files, in three tabs:
+ *   Posted          every document in their files, by category
  *                   (includes/document_browser.php) -- uploads are posted
  *                   right away
  *   Flagged         their uploads the system flagged for the Admin to check
@@ -12,11 +12,11 @@
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
-require_role(['faculty', 'program_chair', 'dean']);   // own 201 file only
+require_role(['faculty', 'program_chair', 'dean']);   // own files only
 
 $me = current_user();
 $tab = in_array($_GET['tab'] ?? '', ['flagged', 'pending'], true) ? 'flagged' : 'posted';   // 'pending': old links
-$page_title = '201-Files';
+$page_title = 'My Files';
 $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
 $stmt->execute([$me['user_id']]);
 $faculty = $stmt->fetch();
@@ -35,8 +35,8 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <?= admin_intro($tab === 'posted'
-      ? 'Every document in your own 201 file, by category. Uploads are saved here right away. You can delete a wrong upload yourself within ' . (int)FACULTY_DELETE_WINDOW_HOURS . ' hours; documents nobody opens in ' . h(archive_period_label()) . ' move to Archived Docs.'
-      : 'Uploads the system flagged for the Admin to check — the type was detected with low confidence, no text could be read, or the details were entered manually. They are already in your 201-Files; the Admin may correct the type or details. You can still edit the details or delete a wrong upload within ' . (int)FACULTY_DELETE_WINDOW_HOURS . ' hours.',
+      ? 'Every document in My Files, by category. Uploads are saved here right away. You can delete a wrong upload yourself within ' . (int)FACULTY_DELETE_WINDOW_HOURS . ' hours; documents nobody opens in ' . h(archive_period_label()) . ' move to Archived Docs.'
+      : 'Uploads the system flagged for the Admin to check — the type was detected with low confidence, no text could be read, or the details were entered manually. They are already in My Files; the Admin may correct the type or details. You can still edit the details or delete a wrong upload within ' . (int)FACULTY_DELETE_WINDOW_HOURS . ' hours.',
     '<a href="' . BASE_URL . '/archive.php" class="btn btn-outline-brand"><i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archived Docs</a>'
   . '<a href="' . BASE_URL . '/faculty/submit_document.php" class="btn btn-brand"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> Upload Document</a>') ?>
 

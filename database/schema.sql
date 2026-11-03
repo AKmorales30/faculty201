@@ -1,5 +1,5 @@
 -- =====================================================================
--- AI-BASED FACULTY 201-FILE REPOSITORY SYSTEM
+-- AI-BASED FACULTY FILE REPOSITORY SYSTEM
 -- Database Schema
 -- College of Computing Studies, Universidad de Manila
 -- =====================================================================
@@ -79,7 +79,7 @@ CREATE TABLE submission_requests (
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------
--- DOCUMENTS: the official, filed 201-file repository record.
+-- DOCUMENTS: the official, filed faculty file record.
 -- Created at the moment a faculty member uploads a document.
 -- ---------------------------------------------------------------------
 CREATE TABLE documents (

@@ -1,12 +1,12 @@
 <?php
 /**
- * Faculty Home: their own 201 file only --
- *   - counts (201-Files, Flagged for checking, uploaded this month,
+ * Faculty Home: their own files only --
+ *   - counts (My Files, Flagged for checking, uploaded this month,
  *     archived); Flagged opens only that list in the pop-up
  *   - their reminders (AI-worded when AI is on) with Dismiss
  *     (includes/reminders_card.php)
  *   - their latest uploads (each opens its preview pop-up; View all opens the
- *     list pop-up) and the 201-file checklist (includes/checklist_card.php)
+ *     list pop-up) and the files checklist (includes/checklist_card.php)
  *   - their expired / expiring documents
  * Every query is limited to the signed-in faculty member's own records.
  */
@@ -72,14 +72,14 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="ui-stats">
   <a class="ui-stat" href="<?= BASE_URL ?>/faculty/my_documents.php">
-    <div class="ui-stat-top"><span class="ui-stat-label">201-Files</span><span class="ui-stat-icon tone-navy" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span></div>
+    <div class="ui-stat-top"><span class="ui-stat-label">My Files</span><span class="ui-stat-icon tone-navy" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span></div>
     <div class="ui-stat-value" data-count="<?= (int)($by_status['active'] ?? 0) ?>"><?= (int)($by_status['active'] ?? 0) ?></div>
-    <div class="ui-stat-sub">posted to your 201 file</div>
+    <div class="ui-stat-sub">posted to My Files</div>
   </a>
   <a class="ui-stat" href="<?= BASE_URL ?>/faculty/my_documents.php?tab=flagged" data-app-modal="<?= h(BASE_URL . '/api/modal.php?view=list&category=flagged') ?>" data-app-modal-title="Flagged for checking">
     <div class="ui-stat-top"><span class="ui-stat-label">Flagged for checking</span><span class="ui-stat-icon tone-gold" aria-hidden="true"><i class="fa-solid fa-flag"></i></span></div>
     <div class="ui-stat-value" data-count="<?= $flagged_count ?>"><?= $flagged_count ?></div>
-    <div class="ui-stat-sub">in your 201-Files; the Admin may correct them</div>
+    <div class="ui-stat-sub">in My Files; the Admin may correct them</div>
   </a>
   <div class="ui-stat" role="group" aria-label="Uploaded This Month">
     <div class="ui-stat-top"><span class="ui-stat-label">Uploaded This Month</span><span class="ui-stat-icon tone-teal" aria-hidden="true"><i class="fa-solid fa-upload"></i></span></div>

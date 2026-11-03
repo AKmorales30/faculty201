@@ -33,7 +33,7 @@ if (!array_key_exists($category, $categories)) { $category = ''; }
 if (!array_key_exists($status, $status_options)) { $status = ''; }
 if ($from !== '' && $to !== '' && $from > $to) { [$from, $to] = [$to, $from]; }
 
-// Faculty members who keep a 201 file (Chairs and Deans have one too)
+// Faculty members who keep files (Chairs and Deans do too)
 $faculty_list = $pdo->query(
     "SELECT user_id, full_name, role, is_active FROM users
      WHERE role IN ('faculty', 'program_chair', 'dean') ORDER BY full_name"
@@ -124,7 +124,7 @@ if (($_GET['export'] ?? '') === 'csv') {
     $cell = fn(string $v): string => preg_match('/^[=+\-@\t\r]/', $v) ? "'" . $v : $v;
 
     header('Content-Type: text/csv; charset=UTF-8');
-    header('Content-Disposition: attachment; filename="faculty201_report_' . date('Y-m-d') . '.csv"');
+    header('Content-Disposition: attachment; filename="faculty_files_report_' . date('Y-m-d') . '.csv"');
     header('Cache-Control: no-store');
     $out = fopen('php://output', 'w');
     fwrite($out, "\xEF\xBB\xBF");   // BOM so Excel reads UTF-8 names correctly
@@ -153,7 +153,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="report-print-header d-none d-print-block">
   <div class="fw-bold"><?= h(SYSTEM_NAME) ?></div>
   <div class="small">College of Computing Studies, Universidad de Manila</div>
-  <h4 class="fw-bold mt-2 mb-1">Faculty 201-File Documents Report</h4>
+  <h4 class="fw-bold mt-2 mb-1">Faculty Documents Report</h4>
   <div class="small">Filters: <?= $applied ? h(implode('; ', $applied)) : 'None (all documents)' ?></div>
   <div class="small">Generated: <?= h(date('F j, Y g:i A')) ?> by <?= h(current_user()['full_name']) ?></div>
 </div>

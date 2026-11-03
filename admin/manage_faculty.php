@@ -365,7 +365,7 @@ if ($action === 'toggle_active') {
 // it can't log in and its open sessions end (includes/auth.php) -- and
 // listed under Deleted accounts, where it can be restored for
 // DELETED_RETENTION_DAYS days. Then the daily cleanup deletes it for good
-// (purge_deleted_account(): the login is removed; its 201-file documents
+// (purge_deleted_account(): the login is removed; its faculty documents
 // move to Archived Docs under the former faculty member's name). Needs a
 // reason and the typed confirmation (DELETE or the person's name). The
 // Admin can't delete their own account or the last Admin account.
@@ -388,7 +388,7 @@ if ($action === 'delete_account') {
             ->execute([(int)$me['user_id'], $reason, (int)$target['user_id']]);
         $until = deleted_purge_at(date('Y-m-d H:i:s'))->format('F j, Y');
         log_my_activity($pdo, 'ACCOUNT_DELETE', 'Deleted ' . account_log_name($target) . ' -- Reason: ' . $reason
-            . ". Signed out and can't log in; restorable until {$until}, then deleted permanently (their 201-file documents move to Archived Docs).");
+            . ". Signed out and can't log in; restorable until {$until}, then deleted permanently (their faculty documents move to Archived Docs).");
         $_SESSION['flash_success'] = "{$target['full_name']}'s account was deleted and signed out. You can restore it under Deleted accounts until {$until}.";
     } else {
         $_SESSION['flash_error'] = $error;
@@ -477,7 +477,7 @@ foreach (active_login_locks($pdo) as $lock) {
 include __DIR__ . '/../includes/header.php';
 ?>
 
-<?= admin_intro('Accounts are created by the Admin. <strong>Deactivate</strong> someone to remove them for a while: they can\'t log in, and everything stays. <strong>Delete</strong> only accounts created by mistake or of people who have left: a deleted account can be restored for ' . (int)DELETED_RETENTION_DAYS . ' days, then it is removed for good and its 201 files move to Archived Docs. Pausing a faculty member\'s employment only stops the FTA / IPCR reminders.',
+<?= admin_intro('Accounts are created by the Admin. <strong>Deactivate</strong> someone to remove them for a while: they can\'t log in, and everything stays. <strong>Delete</strong> only accounts created by mistake or of people who have left: a deleted account can be restored for ' . (int)DELETED_RETENTION_DAYS . ' days, then it is removed for good and its documents move to Archived Docs. Pausing a faculty member\'s employment only stops the FTA / IPCR reminders.',
     '<a href="' . BASE_URL . '/admin/academic_ranks.php" class="btn btn-outline-brand"><i class="fa-solid fa-list-ol" aria-hidden="true"></i> Academic Ranks</a>'
   . '<button type="button" class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#createModal"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Add account</button>') ?>
 
@@ -511,7 +511,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
 <?php if ($view === 'deleted'): ?>
 <section class="ui-card" aria-label="Deleted accounts">
   <div class="ui-toolbar">
-    <span class="ui-filter-note">Deleted accounts can't log in. Restore one within <?= (int)DELETED_RETENTION_DAYS ?> days of deleting it; after that it is removed for good and its 201-file documents move to Archived Docs under the person's name.</span>
+    <span class="ui-filter-note">Deleted accounts can't log in. Restore one within <?= (int)DELETED_RETENTION_DAYS ?> days of deleting it; after that it is removed for good and its faculty documents move to Archived Docs under the person's name.</span>
     <span class="ui-count"><?= count($deleted) ?> account<?= count($deleted) === 1 ? '' : 's' ?></span>
   </div>
   <div class="table-responsive">
@@ -629,7 +629,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
               <td><div class="ui-actions">
                 <?php
                   // The profile pop-up (api/modal.php?view=person) for faculty, Chairs and Deans; an Admin
-                  // account has no 201 file, so its full page. Ctrl / middle click still opens the full page.
+                  // account has no files of its own, so its full page. Ctrl / middle click still opens the full page.
                   $profile_modal = $u['role'] !== 'admin'
                       ? 'data-app-modal="' . h(BASE_URL . '/api/modal.php?view=person&id=' . (int)$u['user_id']) . '" data-app-modal-size="lg" data-app-modal-title="Faculty profile"'
                       : '';
@@ -683,7 +683,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
                   </button>
                   <?php if ($no_2fa_reset): ?></span><?php endif; ?>
                 </form>
-                <form method="POST" class="d-inline" data-confirm="<?= h($u['is_active'] ? $u['full_name'] . ' won\'t be able to log in until the account is activated again. Their 201 file and documents stay in the system.' : $u['full_name'] . ' will be able to log in again.') ?>"
+                <form method="POST" class="d-inline" data-confirm="<?= h($u['is_active'] ? $u['full_name'] . ' won\'t be able to log in until the account is activated again. Their files and documents stay in the system.' : $u['full_name'] . ' will be able to log in again.') ?>"
                       data-confirm-title="<?= $u['is_active'] ? 'Deactivate account?' : 'Activate account?' ?>" data-confirm-ok="<?= $u['is_active'] ? 'Deactivate' : 'Activate' ?>" data-confirm-danger="<?= $u['is_active'] ? '1' : '' ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="toggle_active">
@@ -971,7 +971,7 @@ document.getElementById('copyTempPassword').addEventListener('click', function (
         <ul class="small ps-3">
           <li>They are signed out and can't log in from now on.</li>
           <li>The account moves to <strong>Deleted accounts</strong>, where you can restore it within <?= (int)DELETED_RETENTION_DAYS ?> days.</li>
-          <li>After <?= (int)DELETED_RETENTION_DAYS ?> days it is deleted for good. Their 201-file documents are kept as official records and move to <strong>Archived Docs</strong> under their name.</li>
+          <li>After <?= (int)DELETED_RETENTION_DAYS ?> days it is deleted for good. Their faculty documents are kept as official records and move to <strong>Archived Docs</strong> under their name.</li>
         </ul>
         <div class="alert alert-warning small py-2"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>
           Only removing someone for a while? Use <strong>Deactivate</strong> instead. Delete only accounts created by mistake or of people who have left.</div>

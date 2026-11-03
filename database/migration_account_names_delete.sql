@@ -16,7 +16,7 @@
 -- the Admin can restore it for DELETED_RETENTION_DAYS days. After that the
 -- daily cleanup deletes it permanently: the login is removed for good
 -- (email released, password cleared, picture and contact number removed,
--- notifications and reminders deleted) and its 201-file documents move to
+-- notifications and reminders deleted) and its faculty documents move to
 -- Archived Docs under the former faculty member's name. The row itself is
 -- kept (purged_at), because documents, the PDS and the activity log refer
 -- to it -- removing it would delete those official records with it.

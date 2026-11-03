@@ -1,7 +1,7 @@
 <?php
 /**
- * "My 201 file checklist" card on the Faculty, Program Chair and Dean Home:
- * what their own 201 file should contain now (faculty_201_checklist()),
+ * "My Files checklist" card on the Faculty, Program Chair and Dean Home:
+ * what their own files should contain now (faculty_201_checklist()),
  * with a progress bar and an Upload / Update button for each missing item.
  * Expects $checklist.
  */
@@ -12,7 +12,7 @@ $check_pct = $check_total ? (int)round($check_done / $check_total * 100) : 0;
 <section class="ui-card" aria-labelledby="checkTitle" data-animate>
   <div class="ui-card-head">
     <span class="ui-head-icon tone-navy" aria-hidden="true"><i class="fa-solid fa-list-check"></i></span>
-    <h2 class="ui-card-title" id="checkTitle">My 201 file checklist</h2>
+    <h2 class="ui-card-title" id="checkTitle">My Files checklist</h2>
     <span class="ui-tile-dot" style="--dot: <?= $check_done === $check_total ? 'var(--ad-teal)' : 'var(--ad-gold)' ?>"><?= $check_done === $check_total ? 'Complete' : ($check_total - $check_done) . ' to do' ?></span>
   </div>
   <div class="ui-check-progress">

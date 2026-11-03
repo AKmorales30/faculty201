@@ -44,13 +44,13 @@ $reminder_status = reminder_check_status($pdo, (int)current_user()['user_id']);
     <div class="ui-rem-row">
       <?php if ($reminder_status['checked_at'] === null): ?>
         <span class="ui-head-icon tone-navy" aria-hidden="true"><i class="fa-solid fa-clock"></i></span>
-        <div class="ui-rem-text"><div class="fw-bold">No reminders yet</div><div class="ui-cell-sub">Your 201 file is checked once a day; reminders appear here.</div></div>
+        <div class="ui-rem-text"><div class="fw-bold">No reminders yet</div><div class="ui-cell-sub">Your files are checked once a day; reminders appear here.</div></div>
       <?php elseif ($reminder_status['dismissed']): ?>
         <span class="ui-head-icon tone-teal" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
         <div class="ui-rem-text"><div class="fw-bold">No new reminders</div><div class="ui-cell-sub">Hidden reminders come back in <?= (int)REMINDER_REPEAT_DAYS ?> days if still pending. Checked <?= h(time_ago($reminder_status['checked_at'])) ?>.</div></div>
       <?php else: ?>
         <span class="ui-head-icon tone-teal" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></span>
-        <div class="ui-rem-text"><div class="fw-bold">You're all set</div><div class="ui-cell-sub">Your 201 file is up to date. Checked <?= h(time_ago($reminder_status['checked_at'])) ?>.</div></div>
+        <div class="ui-rem-text"><div class="fw-bold">You're all set</div><div class="ui-cell-sub">Your files are up to date. Checked <?= h(time_ago($reminder_status['checked_at'])) ?>.</div></div>
       <?php endif; ?>
     </div>
   <?php endif; ?>

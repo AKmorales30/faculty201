@@ -1,5 +1,5 @@
 /* =====================================================================
-   New look -- Faculty-201 File Management System
+   New look -- Faculty File Management System
    Loaded on every page after login (includes/header.php), after
    assets/css/style.css; every rule is scoped to body.admin-ui. Bootstrap stays underneath: its
    components are restyled here, so existing page markup keeps working.
@@ -834,7 +834,7 @@ button.ui-breakdown-row:hover { background: #F6F7F9; }
   .ui-people { grid-template-columns: minmax(0, 1fr); }
   .ui-greet-sub { font-size: 14px; }
   .pds-update-flags, .pds-update-undo { margin-left: 0; }
-  /* 201-Files folder tiles two per row: smaller icon so names fit; long cells keep a readable width (the table scrolls) */
+  /* My Files folder tiles two per row: smaller icon so names fit; long cells keep a readable width (the table scrolls) */
   .admin-ui .folder-card .card-body { padding: 12px; gap: 10px !important; }
   .admin-ui .folder-card .folder-icon { width: 38px; height: 38px; min-width: 38px; border-radius: 10px; font-size: 16px; flex: none; }
   .admin-ui .folder-card .folder-title { font-size: 14px; hyphens: auto; }
@@ -1012,7 +1012,7 @@ button.an-attention-row:focus-visible { outline: none; box-shadow: var(--ad-ring
   .ui-page-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 }
 
-/* File cells in the document tables (201-Files): a readable width, however long the file name; the
+/* File cells in the document tables (My Files): a readable width, however long the file name; the
    name on one line, cut with "...", the whole stored name on hover. Titles still wrap between words. */
 .admin-ui .table td.doc-file-cell { min-width: 200px; max-width: 340px; overflow-wrap: anywhere; }
 .doc-file-name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

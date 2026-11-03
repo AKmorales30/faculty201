@@ -1,7 +1,7 @@
 <?php
 /**
- * Archive of one faculty member's 201 file (Archived Docs): documents moved
- * out of 201-Files, automatically (not opened in ARCHIVE_UNVIEWED_YEARS
+ * Archive of one faculty member's files (Archived Docs): documents moved
+ * out of My Files, automatically (not opened in ARCHIVE_UNVIEWED_YEARS
  * years) or by the Admin. Nothing is deleted -- the file and record are kept.
  * Opening an archived document doesn't restore it; the Admin does that.
  *
@@ -20,7 +20,7 @@ $is_admin = $me['role'] === 'admin';
 $target_id = isset($_GET['id']) ? (int)$_GET['id'] : (int)$me['user_id'];
 $is_own = $target_id === (int)$me['user_id'];
 
-if ($is_own && $is_admin) {   // the Admin has no 201 file: their page is the all-faculty one
+if ($is_own && $is_admin) {   // the Admin keeps no files of their own: their page is the all-faculty one
     header('Location: ' . BASE_URL . '/admin/archived_documents.php');
     exit;
 }
@@ -70,7 +70,7 @@ if ($is_admin) { include_once __DIR__ . '/includes/document_actions.php'; }   //
   <a href="<?= BASE_URL ?>/profile.php?id=<?= $target_id ?>" class="ui-back"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to <?= h($owner['full_name']) ?>'s profile</a>
 <?php endif; ?>
 <?= admin_intro(($is_own
-      ? 'Your documents that haven\'t been opened in ' . h(archive_period_label()) . ', or that the Admin archived. They are kept, but no longer appear in 201-Files, searches or expiration alerts. You can still view and download them; ask the Admin if one should be restored.'
+      ? 'Your documents that haven\'t been opened in ' . h(archive_period_label()) . ', or that the Admin archived. They are kept, but no longer appear in My Files, searches or expiration alerts. You can still view and download them; ask the Admin if one should be restored.'
       : 'Documents of <strong>' . h($owner['full_name']) . '</strong> that haven\'t been opened in ' . h(archive_period_label()) . ', or that the Admin archived.'
         . ($is_admin ? ' Opening one does not restore it; restore it here, with a reason.' : ' This list shows the document details only; the files can be opened by their owner and the Admin.'))) ?>
 
